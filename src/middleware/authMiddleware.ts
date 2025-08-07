@@ -1,11 +1,10 @@
-import { Request, Response, NextFunction } from 'express';
-import { firebaseAuth, firestore } from '../config/firebase';
+import { Request, Response, NextFunction } from "express";
+import { firebaseAuth } from "../config/firebase";
 
 export interface AuthenticatedRequest extends Request {
   user: {
     uid: string;
     email?: string;
-    role: string;
   };
 }
 
@@ -17,32 +16,39 @@ export const authMiddleware = async (
   try {
     const authHeader = req.headers.authorization;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Token no proporcionado' });
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({
+        error: "Token de autorización requerido",
+      });
     }
 
-    const idToken = authHeader.split(' ')[1];
-    const decodedToken = await firebaseAuth.verifyIdToken(idToken);
-    const uid = decodedToken.uid;
+    const token = authHeader.split(" ")[1];
 
-    // Buscar datos del usuario en Firestore
-    const userDoc = await firestore.collection('users').doc(uid).get();
-
-    if (!userDoc.exists) {
-      return res.status(403).json({ error: 'Usuario no registrado en Firestore' });
-    }
-
-    const userData = userDoc.data();
+    const decodedToken = await firebaseAuth.verifyIdToken(token);
 
     (req as AuthenticatedRequest).user = {
-      uid,
+      uid: decodedToken.uid,
       email: decodedToken.email,
-      role: userData?.role || 'alumno',
     };
 
     next();
-  } catch (error) {
-    console.error('authMiddleware error:', error);
-    return res.status(401).json({ error: 'Token inválido' });
+  } catch (error: any) {
+    console.error("Error en autenticación:", error);
+
+    if (error.code === "auth/id-token-expired") {
+      return res.status(401).json({
+        error: "Token expirado",
+      });
+    }
+
+    if (error.code === "auth/invalid-id-token") {
+      return res.status(401).json({
+        error: "Token inválido",
+      });
+    }
+
+    return res.status(401).json({
+      error: "No autorizado",
+    });
   }
 };
