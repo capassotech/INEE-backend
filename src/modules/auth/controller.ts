@@ -60,7 +60,7 @@ export const registerUser = async (req: Request, res: Response) => {
         apellido,
         role: "alumno",
       },
-      customToken, // Para que el cliente pueda autenticarse inmediatamente
+      customToken,
     });
   } catch (error: any) {
     console.error("Error en registro:", error);
@@ -94,21 +94,15 @@ export const registerUser = async (req: Request, res: Response) => {
 export const loginUser = async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
+    const loginAttemptInfo = (req as any).loginAttempt;
 
-    if (!email || !password) {
-      return res.status(400).json({
-        error: "Email y contraseña son requeridos",
-      });
-    }
+    // Log del intento de login para monitoreo
+    console.log(
+      `Intento de login: ${email} desde IP: ${
+        loginAttemptInfo?.clientIP || "unknown"
+      }`
+    );
 
-    // Validar formato de email
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return res.status(400).json({
-        error: "Formato de email inválido",
-      });
-    }
-
-    // Buscar usuario por email para verificar que existe
     try {
       const userRecord = await firebaseAuth.getUserByEmail(email);
 
@@ -118,23 +112,40 @@ export const loginUser = async (req: Request, res: Response) => {
         .get();
 
       if (!userDoc.exists) {
-        return res.status(404).json({
-          error: "Usuario no encontrado",
+        return res.status(401).json({
+          error: "Credenciales inválidas",
         });
       }
 
       const userData = userDoc.data();
+
+      // Verificar que el usuario esté activo
       if (!userData?.activo) {
         return res.status(403).json({
           error: "Usuario desactivado. Contacte al administrador",
         });
       }
 
+
+      await firestore
+        .collection("users")
+        .doc(userRecord.uid)
+        .update({
+          ultimoLogin: new Date(),
+          loginCount: (userData.loginCount || 0) + 1,
+        });
+
       // Generar token personalizado
-      const customToken = await firebaseAuth.createCustomToken(userRecord.uid);
+      const customToken = await firebaseAuth.createCustomToken(userRecord.uid, {
+        role: userData.role,
+        email: userData.email,
+      });
+
+      // Log de login exitoso
+      console.log(`✅ Login exitoso: ${email} (${userRecord.uid})`);
 
       return res.json({
-        message: "Credenciales válidas",
+        message: "Login exitoso",
         customToken,
         user: {
           uid: userRecord.uid,
@@ -142,18 +153,126 @@ export const loginUser = async (req: Request, res: Response) => {
           nombre: userData.nombre,
           apellido: userData.apellido,
           role: userData.role,
+          ultimoLogin: new Date(),
         },
       });
-    } catch (error: any) {
-      if (error.code === "auth/user-not-found") {
-        return res.status(404).json({
-          error: "Usuario no encontrado",
+    } catch (authError: any) {
+      // Log del error para debugging
+      console.log(
+        `❌ Login fallido: ${email} - ${authError.code || "unknown_error"}`
+      );
+
+      if (authError.code === "auth/user-not-found") {
+        return res.status(401).json({
+          error: "Credenciales inválidas",
         });
       }
-      throw error;
+      throw authError;
     }
   } catch (error: any) {
     console.error("Error en login:", error);
+
+    return res.status(500).json({
+      error: "Error interno del servidor",
+    });
+  }
+};
+
+export const verifyPassword = async (email: string, password: string) => {
+  try {
+    const response = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${process.env.FIREBASE_API_KEY}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          password,
+          returnSecureToken: true,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      return { success: false, error: errorData.error };
+    }
+
+    const data = await response.json();
+    return { success: true, idToken: data.idToken, localId: data.localId };
+  } catch (error) {
+    return { success: false, error: "Error verificando credenciales" };
+  }
+};
+
+// Versión mejorada del login con verificación de contraseña
+export const loginUserSecure = async (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        error: "Email y contraseña son requeridos",
+      });
+    }
+
+    // Verificar credenciales usando Firebase Auth REST API
+    const passwordVerification = await verifyPassword(email, password);
+
+    if (!passwordVerification.success) {
+      return res.status(401).json({
+        error: "Credenciales inválidas",
+      });
+    }
+
+    // Obtener información del usuario
+    const userRecord = await firebaseAuth.getUserByEmail(email);
+    const userDoc = await firestore
+      .collection("users")
+      .doc(userRecord.uid)
+      .get();
+
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        error: "Usuario no encontrado",
+      });
+    }
+
+    const userData = userDoc.data();
+
+    if (!userData?.activo) {
+      return res.status(403).json({
+        error: "Usuario desactivado. Contacte al administrador",
+      });
+    }
+
+    // Actualizar última fecha de login
+    await firestore.collection("users").doc(userRecord.uid).update({
+      ultimoLogin: new Date(),
+    });
+
+    // Generar token personalizado
+    const customToken = await firebaseAuth.createCustomToken(userRecord.uid, {
+      role: userData.role,
+      email: userData.email,
+    });
+
+    return res.json({
+      message: "Login exitoso",
+      customToken,
+      user: {
+        uid: userRecord.uid,
+        email: userRecord.email,
+        nombre: userData.nombre,
+        apellido: userData.apellido,
+        role: userData.role,
+        ultimoLogin: new Date(),
+      },
+    });
+  } catch (error: any) {
+    console.error("Error en login seguro:", error);
     return res.status(500).json({
       error: "Error interno del servidor",
     });
@@ -185,11 +304,12 @@ export const getUserProfile = async (
     return res.json({
       uid,
       ...userData,
-      // No devolver información sensible
+      // Convertir timestamps de Firestore a fechas JavaScript
       fechaRegistro:
         userData.fechaRegistro?.toDate?.() || userData.fechaRegistro,
       fechaActualizacion:
         userData.fechaActualizacion?.toDate?.() || userData.fechaActualizacion,
+      ultimoLogin: userData.ultimoLogin?.toDate?.() || userData.ultimoLogin,
     });
   } catch (error) {
     console.error("Error obteniendo perfil:", error);
@@ -279,6 +399,7 @@ export const deleteUser = async (req: AuthenticatedRequest, res: Response) => {
     await firestore.collection("users").doc(uid).update({
       activo: false,
       fechaEliminacion: new Date(),
+      fechaActualizacion: new Date(),
     });
 
     return res.json({
@@ -286,6 +407,49 @@ export const deleteUser = async (req: AuthenticatedRequest, res: Response) => {
     });
   } catch (error) {
     console.error("Error eliminando usuario:", error);
+    return res.status(500).json({
+      error: "Error interno del servidor",
+    });
+  }
+};
+
+// Función para refrescar token
+export const refreshToken = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const uid = req.user.uid;
+
+    // Verificar que el usuario sigue activo
+    const userDoc = await firestore.collection("users").doc(uid).get();
+
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        error: "Usuario no encontrado",
+      });
+    }
+
+    const userData = userDoc.data();
+
+    if (!userData?.activo) {
+      return res.status(403).json({
+        error: "Usuario desactivado",
+      });
+    }
+
+    // Generar nuevo token
+    const customToken = await firebaseAuth.createCustomToken(uid, {
+      role: userData.role,
+      email: userData.email,
+    });
+
+    return res.json({
+      message: "Token renovado exitosamente",
+      customToken,
+    });
+  } catch (error) {
+    console.error("Error renovando token:", error);
     return res.status(500).json({
       error: "Error interno del servidor",
     });
