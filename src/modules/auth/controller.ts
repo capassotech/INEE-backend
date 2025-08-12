@@ -137,7 +137,6 @@ export const loginUser = async (req: Request, res: Response) => {
         idToken: authResult.idToken ? "[PRESENTE]" : "[AUSENTE]",
         refreshToken: authResult.refreshToken ? "[PRESENTE]" : "[AUSENTE]",
       });
-
       if (!response.ok) {
         console.error(`Error de Firebase Auth:`, authResult.error);
 
@@ -175,7 +174,6 @@ export const loginUser = async (req: Request, res: Response) => {
               : undefined,
         });
       }
-
       // Si llegamos aquí, las credenciales son válidas
       const uid = authResult.localId;
       console.log(`Login exitoso para UID: ${uid}`);
@@ -205,7 +203,6 @@ export const loginUser = async (req: Request, res: Response) => {
       console.log(`Token personalizado generado para UID: ${uid}`);
 
       return res.json({
-        message: "Login exitoso",
         message: "Login exitoso",
         customToken,
         user: {
