@@ -1,7 +1,7 @@
-import { Request, Response } from "express";
+import type { Request, Response } from "express";
 import { firebaseAuth, firestore } from "../../config/firebase";
-import { UserRegistrationData, UserProfile } from "../../types/user";
-import { AuthenticatedRequest } from "../../middleware/authMiddleware";
+import type { UserRegistrationData, UserProfile } from "../../types/user";
+import type { AuthenticatedRequest } from "../../middleware/authMiddleware";
 
 export const registerUser = async (req: Request, res: Response) => {
   try {
@@ -108,54 +108,137 @@ export const loginUser = async (req: Request, res: Response) => {
       });
     }
 
-    // Buscar usuario por email para verificar que existe
-    try {
-      const userRecord = await firebaseAuth.getUserByEmail(email);
+    const firebaseApiKey = "AIzaSyAZDT5DM68-9qYH23HdKAsOTaV_qCAPEiw";
 
-      const userDoc = await firestore
-        .collection("users")
-        .doc(userRecord.uid)
-        .get();
+    console.log(`Intentando login para email: ${email}`);
+
+    try {
+      const response = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${firebaseApiKey}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email,
+            password,
+            returnSecureToken: true,
+          }),
+        }
+      );
+
+      const authResult = await response.json();
+
+      console.log(`Response status: ${response.status}`);
+      console.log(`Auth result:`, {
+        ...authResult,
+        // No loggear tokens por seguridad
+        idToken: authResult.idToken ? "[PRESENTE]" : "[AUSENTE]",
+        refreshToken: authResult.refreshToken ? "[PRESENTE]" : "[AUSENTE]",
+      });
+
+      if (!response.ok) {
+        console.error(`Error de Firebase Auth:`, authResult.error);
+
+        // Manejar errores específicos de Firebase Auth
+        if (authResult.error?.message === "EMAIL_NOT_FOUND") {
+          console.log(`Usuario no encontrado: ${email}`);
+          return res.status(401).json({
+            error: "Credenciales inválidas",
+          });
+        }
+        if (authResult.error?.message === "INVALID_PASSWORD") {
+          console.log(`Contraseña incorrecta para: ${email}`);
+          return res.status(401).json({
+            error: "Credenciales inválidas",
+          });
+        }
+        if (authResult.error?.message === "USER_DISABLED") {
+          console.log(`Usuario deshabilitado: ${email}`);
+          return res.status(403).json({
+            error: "Usuario deshabilitado",
+          });
+        }
+        if (authResult.error?.message === "TOO_MANY_ATTEMPTS_TRY_LATER") {
+          console.log(`Demasiados intentos para: ${email}`);
+          return res.status(429).json({
+            error: "Demasiados intentos fallidos. Intente más tarde",
+          });
+        }
+
+        return res.status(401).json({
+          error: "Credenciales inválidas",
+          details:
+            process.env.NODE_ENV === "development"
+              ? authResult.error?.message
+              : undefined,
+        });
+      }
+
+      // Si llegamos aquí, las credenciales son válidas
+      const uid = authResult.localId;
+      console.log(`Login exitoso para UID: ${uid}`);
+
+      // Verificar datos adicionales en Firestore
+      const userDoc = await firestore.collection("users").doc(uid).get();
 
       if (!userDoc.exists) {
+        console.error(`Usuario ${uid} no encontrado en Firestore`);
         return res.status(404).json({
-          error: "Usuario no encontrado",
+          error: "Usuario no encontrado en el sistema",
         });
       }
 
       const userData = userDoc.data();
       if (!userData?.activo) {
+        console.log(`Usuario ${uid} está desactivado`);
         return res.status(403).json({
           error: "Usuario desactivado. Contacte al administrador",
         });
       }
 
-      // Generar token personalizado
-      const customToken = await firebaseAuth.createCustomToken(userRecord.uid);
+      // Generar token personalizado para el sistema
+      const customToken = await firebaseAuth.createCustomToken(uid);
+      console.log(`Token personalizado generado para UID: ${uid}`);
 
       return res.json({
-        message: "Credenciales válidas",
+        message: "Login exitoso",
         customToken,
         user: {
-          uid: userRecord.uid,
-          email: userRecord.email,
+          uid,
+          email: userData.email,
           nombre: userData.nombre,
           apellido: userData.apellido,
           role: userData.role,
         },
       });
-    } catch (error: any) {
-      if (error.code === "auth/user-not-found") {
-        return res.status(404).json({
-          error: "Usuario no encontrado",
+    } catch (fetchError: any) {
+      console.error("Error en la petición a Firebase Auth:", fetchError);
+
+      if (
+        fetchError.name === "TypeError" &&
+        fetchError.message.includes("fetch")
+      ) {
+        return res.status(503).json({
+          error: "Error de conectividad con el servicio de autenticación",
         });
       }
-      throw error;
+
+      return res.status(401).json({
+        error: "Error validando credenciales",
+        details:
+          process.env.NODE_ENV === "development"
+            ? fetchError.message
+            : undefined,
+      });
     }
   } catch (error: any) {
-    console.error("Error en login:", error);
+    console.error("Error general en login:", error);
     return res.status(500).json({
       error: "Error interno del servidor",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
