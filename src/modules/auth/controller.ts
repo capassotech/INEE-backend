@@ -13,6 +13,7 @@ export const registerUser = async (req: Request, res: Response) => {
       dni,
       aceptaTerminos,
     }: UserRegistrationData = req.body;
+    
 
     // Verificar si el DNI ya existe
     const existingDniQuery = await firestore
