@@ -19,10 +19,11 @@ const router = Router();
 router.post("/register", validateRegistration, registerUser);
 router.post("/login", validateLogin, loginUser);
 
-// Rutas protegidas
+// Rutas protegidas (requieren autenticación)
 router.get("/me", authMiddleware, (req: Request, res: Response) =>
   getUserProfile(req as AuthenticatedRequest, res)
 );
+
 import { Request, Response } from "express";
 import { AuthenticatedRequest } from "../../middleware/authMiddleware";
 
