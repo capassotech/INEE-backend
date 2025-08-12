@@ -33,12 +33,18 @@ router.post(
   loginUser
 );
 
+// Rutas protegidas (requieren autenticación)
+router.get("/me", authMiddleware, (req: Request, res: Response) =>
+  getUserProfile(req as AuthenticatedRequest, res)
+);
+
+import { Request, Response } from "express";
+import { AuthenticatedRequest } from "../../middleware/authMiddleware";
+
 router.get("/login-stats", (req: Request, res: Response) => {
-  // En producción, agregar middleware de admin aquí
   res.json(getLoginStats());
 });
 
-// ============= RUTAS PROTEGIDAS =============
 router.get("/me", authMiddleware, (req: Request, res: Response) =>
   getUserProfile(req as AuthenticatedRequest, res)
 );
