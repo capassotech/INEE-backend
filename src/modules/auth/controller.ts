@@ -60,7 +60,7 @@ export const registerUser = async (req: Request, res: Response) => {
         apellido,
         role: "alumno",
       },
-      customToken, // Para que el cliente pueda autenticarse inmediatamente
+      customToken,
     });
   } catch (error: any) {
     console.error("Error en registro:", error);
@@ -191,6 +191,8 @@ export const loginUser = async (req: Request, res: Response) => {
       }
 
       const userData = userDoc.data();
+
+      // Verificar que el usuario esté activo
       if (!userData?.activo) {
         console.log(`Usuario ${uid} está desactivado`);
         return res.status(403).json({
@@ -204,6 +206,7 @@ export const loginUser = async (req: Request, res: Response) => {
 
       return res.json({
         message: "Login exitoso",
+        message: "Login exitoso",
         customToken,
         user: {
           uid,
@@ -211,6 +214,7 @@ export const loginUser = async (req: Request, res: Response) => {
           nombre: userData.nombre,
           apellido: userData.apellido,
           role: userData.role,
+          ultimoLogin: new Date(),
         },
       });
     } catch (fetchError: any) {
@@ -268,11 +272,12 @@ export const getUserProfile = async (
     return res.json({
       uid,
       ...userData,
-      // No devolver información sensible
+      // Convertir timestamps de Firestore a fechas JavaScript
       fechaRegistro:
         userData.fechaRegistro?.toDate?.() || userData.fechaRegistro,
       fechaActualizacion:
         userData.fechaActualizacion?.toDate?.() || userData.fechaActualizacion,
+      ultimoLogin: userData.ultimoLogin?.toDate?.() || userData.ultimoLogin,
     });
   } catch (error) {
     console.error("Error obteniendo perfil:", error);
@@ -362,6 +367,7 @@ export const deleteUser = async (req: AuthenticatedRequest, res: Response) => {
     await firestore.collection("users").doc(uid).update({
       activo: false,
       fechaEliminacion: new Date(),
+      fechaActualizacion: new Date(),
     });
 
     return res.json({
@@ -369,6 +375,49 @@ export const deleteUser = async (req: AuthenticatedRequest, res: Response) => {
     });
   } catch (error) {
     console.error("Error eliminando usuario:", error);
+    return res.status(500).json({
+      error: "Error interno del servidor",
+    });
+  }
+};
+
+// Función para refrescar token
+export const refreshToken = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const uid = req.user.uid;
+
+    // Verificar que el usuario sigue activo
+    const userDoc = await firestore.collection("users").doc(uid).get();
+
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        error: "Usuario no encontrado",
+      });
+    }
+
+    const userData = userDoc.data();
+
+    if (!userData?.activo) {
+      return res.status(403).json({
+        error: "Usuario desactivado",
+      });
+    }
+
+    // Generar nuevo token
+    const customToken = await firebaseAuth.createCustomToken(uid, {
+      role: userData.role,
+      email: userData.email,
+    });
+
+    return res.json({
+      message: "Token renovado exitosamente",
+      customToken,
+    });
+  } catch (error) {
+    console.error("Error renovando token:", error);
     return res.status(500).json({
       error: "Error interno del servidor",
     });
