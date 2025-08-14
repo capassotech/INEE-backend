@@ -13,7 +13,6 @@ export const registerUser = async (req: Request, res: Response) => {
       dni,
       aceptaTerminos,
     }: UserRegistrationData = req.body;
-    
 
     // Verificar si el DNI ya existe
     const existingDniQuery = await firestore
@@ -418,6 +417,174 @@ export const refreshToken = async (
     console.error("Error renovando token:", error);
     return res.status(500).json({
       error: "Error interno del servidor",
+    });
+  }
+};
+export const checkEmailExists = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        error: "Email es requerido",
+      });
+    }
+
+    // Validar formato de email
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({
+        error: "Formato de email inválido",
+      });
+    }
+
+    console.log(`Verificando si existe email: ${email}`);
+
+    try {
+      // Usar Firebase Admin para verificar si el usuario existe
+      const userRecord = await firebaseAuth.getUserByEmail(email);
+
+      console.log(`Email ${email} encontrado con UID: ${userRecord.uid}`);
+
+      // Verificar datos adicionales en Firestore
+      const userDoc = await firestore
+        .collection("users")
+        .doc(userRecord.uid)
+        .get();
+
+      if (!userDoc.exists) {
+        console.log(`Usuario ${userRecord.uid} no encontrado en Firestore`);
+        return res.json({
+          exists: false,
+          message: "Usuario existe en Auth pero no en Firestore",
+        });
+      }
+
+      const userData = userDoc.data();
+
+      // Verificar que el usuario esté activo
+      if (!userData?.activo) {
+        console.log(`Usuario ${userRecord.uid} está desactivado`);
+        return res.status(403).json({
+          error: "Usuario desactivado. Contacte al administrador",
+        });
+      }
+
+      return res.json({
+        exists: true,
+        user: {
+          uid: userRecord.uid,
+          email: userData.email,
+          nombre: userData.nombre,
+          apellido: userData.apellido,
+          dni: userData.dni,
+          role: userData.role,
+        },
+      });
+    } catch (firebaseError: any) {
+      if (firebaseError.code === "auth/user-not-found") {
+        console.log(`Email ${email} no encontrado`);
+        return res.json({
+          exists: false,
+          message: "Usuario no encontrado",
+        });
+      }
+
+      console.error("Error verificando email:", firebaseError);
+      return res.status(500).json({
+        error: "Error verificando email",
+        details:
+          process.env.NODE_ENV === "development"
+            ? firebaseError.message
+            : undefined,
+      });
+    }
+  } catch (error: any) {
+    console.error("Error general en checkEmailExists:", error);
+    return res.status(500).json({
+      error: "Error interno del servidor",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+};
+export const updateUserAdditionalData = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const uid = req.user.uid;
+    const { telefono, provincia, tipoContribuyente, metodoPago, direccion } =
+      req.body;
+
+    // Validaciones opcionales
+    if (telefono && typeof telefono !== "string") {
+      return res.status(400).json({
+        error: "Formato de teléfono inválido",
+      });
+    }
+
+    if (provincia && typeof provincia !== "string") {
+      return res.status(400).json({
+        error: "Provincia inválida",
+      });
+    }
+
+    // Verificar que el usuario existe
+    const userDoc = await firestore.collection("users").doc(uid).get();
+
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        error: "Usuario no encontrado",
+      });
+    }
+
+    const userData = userDoc.data();
+
+    if (!userData?.activo) {
+      return res.status(403).json({
+        error: "Usuario desactivado",
+      });
+    }
+
+    // Preparar datos para actualizar
+    const updateData: any = {
+      fechaActualizacion: new Date(),
+    };
+
+    // Solo agregar campos que no sean undefined/null
+    if (telefono) updateData.telefono = telefono.trim();
+    if (provincia) updateData.provincia = provincia;
+    if (tipoContribuyente) updateData.tipoContribuyente = tipoContribuyente;
+    if (metodoPago) updateData.metodoPago = metodoPago;
+    if (direccion) updateData.direccion = direccion;
+
+    // Actualizar en Firestore
+    await firestore.collection("users").doc(uid).update(updateData);
+
+    // Obtener datos actualizados
+    const updatedUserDoc = await firestore.collection("users").doc(uid).get();
+    const updatedUserData = updatedUserDoc.data();
+
+    return res.json({
+      message: "Datos adicionales actualizados exitosamente",
+      user: {
+        uid,
+        ...updatedUserData,
+        fechaRegistro:
+          updatedUserData?.fechaRegistro?.toDate?.() ||
+          updatedUserData?.fechaRegistro,
+        fechaActualizacion:
+          updatedUserData?.fechaActualizacion?.toDate?.() ||
+          updatedUserData?.fechaActualizacion,
+      },
+    });
+  } catch (error: any) {
+    console.error("Error actualizando datos adicionales:", error);
+
+    return res.status(500).json({
+      error: "Error interno del servidor",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };

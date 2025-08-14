@@ -6,11 +6,12 @@ import {
 import {
   registerUser,
   loginUser,
-  loginUserSecure, // Versión con verificación de contraseña
   getUserProfile,
   updateUserProfile,
   deleteUser,
   refreshToken,
+  updateUserAdditionalData,
+  checkEmailExists,
 } from "./controller";
 import {
   validateRegistration,
@@ -23,6 +24,7 @@ import {
 
 const router = Router();
 
+// Rutas públicas
 router.post("/register", sanitizeInput, validateRegistration, registerUser);
 
 router.post(
@@ -33,18 +35,12 @@ router.post(
   loginUser
 );
 
-// Rutas protegidas (requieren autenticación)
-router.get("/me", authMiddleware, (req: Request, res: Response) =>
-  getUserProfile(req as AuthenticatedRequest, res)
-);
-
-import { Request, Response } from "express";
-import { AuthenticatedRequest } from "../../middleware/authMiddleware";
-
 router.get("/login-stats", (req: Request, res: Response) => {
   res.json(getLoginStats());
 });
+router.post("/check-email", sanitizeInput, checkEmailExists);
 
+// Rutas protegidas (requieren autenticación)
 router.get("/me", authMiddleware, (req: Request, res: Response) =>
   getUserProfile(req as AuthenticatedRequest, res)
 );
@@ -56,6 +52,10 @@ router.put(
   validateProfileUpdate,
   (req: Request, res: Response) =>
     updateUserProfile(req as AuthenticatedRequest, res)
+);
+
+router.put("/additional-data", authMiddleware, (req: Request, res: Response) =>
+  updateUserAdditionalData(req as AuthenticatedRequest, res)
 );
 
 router.delete("/me", authMiddleware, (req: Request, res: Response) =>
