@@ -12,6 +12,7 @@ import {
   refreshToken,
   updateUserAdditionalData,
   checkEmailExists,
+  googleRegister,
 } from "./controller";
 import {
   validateRegistration,
@@ -34,6 +35,8 @@ router.post(
   trackLoginResult,
   loginUser
 );
+
+router.post("/google-register", googleRegister);
 
 router.get("/login-stats", (req: Request, res: Response) => {
   res.json(getLoginStats());
