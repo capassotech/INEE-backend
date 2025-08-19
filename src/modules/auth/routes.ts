@@ -14,6 +14,7 @@ import {
   checkEmailExists,
   googleRegister,
   getUserById,
+  getUserByEmail,
 } from "./controller";
 import {
   validateRegistration,
@@ -40,6 +41,8 @@ router.post(
 router.post("/google-register", googleRegister);
 
 router.get("/user/:uid", getUserById);
+
+router.get("/check-email/:email", getUserByEmail);
 
 router.get("/login-stats", (req: Request, res: Response) => {
   res.json(getLoginStats());
