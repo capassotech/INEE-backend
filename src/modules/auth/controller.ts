@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { firebaseAuth, firestore } from "../../config/firebase";
 import type { UserRegistrationData, UserProfile } from "../../types/user";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware";
+// Firebase Admin SDK ya está importado desde firebase config
 
 export const registerUser = async (req: Request, res: Response) => {
   try {
@@ -243,6 +244,96 @@ export const loginUser = async (req: Request, res: Response) => {
     });
   }
 };
+
+export const googleRegister = async (req: Request, res: Response) => {
+  try {
+    const { idToken, email, nombre, apellido, dni, aceptaTerminos } = req.body;
+
+    if (!idToken) {
+      return res.status(400).json({
+        error: "Token de Google requerido",
+      });
+    }
+
+    const decodedToken = await firebaseAuth.verifyIdToken(idToken);
+    const { uid, picture } = decodedToken;
+
+    const existingUser = await firestore.collection("users").doc(uid).get();
+
+    if (existingUser.exists) {
+      return res.status(400).json({
+        error: "Usuario ya registrado",
+      });
+    }
+
+    const userProfile = {
+      email,
+      nombre,
+      apellido,
+      dni,
+      photoURL: picture || "",
+      provider: "google",
+      fechaRegistro: new Date(),
+      aceptaTerminos,
+      activo: true,
+      role: "alumno"
+    };
+
+    await firestore.collection("users").doc(uid).set(userProfile);
+
+    const customToken = await firebaseAuth.createCustomToken(uid);
+
+    console.log(`Usuario registrado con Google: ${email}`);
+
+    return res.json({
+      message: "Usuario registrado exitosamente con Google",
+      user: {
+        uid,
+        email,
+        nombre
+      },
+      token: customToken,
+    });
+  } catch (error: any) {
+    console.error("Error en googleRegister:", error);
+    return res.status(500).json({
+      error: "Error interno del servidor",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+};
+
+export const getUserById = async (req: Request, res: Response) => {
+  try {
+    const { uid } = req.params;
+    const userDoc = await firestore.collection("users").doc(uid).get();
+
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        error: "Usuario no encontrado",
+      });
+    }
+
+    const userData = userDoc.data();
+
+    if (!userData?.activo) {
+      return res.status(403).json({
+        error: "Usuario desactivado",
+      });
+    }
+
+    return res.json({
+      uid,
+      ...userData,
+    });
+  } catch (error) {
+    console.error("Error obteniendo usuario:", error);
+    return res.status(500).json({
+      error: "Error interno del servidor",
+    });
+  }
+}
 
 export const getUserProfile = async (
   req: AuthenticatedRequest,
