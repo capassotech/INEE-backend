@@ -335,6 +335,40 @@ export const getUserById = async (req: Request, res: Response) => {
   }
 }
 
+export const getUserByEmail = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.params;
+    const userDoc = await firestore.collection("users").where("email", "==", email).get();
+
+    if (userDoc.empty) {
+      return res.status(404).json({
+        error: "Usuario no encontrado",
+        exists: false
+      });
+    }
+
+    const userData = userDoc.docs[0].data();
+    const userId = userDoc.docs[0].id;
+
+    return res.json({
+      message: "Usuario encontrado",
+      exists: true,
+      user: {
+        uid: userId,
+        email: userData.email,
+        nombre: userData.nombre,
+        apellido: userData.apellido,
+        activo: userData.activo
+      }
+    });
+  } catch (error) {
+    console.error("Error obteniendo usuario por email:", error);
+    return res.status(500).json({
+      error: "Error interno del servidor"
+    });
+  }
+}
+
 export const getUserProfile = async (
   req: AuthenticatedRequest,
   res: Response
