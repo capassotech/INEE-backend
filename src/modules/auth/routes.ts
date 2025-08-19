@@ -13,6 +13,7 @@ import {
   updateUserAdditionalData,
   checkEmailExists,
   googleRegister,
+  getUserById,
 } from "./controller";
 import {
   validateRegistration,
@@ -37,6 +38,8 @@ router.post(
 );
 
 router.post("/google-register", googleRegister);
+
+router.get("/user/:uid", getUserById);
 
 router.get("/login-stats", (req: Request, res: Response) => {
   res.json(getLoginStats());

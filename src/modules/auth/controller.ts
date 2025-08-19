@@ -304,6 +304,37 @@ export const googleRegister = async (req: Request, res: Response) => {
   }
 };
 
+export const getUserById = async (req: Request, res: Response) => {
+  try {
+    const { uid } = req.params;
+    const userDoc = await firestore.collection("users").doc(uid).get();
+
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        error: "Usuario no encontrado",
+      });
+    }
+
+    const userData = userDoc.data();
+
+    if (!userData?.activo) {
+      return res.status(403).json({
+        error: "Usuario desactivado",
+      });
+    }
+
+    return res.json({
+      uid,
+      ...userData,
+    });
+  } catch (error) {
+    console.error("Error obteniendo usuario:", error);
+    return res.status(500).json({
+      error: "Error interno del servidor",
+    });
+  }
+}
+
 export const getUserProfile = async (
   req: AuthenticatedRequest,
   res: Response
