@@ -23,7 +23,6 @@ export const getUser = async (req: any, res: Response) => {
   return res.json(userDoc.data());
 };
 
-
 export const getUsers = async (req: any, res: Response) => {
   try {
     const userDocs = await firestore.collection('users').get();
@@ -40,4 +39,26 @@ export const getUsers = async (req: any, res: Response) => {
     console.error('Error fetching registered users:', error);
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
+}
+
+export const deleteUser = async (req: any, res: Response) => {
+  const uid = req.params.id;
+  const userDoc = await firestore.collection('users').doc(uid).get();
+
+  if (!userDoc.exists) {
+    return res.status(404).json({ error: 'Usuario no encontrado' });
+  }
+
+  await userDoc.ref.delete();
+}
+
+export const updateUser = async (req: any, res: Response) => {
+  const uid = req.params.id;
+  const userDoc = await firestore.collection('users').doc(uid).get();
+
+  if (!userDoc.exists) {
+    return res.status(404).json({ error: 'Usuario no encontrado' });
+  }
+
+  await userDoc.ref.update(req.body);
 }
