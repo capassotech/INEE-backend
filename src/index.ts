@@ -2,12 +2,16 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 
+dotenv.config();
+
+// Routes
 import authRoutes from "./modules/auth/routes";
 import coursesRoutes from "./modules/courses/routes";
 import purchasesRoutes from "./modules/purchases/routes";
 import usersRoutes from "./modules/users/routes";
+import contactRoutes from "./modules/contact/routes";
+import newsletterRoutes from "./modules/newsletter/routes";
 
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,6 +23,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/courses", coursesRoutes);
 app.use("/api/purchases", purchasesRoutes);
 app.use("/api/users", usersRoutes);
+app.use("/api/contact", contactRoutes);
+app.use("/api/newsletter", newsletterRoutes);
 
 app.get("/", (_, res) => {
   res.json({
