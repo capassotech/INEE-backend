@@ -6,6 +6,7 @@ import authRoutes from "./modules/auth/routes";
 import coursesRoutes from "./modules/courses/routes";
 import purchasesRoutes from "./modules/purchases/routes";
 import usersRoutes from "./modules/users/routes";
+import membershipRoutes from "./modules/membership/routes";
 
 dotenv.config();
 
@@ -19,6 +20,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/courses", coursesRoutes);
 app.use("/api/purchases", purchasesRoutes);
 app.use("/api/users", usersRoutes);
+app.use("/api/membership", membershipRoutes);
 
 app.get("/", (_, res) => {
   res.json({
