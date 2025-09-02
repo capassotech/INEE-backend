@@ -1,7 +1,8 @@
 import { Request, Response } from "express";
 import { firestore } from '../../config/firebase';
+import { Resend } from "resend";
 
-
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 export const getSuscribeUsers = async (req: Request, res: Response) => {
     const suscribeUsers = await firestore.collection('suscripciones_email').get();
@@ -30,6 +31,13 @@ export const subscribeNewsletter = async (req: Request, res: Response) => {
     await firestore.collection('suscripciones_email').add({
         email,
         fecha_suscripcion: newDate,
+    });
+
+    await resend.emails.send({
+        from: "INEE Oficial <contacto@ineeoficial.com>",
+        to: email,
+        subject: "¡Te has suscrito a la newsletter de INEE!",
+        html: "<p>¡Te has suscrito a la newsletter de INEE!</p>",
     });
 
     return res.json({ message: "Newsletter subscribed" });

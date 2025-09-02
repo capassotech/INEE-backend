@@ -3,7 +3,7 @@ import { Request, Response } from "express";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const generateEmailTemplate = (name: string, email: string, message: string) => {
+const generateEmailTemplate = (name: string, email: string, message: string, phone: string, type: string) => {
   return `
     <!DOCTYPE html>
     <html lang="es">
@@ -199,6 +199,16 @@ const generateEmailTemplate = (name: string, email: string, message: string) => 
               <span class="field-label">💬 Mensaje</span>
               <div class="field-value message-text">${message}</div>
             </div>
+
+            <div class="field">
+              <span class="field-label">📱 Teléfono</span>
+              <div class="field-value">${phone}</div>
+            </div>
+            
+            <div class="field">
+              <span class="field-label">📞 Tipo de Contacto</span>
+              <div class="field-value">${type}</div>
+            </div>
           </div>
           
           <div style="text-align: center; margin: 30px 0;">
@@ -235,7 +245,7 @@ const generateEmailTemplate = (name: string, email: string, message: string) => 
 }
 
 export const contactSend = async (req: Request, res: Response) => {
-  const { name, email, message } = req.body;
+  const { name, email, message, phone, type } = req.body;
 
   if (!name || !email || !message) {
     return res.status(400).json({ message: "Todos los campos son requeridos" });
@@ -245,11 +255,12 @@ export const contactSend = async (req: Request, res: Response) => {
     return res.status(400).json({ message: "Formato de email inválido" });
   }
 
-  const emailTemplate = generateEmailTemplate(name, email, message);
+  const emailTemplate = generateEmailTemplate(name, email, message, phone, type);
 
   const { error } = await resend.emails.send({
     from: "INEE Oficial <contacto@ineeoficial.com>",
-    to: "administracion@ineeoficial.com",
+    // to: "administracion@ineeoficial.com",
+    to: email,
     replyTo: email,
     subject: `📧 Nuevo Contacto: ${name} - ${new Date().toLocaleDateString('es-ES')}`,
     html: emailTemplate,
