@@ -259,8 +259,7 @@ export const contactSend = async (req: Request, res: Response) => {
 
   const { error } = await resend.emails.send({
     from: "INEE Oficial <contacto@ineeoficial.com>",
-    // to: "administracion@ineeoficial.com",
-    to: email,
+    to: "administracion@ineeoficial.com",
     replyTo: email,
     subject: `📧 Nuevo Contacto: ${name} - ${new Date().toLocaleDateString('es-ES')}`,
     html: emailTemplate,
