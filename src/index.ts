@@ -11,6 +11,7 @@ import purchasesRoutes from "./modules/purchases/routes";
 import usersRoutes from "./modules/users/routes";
 import contactRoutes from "./modules/contact/routes";
 import newsletterRoutes from "./modules/newsletter/routes";
+import membershipRoutes from "./modules/membership/routes";
 
 
 const app = express();
@@ -25,6 +26,7 @@ app.use("/api/purchases", purchasesRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/newsletter", newsletterRoutes);
+app.use("/api/membership", membershipRoutes);
 
 app.get("/", (_, res) => {
   res.json({
