@@ -25,11 +25,17 @@ app.use("/api/courses", coursesRoutes);
 app.use("/api/purchases", purchasesRoutes);
 app.use("/api/users", usersRoutes);
 <<<<<<< HEAD
+<<<<<<< HEAD
 app.use("/api/contact", contactRoutes);
 app.use("/api/newsletter", newsletterRoutes);
 =======
 app.use("/api/membership", membershipRoutes);
 >>>>>>> develop
+=======
+app.use("/api/contact", contactRoutes);
+app.use("/api/newsletter", newsletterRoutes);
+app.use("/api/membership", membershipRoutes);
+>>>>>>> 7936168dcff1205a6a9a37cf3c9c4fff71eaddf9
 
 app.get("/", (_, res) => {
   res.json({
