@@ -12,6 +12,7 @@ import usersRoutes from "./modules/users/routes";
 import contactRoutes from "./modules/contact/routes";
 import newsletterRoutes from "./modules/newsletter/routes";
 import membershipRoutes from "./modules/membership/routes";
+import testimonialsRoutes from "./modules/testimonials/routes";
 
 
 const app = express();
@@ -30,6 +31,7 @@ app.use("/api/membership", membershipRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/newsletter", newsletterRoutes);
 app.use("/api/membership", membershipRoutes);
+app.use("/api/testimonios", testimonialsRoutes);
 
 app.get("/", (_, res) => {
   res.json({
