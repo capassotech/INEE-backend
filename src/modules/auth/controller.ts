@@ -212,6 +212,7 @@ export const loginUser = async (req: Request, res: Response) => {
           nombre: userData.nombre,
           apellido: userData.apellido,
           role: userData.role,
+          id_membresia: userData.membresia_id,
           ultimoLogin: new Date(),
         },
       });
