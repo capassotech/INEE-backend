@@ -19,6 +19,7 @@ export interface UserProfile {
   aceptaTerminos: boolean;
   activo: boolean;
   fechaEliminacion?: Date;
+  membresia_id?: string;
 }
 
 export interface LoginData {

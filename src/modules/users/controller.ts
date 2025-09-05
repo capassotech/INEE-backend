@@ -12,6 +12,22 @@ export const getUserProfile = async (req: any, res: Response) => {
   return res.json(userDoc.data());
 };
 
+// Agregarle membresia al usuario
+export const addMembershipToUser = async (req: any, res: Response) => {
+  const { uid, membershipId } = req.body;
+  const userDoc = await firestore.collection('users').doc(uid).get();
+  const membershipDoc = await firestore.collection('membresias').doc(membershipId).get();
+  if (!userDoc.exists) {
+    return res.status(404).json({ error: 'Usuario no encontrado' });
+  }
+  if (!membershipDoc.exists) {
+    return res.status(404).json({ error: 'Membresía no encontrada' });
+  }
+
+  await userDoc.ref.update({ membresia_id: membershipId });
+  return res.status(200).json({ message: 'Membresía agregada al usuario' });
+}
+
 export const getUser = async (req: any, res: Response) => {
   const uid = req.params.id;
   const userDoc = await firestore.collection('users').doc(uid).get();

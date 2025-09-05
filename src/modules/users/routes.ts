@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import { authMiddleware } from '../../middleware/authMiddleware';
-import { getUser, getUsers, getUserProfile, deleteUser, updateUser } from './controller';
+import { getUser, getUsers, getUserProfile, deleteUser, updateUser, addMembershipToUser } from './controller';
 
 const router = Router();
 
 router.get('/me', authMiddleware, getUserProfile);
+
+router.post('/add-membership', addMembershipToUser);
 
 router.get('/:id', getUser);
 
