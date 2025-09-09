@@ -33,11 +33,21 @@ export const subscribeNewsletter = async (req: Request, res: Response) => {
         fecha_suscripcion: newDate,
     });
 
+    
+    // Email enviado al usuario
     await resend.emails.send({
         from: "INEE Oficial <contacto@ineeoficial.com>",
         to: email,
         subject: "¡Te has suscrito a la newsletter de INEE!",
         html: "<p>¡Te has suscrito a la newsletter de INEE!</p>",
+    });
+
+    // Email enviado a INEE
+    await resend.emails.send({
+        from: "INEE Oficial <contacto@ineeoficial.com>",
+        to: "administracion@ineeoficial.com",
+        subject: "¡Nuevo suscriptor a la newsletter de INEE!",
+        html: `<p>${email} se ha suscrito a la newsletter de INEE!</p>`,
     });
 
     return res.json({ message: "Newsletter subscribed" });
