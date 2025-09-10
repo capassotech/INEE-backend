@@ -127,14 +127,18 @@ export const testVocacional = async (req: any, res: Response) => {
     else if (response.toLowerCase() === 'c') counterC++;
   }
 
-  if (counterA > counterB && counterA > counterC) await userDoc.ref.update({ ruta_aprendizaje: 'consultoria' });
-  else if (counterB > counterA && counterB > counterC) await userDoc.ref.update({ ruta_aprendizaje: 'liderazgo' });
-  else if (counterC > counterA && counterC > counterB) await userDoc.ref.update({ ruta_aprendizaje: 'emprendimiento' });
-  else if (counterA === counterB) await userDoc.ref.update({ ruta_aprendizaje: 'consultor-lider' });
-  else if (counterB === counterC) await userDoc.ref.update({ ruta_aprendizaje: 'lider-emprendedor' });
-  else if (counterC === counterA) await userDoc.ref.update({ ruta_aprendizaje: 'emprendedor-consultor' });
+  let rutaAprendizaje: string;
+  if (counterA > counterB && counterA > counterC) rutaAprendizaje = 'consultoria';
+  else if (counterB > counterA && counterB > counterC) rutaAprendizaje = 'liderazgo';
+  else if (counterC > counterA && counterC > counterB) rutaAprendizaje = 'emprendimiento';
+  else if (counterA === counterB) rutaAprendizaje = 'consultor-lider';
+  else if (counterB === counterC) rutaAprendizaje = 'lider-emprendedor';
+  else if (counterC === counterA) rutaAprendizaje = 'emprendedor-consultor';
+  else rutaAprendizaje = 'consultoria'; 
 
-  const ruta = await firestore.collection('rutas_aprendizaje').doc(userDoc.data()?.ruta_aprendizaje).get();
+  await userDoc.ref.update({ ruta_aprendizaje: rutaAprendizaje });
+
+  const ruta = await firestore.collection('rutas_aprendizaje').doc(rutaAprendizaje).get();
   
   return res.status(200).json({ 
     success: true,
