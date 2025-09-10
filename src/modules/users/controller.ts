@@ -42,7 +42,7 @@ export const getUser = async (req: any, res: Response) => {
 export const getUsers = async (req: any, res: Response) => {
   try {
     const userDocs = await firestore.collection('users').get();
-    
+
     const users = userDocs.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
@@ -67,7 +67,7 @@ export const deleteUser = async (req: any, res: Response) => {
     }
 
     await userDoc.ref.delete();
-    
+
     return res.status(200).json({
       message: 'Usuario eliminado correctamente'
     });
@@ -87,9 +87,9 @@ export const updateUser = async (req: any, res: Response) => {
     }
 
     await userDoc.ref.update(req.body);
-    
+
     const updatedDoc = await firestore.collection('users').doc(uid).get();
-    
+
     return res.status(200).json({
       message: 'Usuario actualizado correctamente',
       user: {
@@ -101,4 +101,46 @@ export const updateUser = async (req: any, res: Response) => {
     console.error('Error updating user:', error);
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
+}
+
+export const testVocacional = async (req: any, res: Response) => {
+  const { uid, responses }: { uid: string, responses: string[] } = req.body;
+  if (!uid || !responses) {
+    return res.status(400).json({ error: 'Datos inválidos' });
+  }
+
+  if (responses.length > 5) {
+    return res.status(400).json({ error: 'Cantidad de respuestas inválida' });
+  }
+
+  const userDoc = await firestore.collection('users').doc(uid).get();
+  if (!userDoc.exists) {
+    return res.status(404).json({ error: 'Usuario no encontrado' });
+  }
+
+  let counterA = 0;
+  let counterB = 0;
+  let counterC = 0;
+  for (const response of responses) {
+    if (response.toLowerCase() === 'a') counterA++;
+    else if (response.toLowerCase() === 'b') counterB++;
+    else if (response.toLowerCase() === 'c') counterC++;
+  }
+
+  if (counterA > counterB && counterA > counterC) await userDoc.ref.update({ ruta_aprendizaje: 'consultoria' });
+  else if (counterB > counterA && counterB > counterC) await userDoc.ref.update({ ruta_aprendizaje: 'liderazgo' });
+  else if (counterC > counterA && counterC > counterB) await userDoc.ref.update({ ruta_aprendizaje: 'emprendimiento' });
+  else if (counterA === counterB) await userDoc.ref.update({ ruta_aprendizaje: 'consultor-lider' });
+  else if (counterB === counterC) await userDoc.ref.update({ ruta_aprendizaje: 'lider-emprendedor' });
+  else if (counterC === counterA) await userDoc.ref.update({ ruta_aprendizaje: 'emprendedor-consultor' });
+
+  const ruta = await firestore.collection('rutas_aprendizaje').doc(userDoc.data()?.ruta_aprendizaje).get();
+  
+  return res.status(200).json({ 
+    success: true,
+    ruta: {
+      id: ruta.id,
+      ...ruta.data()
+    }
+  });
 }
