@@ -8,7 +8,7 @@ const collection = firestore.collection('courses');
 
 export const getAllCourses = async (_: Request, res: Response) => {
   try {
-    const snapshot = await collection.where('visible', '==', true).get();
+    const snapshot = await collection.get();
     const courses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     return res.json(courses);
   } catch (err) {
