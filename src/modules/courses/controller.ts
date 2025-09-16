@@ -35,10 +35,24 @@ export const createCourse = async (req: AuthenticatedRequest, res: Response) => 
   if (!validateUser(req)) return res.status(403).json({ error: 'No autorizado' });
 
   try {
-    const { titulo, descripcion, duracion, pilar, precio, nivel, modalidad } : Course = req.body;
-    if (!titulo || !descripcion || !duracion || !pilar || !precio || !nivel || !modalidad) return res.status(400).json({ error: 'Faltan campos obligatorios' });
+    const { 
+      titulo, 
+      descripcion, 
+      duracion, 
+      pilar, 
+      precio, 
+      nivel, 
+      modalidad, 
+      imagen, 
+      id_profesor, 
+      estado, 
+      tags, 
+      id_modulos 
+    }: Course = req.body;
 
-    const newCourse: Course = { titulo, descripcion, duracion, pilar, precio, nivel, modalidad };
+    if (!titulo || !descripcion || !duracion || !pilar || !precio || !nivel || !modalidad || !imagen || !id_profesor || !estado || !tags || !id_modulos) return res.status(400).json({ error: 'Faltan campos obligatorios' });
+
+    const newCourse: Course = { titulo, descripcion, duracion, pilar, precio, nivel, modalidad, imagen, id_profesor, estado, tags, id_modulos };
     const docRef = await collection.add(newCourse);
     return res
       .status(201)
