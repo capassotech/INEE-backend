@@ -8,6 +8,11 @@ export interface Course {
     modalidad: string;
     pilar: TipoPilar;
     precio: number;
+    imagen: string;
+    id_profesor: string;
+    estado: string;
+    tags: string[];
+    id_modulos: string[];
 }
 
 export type TipoPilar = "consultoria-estrategica" | "liderazgo" | "emprendimiento";
