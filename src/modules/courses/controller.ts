@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { firestore } from "../../config/firebase";
 import { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { ValidatedCourse, ValidatedUpdateCourse } from "../../types/courses";
+import { validateUser } from "../../utils/utils";
 
 const collection = firestore.collection("courses");
 
@@ -65,15 +66,18 @@ export const createCourse = async (
         .json({ error: "El profesor especificado no existe" });
     }
 
-    for (const moduloId of courseData.id_modulos) {
-      const moduloExists = await firestore
-        .collection("modulos")
-        .doc(moduloId)
-        .get();
-      if (!moduloExists.exists) {
-        return res.status(404).json({
-          error: `El módulo con ID "${moduloId}" no existe`,
-        });
+    // Verificar que todos los módulos existen (solo si hay módulos)
+    if (courseData.id_modulos.length > 0) {
+      for (const moduloId of courseData.id_modulos) {
+        const moduloExists = await firestore
+          .collection("modulos")
+          .doc(moduloId)
+          .get();
+        if (!moduloExists.exists) {
+          return res.status(404).json({
+            error: `El módulo con ID "${moduloId}" no existe`,
+          });
+        }
       }
     }
 
@@ -122,7 +126,7 @@ export const updateCourse = async (
       }
     }
 
-    if (updateData.id_modulos) {
+    if (updateData.id_modulos && updateData.id_modulos.length > 0) {
       for (const moduloId of updateData.id_modulos) {
         const moduloExists = await firestore
           .collection("modulos")
@@ -178,12 +182,3 @@ export const deleteCourse = async (
   }
 };
 
-const validateUser = async (req: AuthenticatedRequest) => {
-  const userId = req.user.uid;
-  console.log("User email:", userId);
-  if (!userId) return false;
-  const userDoc = await firestore.collection("users").doc(userId).get();
-  const userData = userDoc.data();
-  console.log("User data:", userData);
-  return userData?.role === "admin";
-};

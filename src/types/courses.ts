@@ -67,11 +67,9 @@ export const CourseSchema = z.object({
     estado: z.enum(EstadoCurso),
     tags: z.array(z.string()
         .min(1, "Los tags no pueden estar vacíos"))
-        .min(1, "Debe incluir al menos un tag")
         .max(20, "No puede tener más de 20 tags"),
     id_modulos: z.array(z.string()
         .min(1, "Los IDs de módulos no pueden estar vacíos"))
-        .min(1, "Debe incluir al menos un módulo")
         .max(50, "No puede tener más de 50 módulos")
 });
 
