@@ -131,6 +131,8 @@ export const loginUser = async (req: Request, res: Response) => {
 
       const authResult = await response.json();
 
+      console.log(authResult.idToken);
+
       console.log(`Response status: ${response.status}`);
       console.log(`Auth result:`, {
         ...authResult,

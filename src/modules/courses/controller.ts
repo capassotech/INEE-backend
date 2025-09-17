@@ -1,15 +1,23 @@
-// /src/modules/courses/controller.ts
 import { Request, Response } from 'express';
 import { firestore } from '../../config/firebase';
 import { AuthenticatedRequest } from "../../middleware/authMiddleware";
-import { Course } from '../../types/courses';
+import { ValidatedCourse, ValidatedUpdateCourse } from '../../types/courses';
 
 const collection = firestore.collection('courses');
 
 export const getAllCourses = async (_: Request, res: Response) => {
   try {
     const snapshot = await collection.get();
-    const courses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    if (snapshot.empty) {
+      return res.json([]);
+    }
+
+    const courses = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
     return res.json(courses);
   } catch (err) {
     console.error('getAllCourses error:', err);
@@ -19,10 +27,12 @@ export const getAllCourses = async (_: Request, res: Response) => {
 
 export const getCourseById = async (req: Request, res: Response) => {
   try {
-    const courseId = req.params.id;
-    const doc = await collection.doc(courseId).get();
+    const { id } = req.params;
+    const doc = await collection.doc(id).get();
 
-    if (!doc.exists) return res.status(404).json({ error: 'Curso no encontrado' });
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Curso no encontrado' });
+    }
 
     return res.json({ id: doc.id, ...doc.data() });
   } catch (err) {
@@ -32,35 +42,35 @@ export const getCourseById = async (req: Request, res: Response) => {
 };
 
 export const createCourse = async (req: AuthenticatedRequest, res: Response) => {
-  if (!validateUser(req)) return res.status(403).json({ error: 'No autorizado' });
+  const isAuthorized = await validateUser(req);
+  if (!isAuthorized) {
+    return res.status(403).json({ error: 'No autorizado. Se requieren permisos de administrador.' });
+  }
 
   try {
-    const { 
-      titulo, 
-      descripcion, 
-      duracion, 
-      pilar, 
-      precio, 
-      nivel, 
-      modalidad, 
-      imagen, 
-      id_profesor, 
-      estado, 
-      tags, 
-      id_modulos 
-    }: Course = req.body;
+    const courseData: ValidatedCourse = req.body;
 
-    if (!titulo || !descripcion || !duracion || !pilar || !precio || !nivel || !modalidad || !imagen || !id_profesor || !estado || !tags || !id_modulos) return res.status(400).json({ error: 'Faltan campos obligatorios' });
+    const profesorExists = await firestore.collection('profesores').doc(courseData.id_profesor).get();
+    if (!profesorExists.exists) {
+      return res.status(404).json({ error: 'El profesor especificado no existe' });
+    }
 
-    const newCourse: Course = { titulo, descripcion, duracion, pilar, precio, nivel, modalidad, imagen, id_profesor, estado, tags, id_modulos };
-    const docRef = await collection.add(newCourse);
-    return res
-      .status(201)
-      .json({ 
-        id: docRef.id,
-        ...newCourse
-      })
-      .end();
+    for (const moduloId of courseData.id_modulos) {
+      const moduloExists = await firestore.collection('modulos').doc(moduloId).get();
+      if (!moduloExists.exists) {
+        return res.status(404).json({
+          error: `El módulo con ID "${moduloId}" no existe`
+        });
+      }
+    }
+
+    const docRef = await collection.add({ ...courseData });
+
+    return res.status(201).json({
+      id: docRef.id,
+      message: 'Curso creado exitosamente',
+      ...courseData
+    });
   } catch (err) {
     console.error('createCourse error:', err);
     return res.status(500).json({ error: 'Error al crear curso' });
@@ -68,17 +78,43 @@ export const createCourse = async (req: AuthenticatedRequest, res: Response) => 
 };
 
 export const updateCourse = async (req: AuthenticatedRequest, res: Response) => {
-  if (!validateUser(req)) return res.status(403).json({ error: 'No autorizado' });
+  const isAuthorized = await validateUser(req);
+  if (!isAuthorized) {
+    return res.status(403).json({ error: 'No autorizado. Se requieren permisos de administrador.' });
+  }
 
   try {
-    const courseId = req.params.id;
-    const data: Partial<Course> = req.body;
-    if (!data.titulo && !data.descripcion && !data.duracion && !data.pilar && !data.precio && !data.nivel && !data.modalidad) return res.status(400).json({ error: 'Faltan campos obligatorios' });
+    const { id } = req.params;
+    const updateData: ValidatedUpdateCourse = req.body;
 
-    await collection.doc(courseId).update(data);
-    return res.json({ 
-      success: true,
-      ...data
+    const courseExists = await collection.doc(id).get();
+    if (!courseExists.exists) {
+      return res.status(404).json({ error: 'Curso no encontrado' });
+    }
+
+    if (updateData.id_profesor) {
+      const profesorExists = await firestore.collection('profesores').doc(updateData.id_profesor).get();
+      if (!profesorExists.exists) {
+        return res.status(404).json({ error: 'El profesor especificado no existe' });
+      }
+    }
+
+    if (updateData.id_modulos) {
+      for (const moduloId of updateData.id_modulos) {
+        const moduloExists = await firestore.collection('modulos').doc(moduloId).get();
+        if (!moduloExists.exists) {
+          return res.status(404).json({
+            error: `El módulo con ID "${moduloId}" no existe`
+          });
+        }
+      }
+    }
+
+    await collection.doc(id).update({ ...updateData });
+
+    return res.json({
+      message: 'Curso actualizado exitosamente',
+      id: id
     });
   } catch (err) {
     console.error('updateCourse error:', err);
@@ -87,12 +123,24 @@ export const updateCourse = async (req: AuthenticatedRequest, res: Response) => 
 };
 
 export const deleteCourse = async (req: AuthenticatedRequest, res: Response) => {
-  if (!validateUser(req)) return res.status(403).json({ error: 'No autorizado' });
+  const isAuthorized = await validateUser(req);
+  if (!isAuthorized) {
+    return res.status(403).json({ error: 'No autorizado. Se requieren permisos de administrador.' });
+  }
 
   try {
-    const courseId = req.params.id;
-    await collection.doc(courseId).delete();
-    return res.json({ success: true });
+    const { id } = req.params;
+
+    const courseExists = await collection.doc(id).get();
+    if (!courseExists.exists) {
+      return res.status(404).json({ error: 'Curso no encontrado' });
+    }
+
+    await collection.doc(id).delete();
+    return res.json({
+      message: 'Curso eliminado exitosamente',
+      id: id
+    });
   } catch (err) {
     console.error('deleteCourse error:', err);
     return res.status(500).json({ error: 'Error al eliminar curso' });
