@@ -46,11 +46,15 @@ export const createBackModule = async (req: Request, res: Response) => {
         if (!cursoExists.exists) {
             return res.status(404).json({ error: 'El curso especificado no existe' });
         }
-        
+
         const newModule = await firestore.collection('modulos').add({
             ...moduleData,
             fechaCreacion: new Date(),
             fechaActualizacion: new Date()
+        });
+
+        await firestore.collection('courses').doc(moduleData.id_curso).update({
+            id_modulos: [...cursoExists.data()?.id_modulos, newModule.id]
         });
         
         res.status(201).json({ 
@@ -73,8 +77,8 @@ export const updateBackModule = async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'Módulo no encontrado' });
         }
         
+        const cursoExists = await firestore.collection('courses').doc(updateData.id_curso || '').get();
         if (updateData.id_curso) {
-            const cursoExists = await firestore.collection('courses').doc(updateData.id_curso).get();
             if (!cursoExists.exists) {
                 return res.status(404).json({ error: 'El curso especificado no existe' });
             }
@@ -85,6 +89,11 @@ export const updateBackModule = async (req: Request, res: Response) => {
             fechaActualizacion: new Date()
         });
         
+
+        await firestore.collection('courses').doc(updateData.id_curso || '').update({
+            id_modulos: [...(cursoExists.data()?.id_modulos || []), id]
+        });
+
         res.json({ 
             message: 'Módulo actualizado exitosamente',
             id: id 
@@ -103,6 +112,13 @@ export const deleteBackModule = async (req: Request, res: Response) => {
         if (!moduleExists.exists) {
             return res.status(404).json({ error: 'Módulo no encontrado' });
         }
+        
+        const courseRef = await firestore.collection('courses').doc(moduleExists.data()?.id_curso).get();
+        const currentModules = courseRef.data()?.id_modulos || [];
+        
+        await firestore.collection('courses').doc(moduleExists.data()?.id_curso).update({
+            id_modulos: currentModules.filter((moduleId: string) => moduleId !== id)
+        });
         
         await firestore.collection('modulos').doc(id).delete();
         res.json({ message: 'Módulo eliminado correctamente' });
