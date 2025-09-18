@@ -131,6 +131,8 @@ export const loginUser = async (req: Request, res: Response) => {
 
       const authResult = await response.json();
 
+      console.log("idToken", authResult.idToken);
+
       console.log(`Response status: ${response.status}`);
       console.log(`Auth result:`, {
         ...authResult,
@@ -277,7 +279,7 @@ export const googleRegister = async (req: Request, res: Response) => {
       fechaRegistro: new Date(),
       aceptaTerminos,
       activo: true,
-      role: "alumno"
+      role: "alumno",
     };
 
     await firestore.collection("users").doc(uid).set(userProfile);
@@ -291,7 +293,7 @@ export const googleRegister = async (req: Request, res: Response) => {
       user: {
         uid,
         email,
-        nombre
+        nombre,
       },
       token: customToken,
     });
@@ -334,17 +336,20 @@ export const getUserById = async (req: Request, res: Response) => {
       error: "Error interno del servidor",
     });
   }
-}
+};
 
 export const getUserByEmail = async (req: Request, res: Response) => {
   try {
     const { email } = req.params;
-    const userDoc = await firestore.collection("users").where("email", "==", email).get();
+    const userDoc = await firestore
+      .collection("users")
+      .where("email", "==", email)
+      .get();
 
     if (userDoc.empty) {
       return res.status(404).json({
         error: "Usuario no encontrado",
-        exists: false
+        exists: false,
       });
     }
 
@@ -359,16 +364,16 @@ export const getUserByEmail = async (req: Request, res: Response) => {
         email: userData.email,
         nombre: userData.nombre,
         apellido: userData.apellido,
-        activo: userData.activo
-      }
+        activo: userData.activo,
+      },
     });
   } catch (error) {
     console.error("Error obteniendo usuario por email:", error);
     return res.status(500).json({
-      error: "Error interno del servidor"
+      error: "Error interno del servidor",
     });
   }
-}
+};
 
 export const getUserProfile = async (
   req: AuthenticatedRequest,

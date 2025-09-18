@@ -2,7 +2,7 @@ import { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { Request, Response } from "express";
 import { Event } from "../../types/events";
 import { firestore } from "../../config/firebase";
-
+import { validateUser } from "../../utils/utils";
 
 const collection = firestore.collection('events');
 
@@ -72,12 +72,3 @@ export const deleteEvent = async (req: AuthenticatedRequest, res: Response) => {
         return res.status(500).json({ error: 'Error al eliminar evento' });
     }
 };
-
-
-const validateUser = async (req: AuthenticatedRequest) => {
-    const userEmail = req.user.email;
-    if (!userEmail) return false;
-    const userDoc = await firestore.collection('users').doc(userEmail).get();
-    const userData = userDoc.data();
-    return userData?.role === 'admin';
-}
