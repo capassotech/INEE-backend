@@ -90,8 +90,13 @@ export const updateBackModule = async (req: Request, res: Response) => {
         });
         
 
+        const currentModules = cursoExists.data()?.id_modulos || [];
+        const updatedModules = currentModules.includes(id) 
+            ? currentModules 
+            : [...currentModules, id];
+            
         await firestore.collection('courses').doc(updateData.id_curso || '').update({
-            id_modulos: [...(cursoExists.data()?.id_modulos || []), id]
+            id_modulos: updatedModules
         });
 
         res.json({ 
