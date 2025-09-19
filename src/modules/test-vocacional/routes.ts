@@ -1,15 +1,13 @@
 import { Router } from "express";
-import { getPreguntaById, getQuestions, getRespuestaById, getRespuestas, testVocacional } from "./controller";
+import { getPreguntaById, testVocacional, sendPartialResponse } from "./controller";
 
 
 const router = Router();
 
-router.get('/preguntas', getQuestions);
 router.get('/preguntas/:id', getPreguntaById);
 
-router.get('/respuestas', getRespuestas);
-router.get('/respuestas/:id', getRespuestaById);
-
 router.post('/', testVocacional);
+
+router.post('/enviar-respuesta-parcial/:uid', sendPartialResponse);
 
 export default router;
