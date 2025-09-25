@@ -58,8 +58,7 @@ export const CourseSchema = z.object({
     precio: z.number()
         .min(0, "El precio no puede ser negativo")
         .max(999999, "El precio no puede exceder $999,999"),
-    imagen: z.string()
-        .min(1, "La imagen del curso es obligatoria"),
+    imagen: z.string().optional(),
     id_profesor: z.string()
         .min(1, "El ID del profesor es obligatorio")
         .max(100, "El ID del profesor no puede exceder 100 caracteres")
