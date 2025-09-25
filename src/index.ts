@@ -16,6 +16,7 @@ import testimonialsRoutes from "./modules/testimonials/routes";
 import eventsRoutes from "./modules/events/routes";
 import profesorsRoutes from "./modules/profesors/routes";
 import backModulesRoutes from "./modules/back-modules/routes";
+import testVocacionalRoutes from "./modules/test-vocacional/routes";
 
 
 const app = express();
@@ -38,6 +39,7 @@ app.use("/api/testimonios", testimonialsRoutes);
 app.use("/api/eventos", eventsRoutes);
 app.use("/api/profesores", profesorsRoutes);
 app.use("/api/modulos", backModulesRoutes);
+app.use("/api/test-vocacional", testVocacionalRoutes);
 
 app.get("/", (_, res) => {
   res.json({
