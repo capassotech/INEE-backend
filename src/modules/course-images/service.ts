@@ -1,6 +1,8 @@
 import { Readable } from 'stream';
 import type { drive_v3 } from '@googleapis/drive';
+import { firestore } from '../../config/firebase';
 import { getDriveClient, getFormacionesRootFolderId } from '../../utils/googleDrive/client';
+import { CourseImagesError } from './errors';
 
 export interface CourseImage {
   id: string;
@@ -15,17 +17,45 @@ export interface CourseImage {
 }
 
 const DRIVE_FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
+const PLATFORM_FOLDER_NAME = 'PLATAFORMA';
+const FORMACIONES_FOLDER_NAME = 'FORMACIONES';
+
+interface ResolveFolderOptions {
+  createMissing: boolean;
+}
+
+const COURSES_COLLECTION = firestore.collection('courses');
 
 const escapeQueryValue = (value: string): string => value.replace(/'/g, "\\'");
 
-const findCourseFolder = async (
+const getCourseTitle = async (courseId: string): Promise<string> => {
+  const courseDoc = await COURSES_COLLECTION.doc(courseId).get();
+
+  if (!courseDoc.exists) {
+    throw new CourseImagesError('La formación especificada no existe.', 404);
+  }
+
+  const data = courseDoc.data() as { titulo?: string } | undefined;
+  const title = data?.titulo?.trim();
+
+  if (!title) {
+    throw new CourseImagesError(
+      'La formación no tiene un título configurado en la base de datos.',
+      400
+    );
+  }
+
+  return title;
+};
+
+const findChildFolder = async (
   drive: drive_v3.Drive,
-  rootFolderId: string,
-  courseId: string
+  parentFolderId: string,
+  name: string
 ): Promise<drive_v3.Schema$File | undefined> => {
-  const queryCourseId = escapeQueryValue(courseId);
+  const queryName = escapeQueryValue(name);
   const response = await drive.files.list({
-    q: `name = '${queryCourseId}' and mimeType = '${DRIVE_FOLDER_MIME_TYPE}' and '${rootFolderId}' in parents and trashed = false`,
+    q: `name = '${queryName}' and mimeType = '${DRIVE_FOLDER_MIME_TYPE}' and '${parentFolderId}' in parents and trashed = false`,
     fields: 'files(id, name)',
     spaces: 'drive',
   });
@@ -33,15 +63,15 @@ const findCourseFolder = async (
   return response.data.files?.[0];
 };
 
-const createCourseFolder = async (
+const createChildFolder = async (
   drive: drive_v3.Drive,
-  rootFolderId: string,
-  courseId: string
+  parentFolderId: string,
+  name: string
 ): Promise<drive_v3.Schema$File> => {
   const folderMetadata = {
-    name: courseId,
+    name,
     mimeType: DRIVE_FOLDER_MIME_TYPE,
-    parents: [rootFolderId],
+    parents: [parentFolderId],
   } satisfies drive_v3.Schema$File;
 
   const { data } = await drive.files.create({
@@ -50,24 +80,37 @@ const createCourseFolder = async (
   });
 
   if (!data.id) {
-    throw new Error('No fue posible crear la carpeta para la formación en Google Drive');
+    throw new Error('No fue posible crear la carpeta en Google Drive');
   }
 
   return data;
 };
 
-const ensureCourseFolder = async (
+const resolveFolderPath = async (
   drive: drive_v3.Drive,
-  rootFolderId: string,
-  courseId: string
-): Promise<string> => {
-  const existingFolder = await findCourseFolder(drive, rootFolderId, courseId);
-  if (existingFolder?.id) {
-    return existingFolder.id;
+  startingFolderId: string,
+  segments: string[],
+  options: ResolveFolderOptions
+): Promise<string | undefined> => {
+  let currentFolderId = startingFolderId;
+
+  for (const segment of segments) {
+    const existingFolder = await findChildFolder(drive, currentFolderId, segment);
+
+    if (existingFolder?.id) {
+      currentFolderId = existingFolder.id;
+      continue;
+    }
+
+    if (!options.createMissing) {
+      return undefined;
+    }
+
+    const newFolder = await createChildFolder(drive, currentFolderId, segment);
+    currentFolderId = newFolder.id!;
   }
 
-  const newFolder = await createCourseFolder(drive, rootFolderId, courseId);
-  return newFolder.id!;
+  return currentFolderId;
 };
 
 const buildDirectLink = (fileId: string): string =>
@@ -80,7 +123,17 @@ export const uploadCourseImage = async (
   const drive = getDriveClient();
   const rootFolderId = getFormacionesRootFolderId();
 
-  const courseFolderId = await ensureCourseFolder(drive, rootFolderId, courseId);
+  const courseTitle = await getCourseTitle(courseId);
+  const courseFolderId = await resolveFolderPath(
+    drive,
+    rootFolderId,
+    [PLATFORM_FOLDER_NAME, FORMACIONES_FOLDER_NAME, courseTitle],
+    { createMissing: true }
+  );
+
+  if (!courseFolderId) {
+    throw new Error('No fue posible resolver la carpeta de destino en Google Drive');
+  }
 
   const media = {
     mimeType: file.mimetype,
@@ -125,14 +178,20 @@ export const getCourseImages = async (courseId: string): Promise<CourseImage[]> 
   const drive = getDriveClient();
   const rootFolderId = getFormacionesRootFolderId();
 
-  const existingFolder = await findCourseFolder(drive, rootFolderId, courseId);
+  const courseTitle = await getCourseTitle(courseId);
+  const courseFolderId = await resolveFolderPath(
+    drive,
+    rootFolderId,
+    [PLATFORM_FOLDER_NAME, FORMACIONES_FOLDER_NAME, courseTitle],
+    { createMissing: false }
+  );
 
-  if (!existingFolder?.id) {
+  if (!courseFolderId) {
     return [];
   }
 
   const response = await drive.files.list({
-    q: `'${existingFolder.id}' in parents and trashed = false`,
+    q: `'${courseFolderId}' in parents and trashed = false`,
     fields: 'files(id, name, mimeType, webViewLink, webContentLink, thumbnailLink, createdTime, modifiedTime)',
     orderBy: 'createdTime desc',
   });
