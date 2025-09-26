@@ -17,6 +17,7 @@ import eventsRoutes from "./modules/events/routes";
 import profesorsRoutes from "./modules/profesors/routes";
 import backModulesRoutes from "./modules/back-modules/routes";
 import testVocacionalRoutes from "./modules/test-vocacional/routes";
+import courseImagesRoutes from "./modules/course-images/routes";
 
 
 const app = express();
@@ -27,6 +28,7 @@ app.use(express.json());
 
 app.use("/api/auth", authRoutes);
 app.use("/api/formaciones", coursesRoutes);
+app.use("/api/formaciones/imagenes", courseImagesRoutes);
 app.use("/api/purchases", purchasesRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/contact", contactRoutes);
