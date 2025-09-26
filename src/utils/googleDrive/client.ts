@@ -14,6 +14,12 @@ const createDriveClient = (): drive_v3.Drive => {
     );
   }
 
+  if (!privateKey.includes('BEGIN PRIVATE KEY')) {
+    throw new Error(
+      'La variable GOOGLE_PRIVATE_KEY no contiene una clave privada válida del servicio de Google. Copia el bloque "private_key" completo del JSON de la cuenta de servicio (incluyendo -----BEGIN PRIVATE KEY----- y -----END PRIVATE KEY-----).'
+    );
+  }
+
   const authClient = new auth.JWT({
     email: clientEmail,
     key: privateKey,
