@@ -103,3 +103,20 @@ export const updateUser = async (req: any, res: Response) => {
   }
 }
 
+export const asignCourseToUser = async (req: any, res: Response) => {
+  const { id_curso } = req.body;
+  const id_usuario = req.params.id;
+
+  const userDoc = await firestore.collection('users').doc(id_usuario).get();
+  const courseDoc = await firestore.collection('courses').doc(id_curso).get();
+
+  if (!userDoc.exists) {
+    return res.status(404).json({ error: 'Usuario no encontrado' });
+  }
+  if (!courseDoc.exists) {
+    return res.status(404).json({ error: 'Curso no encontrado' });
+  }
+
+  await userDoc.ref.update({ cursos_asignados: [...userDoc.data()?.cursos_asignados || [], id_curso] });
+  return res.status(200).json({ message: 'Curso asignado al usuario' });
+}
