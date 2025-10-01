@@ -79,10 +79,15 @@ export const handleWebhook = async (req: Request, res: Response) => {
           createdAt: new Date(),
           paymentStatus: 'approved',
         });
+        
+
         console.log(`Compra registrada para userId: ${metadata.userId}, courseId: ${metadata.courseId}`);
       } else {
         console.log('La compra ya existe, omitiendo duplicado.');
       }
+
+      const userDoc = await firestore.collection('users').doc(metadata.userId).get();
+      await userDoc.ref.update({ cursos_asignados: [...userDoc.data()?.cursos_asignados || [], metadata.courseId] });
     }
 
     // Confirmar recepción

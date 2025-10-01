@@ -61,10 +61,6 @@ export const createPurchase = async (req: AuthenticatedRequest, res: Response) =
     };
 
     const docRef = await collection.add(purchase);
-
-    // asgiar curso al usuario
-    const userDoc = await firestore.collection('users').doc(id_usuario).get();
-    await userDoc.ref.update({ cursos_asignados: [...userDoc.data()?.cursos_asignados || [], courseId] });
     
     return res.status(201).json({ id: docRef.id });
   } catch (err) {
