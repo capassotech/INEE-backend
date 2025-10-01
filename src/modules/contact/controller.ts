@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import { Request, Response } from "express";
+import { firestore } from "../../config/firebase";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -268,6 +269,14 @@ export const contactSend = async (req: Request, res: Response) => {
   if (error) {
     return res.status(500).json({ message: "Error al enviar el mensaje" });
   }
+
+  await firestore.collection('consultas_contacto').add({
+    nombre: name,
+    email,
+    mensaje: message,
+    fecha_envio: new Date(),
+    estado: 'pendiente',
+  });
 
   return res.status(200).json({
     success: true,
