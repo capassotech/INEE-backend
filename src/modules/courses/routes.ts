@@ -6,6 +6,7 @@ import {
   createCourse,
   updateCourse,
   deleteCourse,
+  getUserCourses,
 } from './controller';
 import { authMiddleware } from '../../middleware/authMiddleware';
 import { AuthenticatedRequest } from '../../middleware/authMiddleware';
@@ -17,6 +18,7 @@ const router = Router();
 
 router.get('/', getAllCourses);
 router.get('/:id', getCourseById);
+router.get('/user/:id', getUserCourses);
 
 router.post('/', 
     authMiddleware,

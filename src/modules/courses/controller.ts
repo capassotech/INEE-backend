@@ -26,6 +26,30 @@ export const getAllCourses = async (_: Request, res: Response) => {
   }
 };
 
+export const getUserCourses = async (req: Request, res: Response) => {
+  try { 
+    const { id } = req.params;
+    const doc = await firestore.collection('users').doc(id).get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    const courses = doc.data()?.cursos_asignados || [];
+    const coursesData = await Promise.all(courses.map(async (courseId: string) => {
+      const courseDoc = await collection.doc(courseId).get();
+      return { id: courseDoc.id, ...courseDoc.data() };
+    }));
+
+    console.log(coursesData);
+
+    return res.json(coursesData);
+  } catch (err) {
+    console.error("getUserCourses error:", err);
+    return res.status(500).json({ error: "Error al obtener cursos del usuario" });
+  }
+};
+
 export const getCourseById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
