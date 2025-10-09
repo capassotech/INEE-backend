@@ -1,72 +1,208 @@
-// /src/modules/courses/controller.ts
-import { Request, Response } from 'express';
-import { firestore } from '../../config/firebase';
+import { Request, Response } from "express";
+import { firestore } from "../../config/firebase";
 import { AuthenticatedRequest } from "../../middleware/authMiddleware";
-import { Course } from './types';
+import { ValidatedCourse, ValidatedUpdateCourse } from "../../types/courses";
+import { validateUser } from "../../utils/utils";
 
-const collection = firestore.collection('courses');
+const collection = firestore.collection("courses");
 
 export const getAllCourses = async (_: Request, res: Response) => {
   try {
-    const snapshot = await collection.where('visible', '==', true).get();
-    const courses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const snapshot = await collection.get();
+
+    if (snapshot.empty) {
+      return res.json([]);
+    }
+
+    const courses = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
     return res.json(courses);
   } catch (err) {
-    console.error('getAllCourses error:', err);
-    return res.status(500).json({ error: 'Error al obtener cursos' });
+    console.error("getAllCourses error:", err);
+    return res.status(500).json({ error: "Error al obtener cursos" });
+  }
+};
+
+export const getUserCourses = async (req: Request, res: Response) => {
+  try { 
+    const { id } = req.params;
+    const doc = await firestore.collection('users').doc(id).get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    const courses = doc.data()?.cursos_asignados || [];
+    const coursesData = await Promise.all(courses.map(async (courseId: string) => {
+      const courseDoc = await collection.doc(courseId).get();
+      return { id: courseDoc.id, ...courseDoc.data() };
+    }));
+
+    console.log(coursesData);
+
+    return res.json(coursesData);
+  } catch (err) {
+    console.error("getUserCourses error:", err);
+    return res.status(500).json({ error: "Error al obtener cursos del usuario" });
   }
 };
 
 export const getCourseById = async (req: Request, res: Response) => {
   try {
-    const courseId = req.params.id;
-    const doc = await collection.doc(courseId).get();
+    const { id } = req.params;
+    const doc = await collection.doc(id).get();
 
-    if (!doc.exists) return res.status(404).json({ error: 'Curso no encontrado' });
+    if (!doc.exists) {
+      return res.status(404).json({ error: "Curso no encontrado" });
+    }
 
     return res.json({ id: doc.id, ...doc.data() });
   } catch (err) {
-    console.error('getCourseById error:', err);
-    return res.status(500).json({ error: 'Error al obtener curso' });
+    console.error("getCourseById error:", err);
+    return res.status(500).json({ error: "Error al obtener curso" });
   }
 };
 
-export const createCourse = async (req: AuthenticatedRequest, res: Response) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'No autorizado' });
+export const createCourse = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  const isAuthorized = await validateUser(req);
+  if (!isAuthorized) {
+    return res.status(403).json({
+      error: "No autorizado. Se requieren permisos de administrador.",
+    });
+  }
 
   try {
-    const data: Course = req.body;
-    const docRef = await collection.add(data);
-    return res.status(201).json({ id: docRef.id });
+    const courseData: ValidatedCourse = req.body;
+
+    const profesorExists = await firestore
+      .collection("profesores")
+      .doc(courseData.id_profesor)
+      .get();
+    if (!profesorExists.exists) {
+      return res
+        .status(404)
+        .json({ error: "El profesor especificado no existe" });
+    }
+
+    // Verificar que todos los módulos existen (solo si hay módulos)
+    if (courseData.id_modulos.length > 0) {
+      for (const moduloId of courseData.id_modulos) {
+        const moduloExists = await firestore
+          .collection("modulos")
+          .doc(moduloId)
+          .get();
+        if (!moduloExists.exists) {
+          return res.status(404).json({
+            error: `El módulo con ID "${moduloId}" no existe`,
+          });
+        }
+      }
+    }
+
+    const docRef = await collection.add({ ...courseData });
+
+    return res.status(201).json({
+      id: docRef.id,
+      message: "Curso creado exitosamente",
+      ...courseData,
+    });
   } catch (err) {
-    console.error('createCourse error:', err);
-    return res.status(500).json({ error: 'Error al crear curso' });
+    console.error("createCourse error:", err);
+    return res.status(500).json({ error: "Error al crear curso" });
   }
 };
 
-export const updateCourse = async (req: AuthenticatedRequest, res: Response) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'No autorizado' });
+export const updateCourse = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  const isAuthorized = await validateUser(req);
+  if (!isAuthorized) {
+    return res.status(403).json({
+      error: "No autorizado. Se requieren permisos de administrador.",
+    });
+  }
 
   try {
-    const courseId = req.params.id;
-    const data: Partial<Course> = req.body;
-    await collection.doc(courseId).update(data);
-    return res.json({ success: true });
+    const { id } = req.params;
+    const updateData: ValidatedUpdateCourse = req.body;
+
+    const courseExists = await collection.doc(id).get();
+    if (!courseExists.exists) {
+      return res.status(404).json({ error: "Curso no encontrado" });
+    }
+
+    if (updateData.id_profesor) {
+      const profesorExists = await firestore
+        .collection("profesores")
+        .doc(updateData.id_profesor)
+        .get();
+      if (!profesorExists.exists) {
+        return res
+          .status(404)
+          .json({ error: "El profesor especificado no existe" });
+      }
+    }
+
+    if (updateData.id_modulos && updateData.id_modulos.length > 0) {
+      for (const moduloId of updateData.id_modulos) {
+        const moduloExists = await firestore
+          .collection("modulos")
+          .doc(moduloId)
+          .get();
+        if (!moduloExists.exists) {
+          return res.status(404).json({
+            error: `El módulo con ID "${moduloId}" no existe`,
+          });
+        }
+      }
+    }
+
+    await collection.doc(id).update({ ...updateData });
+
+    return res.json({
+      message: "Curso actualizado exitosamente",
+      id: id,
+    });
   } catch (err) {
-    console.error('updateCourse error:', err);
-    return res.status(500).json({ error: 'Error al actualizar curso' });
+    console.error("updateCourse error:", err);
+    return res.status(500).json({ error: "Error al actualizar curso" });
   }
 };
 
-export const deleteCourse = async (req: AuthenticatedRequest, res: Response) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'No autorizado' });
+export const deleteCourse = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  const isAuthorized = await validateUser(req);
+  if (!isAuthorized) {
+    return res.status(403).json({
+      error: "No autorizado. Se requieren permisos de administrador.",
+    });
+  }
 
   try {
-    const courseId = req.params.id;
-    await collection.doc(courseId).delete();
-    return res.json({ success: true });
+    const { id } = req.params;
+
+    const courseExists = await collection.doc(id).get();
+    if (!courseExists.exists) {
+      return res.status(404).json({ error: "Curso no encontrado" });
+    }
+
+    await collection.doc(id).delete();
+    return res.json({
+      message: "Curso eliminado exitosamente",
+      id: id,
+    });
   } catch (err) {
-    console.error('deleteCourse error:', err);
-    return res.status(500).json({ error: 'Error al eliminar curso' });
+    console.error("deleteCourse error:", err);
+    return res.status(500).json({ error: "Error al eliminar curso" });
   }
 };
+

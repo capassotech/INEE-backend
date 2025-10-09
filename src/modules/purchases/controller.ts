@@ -3,6 +3,7 @@ import { Response } from 'express';
 import { firestore } from '../../config/firebase';
 import { AuthenticatedRequest } from '../../middleware/authMiddleware';
 import { Purchase } from './types';
+import axios from 'axios';
 
 const collection = firestore.collection('purchases');
 
@@ -50,15 +51,17 @@ export const hasAccessToCourse = async (req: AuthenticatedRequest, res: Response
 export const createPurchase = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { courseId, paymentStatus } = req.body;
+    const id_usuario = req.user.uid;
 
     const purchase: Purchase = {
-      userId: req.user.uid,
+      userId: id_usuario,
       courseId,
       createdAt: new Date(),
       paymentStatus: paymentStatus || 'approved', // si viene de webhook, este campo es clave
     };
 
     const docRef = await collection.add(purchase);
+    
     return res.status(201).json({ id: docRef.id });
   } catch (err) {
     console.error('createPurchase error:', err);

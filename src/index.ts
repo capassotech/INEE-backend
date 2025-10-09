@@ -12,6 +12,12 @@ import usersRoutes from "./modules/users/routes";
 import contactRoutes from "./modules/contact/routes";
 import newsletterRoutes from "./modules/newsletter/routes";
 import membershipRoutes from "./modules/membership/routes";
+import testimonialsRoutes from "./modules/testimonials/routes";
+import eventsRoutes from "./modules/events/routes";
+import profesorsRoutes from "./modules/profesors/routes";
+import backModulesRoutes from "./modules/back-modules/routes";
+import testVocacionalRoutes from "./modules/test-vocacional/routes";
+import ebooksRoutes from "./modules/ebooks/routes";
 
 
 const app = express();
@@ -21,7 +27,7 @@ app.use(cors());
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
-app.use("/api/courses", coursesRoutes);
+app.use("/api/formaciones", coursesRoutes);
 app.use("/api/purchases", purchasesRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/contact", contactRoutes);
@@ -30,6 +36,12 @@ app.use("/api/membership", membershipRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/newsletter", newsletterRoutes);
 app.use("/api/membership", membershipRoutes);
+app.use("/api/testimonios", testimonialsRoutes);
+app.use("/api/eventos", eventsRoutes);
+app.use("/api/profesores", profesorsRoutes);
+app.use("/api/modulos", backModulesRoutes);
+app.use("/api/test-vocacional", testVocacionalRoutes);
+app.use("/api/ebooks", ebooksRoutes);
 
 app.get("/", (_, res) => {
   res.json({
