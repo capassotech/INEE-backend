@@ -9,4 +9,5 @@ export interface Event {
   hora: string;
   modalidad: string;
   precio: number;
+  membresiaId?: string | null;
 }

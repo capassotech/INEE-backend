@@ -23,10 +23,10 @@ export const createEvent= async (req: AuthenticatedRequest, res: Response) => {
     if (!validateUser(req)) return res.status(403).json({ error: 'No autorizado' });
 
     try {
-        const { titulo, descripcion, fecha, hora, modalidad, precio }: Event = req.body;
+        const { titulo, descripcion, fecha, hora, modalidad, precio, membresiaId }: Event = req.body;
         if (!titulo || !descripcion || !fecha || !hora || !modalidad || !precio) return res.status(400).json({ error: 'Faltan campos obligatorios' });
 
-        const newEvent: Event = { titulo, descripcion, fecha, hora, modalidad, precio };
+        const newEvent: Event = { titulo, descripcion, fecha, hora, modalidad, precio, membresiaId: membresiaId || null };
         const docRef = await collection.add(newEvent);
         return res
             .status(201)
@@ -47,7 +47,7 @@ export const updateEvent = async (req: AuthenticatedRequest, res: Response) => {
     try {
         const eventId = req.params.id;
         const data: Partial<Event> = req.body;
-        if (!data.titulo && !data.descripcion && !data.fecha && !data.hora && !data.modalidad && !data.precio) return res.status(400).json({ error: 'Faltan campos obligatorios' });
+        if (!data.titulo && !data.descripcion && !data.fecha && !data.hora && !data.modalidad && !data.precio && !data.membresiaId) return res.status(400).json({ error: 'Faltan campos obligatorios' });
 
         await collection.doc(eventId).update(data);
         return res.json({
