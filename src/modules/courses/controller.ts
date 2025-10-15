@@ -132,6 +132,7 @@ export const updateCourse = async (
   try {
     const { id } = req.params;
     const updateData: ValidatedUpdateCourse = req.body;
+    
 
     const courseExists = await collection.doc(id).get();
     if (!courseExists.exists) {
