@@ -24,7 +24,7 @@ export const addMembershipToUser = async (req: any, res: Response) => {
     return res.status(404).json({ error: 'Membresía no encontrada' });
   }
 
-  await userDoc.ref.update({ membresia_id: membershipId });
+  await userDoc.ref.update({ membresia: membershipId });
   return res.status(200).json({ message: 'Membresía agregada al usuario' });
 }
 
