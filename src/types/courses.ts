@@ -69,7 +69,24 @@ export const CourseSchema = z.object({
         .max(20, "No puede tener más de 20 tags"),
     id_modulos: z.array(z.string()
         .min(1, "Los IDs de módulos no pueden estar vacíos"))
-        .max(50, "No puede tener más de 50 módulos")
+        .max(50, "No puede tener más de 50 módulos"),
+    aval: z.object({
+        titulo: z.string()
+            .min(1, "El título de la aval es obligatorio")
+            .max(200, "El título no puede exceder 200 caracteres")
+            .trim(),
+        descripcion: z.string()
+            .min(1, "La descripción de la aval es obligatoria")
+            .max(2000, "La descripción no puede exceder 2000 caracteres")
+            .trim(),
+        precio: z.number()
+            .min(0, "El precio no puede ser negativo")
+            .max(999999, "El precio no puede exceder $999,999"),
+        archivo: z.string()
+            .min(1, "La URL del archivo es obligatoria")
+            .max(2000, "La URL no puede exceder 2000 caracteres")
+            .trim(),
+    })
 });
 
 export const UpdateCourseSchema = CourseSchema.partial();
