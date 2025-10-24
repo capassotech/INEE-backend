@@ -120,3 +120,34 @@ export const sendPartialResponse = async (req: Request, res: Response) => {
         id_respuesta 
     });
 }
+
+export const getAllPreguntas = async (req: Request, res: Response) => {
+    try {
+        const preguntas = await firestore.collection('preguntas').get();
+        return res.json(preguntas.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+    } catch (error) {
+        console.error('getAllPreguntas error:', error);
+        return res.status(500).json({ error: 'Error al obtener preguntas' });
+    }
+}
+
+export const getRespuestaById = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    try {
+        const respuesta = await firestore.collection('respuestas').doc(id).get();
+        return res.json(respuesta.data());
+    } catch (error) {
+        console.error('getRespuestaById error:', error);
+        return res.status(500).json({ error: 'Error al obtener respuesta' });
+    }
+}
+
+export const getAllRespuestas = async (req: Request, res: Response) => {
+    try {
+        const respuestas = await firestore.collection('respuestas').get();
+        return res.json(respuestas.docs.map(doc => doc.data()));
+    } catch (error) {
+        console.error('getAllRespuestas error:', error);
+        return res.status(500).json({ error: 'Error al obtener respuestas' });
+    }
+}   
