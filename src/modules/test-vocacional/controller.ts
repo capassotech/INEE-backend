@@ -131,6 +131,50 @@ export const getAllPreguntas = async (req: Request, res: Response) => {
     }
 }
 
+export const createPregunta = async (req: Request, res: Response) => {
+    const { pregunta, respuestas } = req.body;
+    try {
+        const preguntasSnapshot = await firestore.collection('preguntas').get();
+        
+        let nextId = 'p1';
+        
+        if (!preguntasSnapshot.empty) {
+            const ids = preguntasSnapshot.docs.map(doc => doc.id);
+            const numericIds = ids
+                .filter(id => id.startsWith('p'))
+                .map(id => parseInt(id.substring(1)))
+                .filter(num => !isNaN(num));
+            
+            if (numericIds.length > 0) {
+                const maxId = Math.max(...numericIds);
+                nextId = `p${maxId + 1}`;
+            }
+        }
+
+        const id_respuestas = [];
+
+        for (const respuesta of respuestas) {
+            const newRespuesta = await createRespuesta(nextId, respuesta);
+            id_respuestas.push(newRespuesta.nextId);
+        }
+
+        await firestore.collection('preguntas').doc(nextId).set({
+            pregunta,
+            id_respuestas,
+            orden: nextId.replace('p', '')
+        });
+        
+        return res.json({ 
+            id: nextId,
+            pregunta, 
+            respuestas 
+        });
+    } catch (error) {
+        console.error('createPregunta error:', error);
+        return res.status(500).json({ error: 'Error al crear pregunta' });
+    }
+}
+
 export const getRespuestaById = async (req: Request, res: Response) => {
     const { id } = req.params;
     try {
@@ -142,6 +186,43 @@ export const getRespuestaById = async (req: Request, res: Response) => {
     }
 }
 
+export const createRespuestaEndpoint = async (req: Request, res: Response) => {
+    const { id_pregunta, respuesta } = req.body;
+    try {
+        await createRespuesta(id_pregunta, respuesta);
+        return res.json({ success: true });
+    } catch (error) {
+        console.error('createRespuestaEndpoint error:', error);
+        return res.status(500).json({ error: 'Error al crear respuesta' });
+    }
+}
+
+export const createRespuesta = async (id_pregunta: string, respuesta: string) => {
+    try {
+        const respuestasSnapshot = await firestore.collection('respuestas').get();
+        let nextId = 'r1';
+        if (!respuestasSnapshot.empty) {
+                const ids = respuestasSnapshot.docs.map(doc => doc.id);
+                const numericIds = ids
+                    .filter(id => id.startsWith('r'))
+                    .map(id => parseInt(id.substring(1)))
+                    .filter(num => !isNaN(num));
+                if (numericIds.length > 0) {
+                    const maxId = Math.max(...numericIds);
+                    nextId = `r${maxId + 1}`;
+                }
+        }
+        await firestore.collection('respuestas').doc(nextId).set({
+            id_pregunta,
+            respuesta
+        });
+        return { nextId };
+    } catch (error) {
+        console.error('createRespuesta error:', error);
+        return { error: 'Error al crear respuesta' };
+    }   
+}   
+
 export const getAllRespuestas = async (req: Request, res: Response) => {
     try {
         const respuestas = await firestore.collection('respuestas').get();
@@ -151,3 +232,14 @@ export const getAllRespuestas = async (req: Request, res: Response) => {
         return res.status(500).json({ error: 'Error al obtener respuestas' });
     }
 }   
+
+
+export const getPerfiles = async (req: Request, res: Response) => {
+    try {
+        const perfiles = await firestore.collection('rutas_aprendizaje').get();
+        return res.json(perfiles.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+    } catch (error) {
+        console.error('getPerfiles error:', error);
+        return res.status(500).json({ error: 'Error al obtener perfiles' });
+    }
+}
