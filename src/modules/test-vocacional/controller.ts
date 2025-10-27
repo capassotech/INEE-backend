@@ -132,7 +132,7 @@ export const getAllPreguntas = async (req: Request, res: Response) => {
 }
 
 export const createPregunta = async (req: Request, res: Response) => {
-    const { pregunta, respuestas } = req.body;
+    const { texto, respuestas } = req.body;
     try {
         const preguntasSnapshot = await firestore.collection('preguntas').get();
         
@@ -159,19 +159,33 @@ export const createPregunta = async (req: Request, res: Response) => {
         }
 
         await firestore.collection('preguntas').doc(nextId).set({
-            pregunta,
+            texto,
             id_respuestas,
             orden: nextId.replace('p', '')
         });
         
         return res.json({ 
             id: nextId,
-            pregunta, 
+            texto, 
             respuestas 
         });
     } catch (error) {
         console.error('createPregunta error:', error);
         return res.status(500).json({ error: 'Error al crear pregunta' });
+    }
+}
+
+export const updatePregunta = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { texto } = req.body;
+
+    try {
+        await firestore.collection('preguntas').doc(id).update({ texto });
+        return res.json({ success: true });
+    }
+    catch (error) {
+        console.error('updatePregunta error:', error);
+        return res.status(500).json({ error: 'Error al actualizar pregunta' });
     }
 }
 
@@ -197,7 +211,7 @@ export const createRespuestaEndpoint = async (req: Request, res: Response) => {
     }
 }
 
-export const createRespuesta = async (id_pregunta: string, respuesta: string) => {
+export const createRespuesta = async (id_pregunta: string, respuesta: { letra: string, texto: string }) => {
     try {
         const respuestasSnapshot = await firestore.collection('respuestas').get();
         let nextId = 'r1';
@@ -214,7 +228,8 @@ export const createRespuesta = async (id_pregunta: string, respuesta: string) =>
         }
         await firestore.collection('respuestas').doc(nextId).set({
             id_pregunta,
-            respuesta
+            letra: respuesta.letra,
+            texto: respuesta.texto
         });
         return { nextId };
     } catch (error) {
@@ -226,13 +241,12 @@ export const createRespuesta = async (id_pregunta: string, respuesta: string) =>
 export const getAllRespuestas = async (req: Request, res: Response) => {
     try {
         const respuestas = await firestore.collection('respuestas').get();
-        return res.json(respuestas.docs.map(doc => doc.data()));
+        return res.json(respuestas.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
     } catch (error) {
         console.error('getAllRespuestas error:', error);
         return res.status(500).json({ error: 'Error al obtener respuestas' });
     }
 }   
-
 
 export const getPerfiles = async (req: Request, res: Response) => {
     try {
@@ -241,5 +255,64 @@ export const getPerfiles = async (req: Request, res: Response) => {
     } catch (error) {
         console.error('getPerfiles error:', error);
         return res.status(500).json({ error: 'Error al obtener perfiles' });
+    }
+}
+
+export const getPerfilById = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    try {
+        const perfil = await firestore.collection('rutas_aprendizaje').doc(id).get();
+        return res.json(perfil.data());
+    } catch (error) {
+        console.error('getPerfilById error:', error);
+        return res.status(500).json({ error: 'Error al obtener perfil' });
+    }
+}
+
+export const updateRespuesta = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { texto } = req.body;
+
+    try {
+        await firestore.collection('respuestas').doc(id).update({ texto });
+        return res.json({ success: true });
+    } catch (error) {
+        console.error('updateRespuesta error:', error);
+        return res.status(500).json({ error: 'Error al actualizar respuesta' });
+    }
+}
+
+export const createPerfil = async (req: Request, res: Response) => {
+    const { nombre, descripcion, icono, color } = req.body;
+    try {
+        const docId = nombre.toLowerCase().replace(/\s+/g, '-');
+        await firestore.collection('rutas_aprendizaje').doc(docId).set({ nombre, descripcion, icono, color });
+        return res.json({ success: true });
+    } catch (error) {
+        console.error('createPerfil error:', error);
+        return res.status(500).json({ error: 'Error al crear perfil' });
+    }
+}
+
+export const updatePerfil = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { nombre, descripcion, icono, color } = req.body;
+    try {
+        await firestore.collection('rutas_aprendizaje').doc(id).update({ nombre, descripcion, icono, color });
+        return res.json({ success: true });
+    } catch (error) {
+        console.error('updatePerfil error:', error);
+        return res.status(500).json({ error: 'Error al actualizar perfil' });
+    }
+}
+
+export const deletePerfil = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    try {
+        await firestore.collection('rutas_aprendizaje').doc(id).delete();
+        return res.json({ success: true });
+    } catch (error) {
+        console.error('deletePerfil error:', error);
+        return res.status(500).json({ error: 'Error al eliminar perfil' });
     }
 }

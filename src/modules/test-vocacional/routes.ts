@@ -8,6 +8,12 @@ import {
     getAllRespuestas, 
     getPerfiles, 
     createPregunta,
+    updatePregunta,
+    updateRespuesta,
+    createPerfil,
+    updatePerfil,
+    deletePerfil,
+    getPerfilById,
 } from "./controller";
 
 
@@ -19,14 +25,26 @@ router.get('/preguntas', getAllPreguntas);
 
 router.post('/preguntas', createPregunta);
 
+router.put('/preguntas/:id', updatePregunta);
+
 router.get('/respuestas/:id', getRespuestaById);
 
 router.get('/respuestas', getAllRespuestas);
+
+router.put('/respuestas/:id', updateRespuesta);
 
 router.post('/', testVocacional);
 
 router.post('/enviar-respuesta-parcial/:uid', sendPartialResponse);
 
 router.get('/perfiles', getPerfiles);
+
+router.get('/perfiles/:id', getPerfilById);
+
+router.post('/perfiles', createPerfil);
+
+router.put('/perfiles/:id', updatePerfil);
+
+router.delete('/perfiles/:id', deletePerfil);
 
 export default router;
