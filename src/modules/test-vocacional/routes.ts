@@ -14,6 +14,7 @@ import {
     updatePerfil,
     deletePerfil,
     getPerfilById,
+    deletePregunta,
 } from "./controller";
 
 
@@ -26,6 +27,8 @@ router.get('/preguntas', getAllPreguntas);
 router.post('/preguntas', createPregunta);
 
 router.put('/preguntas/:id', updatePregunta);
+
+router.delete('/preguntas/:id', deletePregunta);
 
 router.get('/respuestas/:id', getRespuestaById);
 

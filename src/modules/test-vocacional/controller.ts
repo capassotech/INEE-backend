@@ -189,6 +189,17 @@ export const updatePregunta = async (req: Request, res: Response) => {
     }
 }
 
+export const deletePregunta = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    try {
+        await firestore.collection('preguntas').doc(id).delete();
+        return res.json({ success: true });
+    } catch (error) {
+        console.error('deletePregunta error:', error);
+        return res.status(500).json({ error: 'Error al eliminar pregunta' });
+    }
+}
+
 export const getRespuestaById = async (req: Request, res: Response) => {
     const { id } = req.params;
     try {
