@@ -1,4 +1,4 @@
-import { firestore } from "../config/firebase";
+import { firestore, storage } from "../config/firebase";
 import { AuthenticatedRequest } from "../middleware/authMiddleware";
 
 
