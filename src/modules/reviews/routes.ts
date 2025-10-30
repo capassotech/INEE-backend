@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createReview, getReviewsByCourse } from "../reviews/controller";
+import { createReview, getReviewsByCourse, reminderReview } from "../reviews/controller";
 import { authMiddleware } from "../../middleware/authMiddleware";
 import { validateBody } from "../../middleware/zodValidation";
 import { ReviewCreateSchema } from "../../types/reviews";
@@ -16,5 +16,7 @@ router.post(
   validateBody(ReviewCreateSchema),
   (req: Request, res: Response) => createReview(req as AuthenticatedRequest, res)
 );
+
+router.post("/reminder", reminderReview);
 
 export default router;
