@@ -104,10 +104,12 @@ export const basicSanitization = (
   next: NextFunction
 ) => {
   const sanitizeString = (str: string): string => {
-    return str
-      .trim()
-      .replace(/[\x00-\x1f\x7f-\x9f]/g, "")
-      .slice(0, 10000);
+    const trimmed = str.trim().replace(/[\x00-\x1f\x7f-\x9f]/g, "");
+    // No truncar data URLs/base64 para evitar romper imágenes/documentos
+    if (trimmed.startsWith("data:image/") || trimmed.startsWith("data:application/")) {
+      return trimmed;
+    }
+    return trimmed.slice(0, 10000);
   };
 
   const sanitizeObject = (obj: any): any => {

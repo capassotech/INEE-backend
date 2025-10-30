@@ -1,6 +1,6 @@
 import { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { Request, Response } from "express";
-import { Event } from "../../types/events";
+import { Event, ValidatedCreateEvent, ValidatedUpdateEvent } from "../../types/events";
 import { firestore } from "../../config/firebase";
 import { validateUser } from "../../utils/utils";
 
@@ -19,40 +19,68 @@ export const getEventById = async (req: Request, res: Response) => {
 };
 
 
-export const createEvent= async (req: AuthenticatedRequest, res: Response) => {
-    if (!validateUser(req)) return res.status(403).json({ error: 'No autorizado' });
+export const createEvent = async (req: AuthenticatedRequest, res: Response) => {
+  const isAuthorized = await validateUser(req);
+  if (!isAuthorized) {
+    return res.status(403).json({ error: "No autorizado. Se requieren permisos de administrador." });
+  }
 
-    try {
-        const { titulo, descripcion, fecha, hora, modalidad, precio, membresiaId }: Event = req.body;
-        if (!titulo || !descripcion || !fecha || !hora || !modalidad || !precio) return res.status(400).json({ error: 'Faltan campos obligatorios' });
+  try {
 
-        const newEvent: Event = { titulo, descripcion, fecha, hora, modalidad, precio, membresiaId: membresiaId || null };
-        const docRef = await collection.add(newEvent);
-        return res
-            .status(201)
-            .json({
-                id: docRef.id,
-                ...newEvent
-            })
-            .end();
-    } catch (err) {
-        console.error('createEvent error:', err);
-        return res.status(500).json({ error: 'Error al crear curso' });
+    const eventData: ValidatedCreateEvent = req.body;
+
+    const newEvent: any = {
+      ...eventData,
+    };
+
+    // Solo normaliza membresiaId como en updateEvent
+    if (newEvent.membresiaId !== undefined) {
+      newEvent.membresiaId = newEvent.membresiaId || null;
     }
+
+    const docRef = await collection.add(newEvent);
+    const createdDoc = await docRef.get();
+
+    return res.status(201).json({
+      id: createdDoc.id,
+      ...createdDoc.data(),
+      message: "Evento creado exitosamente",
+    });
+  } catch (err) {
+    console.error("createEvent error:", err);
+    return res.status(500).json({ error: "Error al crear evento" });
+  }
 };
 
+
 export const updateEvent = async (req: AuthenticatedRequest, res: Response) => {
-    if (!validateUser(req)) return res.status(403).json({ error: 'No autorizado' });
+    const isAuthorized = await validateUser(req);
+    if (!isAuthorized) {
+        return res.status(403).json({
+            error: "No autorizado. Se requieren permisos de administrador.",
+        });
+    }
 
     try {
         const eventId = req.params.id;
-        const data: Partial<Event> = req.body;
-        if (!data.titulo && !data.descripcion && !data.fecha && !data.hora && !data.modalidad && !data.precio && !data.membresiaId) return res.status(400).json({ error: 'Faltan campos obligatorios' });
+        const updateData: ValidatedUpdateEvent = req.body;
 
-        await collection.doc(eventId).update(data);
+        const eventExists = await collection.doc(eventId).get();
+        if (!eventExists.exists) {
+            return res.status(404).json({ error: "Evento no encontrado" });
+        }
+
+        const dataToUpdate: any = {
+            ...updateData,
+        };
+        if (updateData.membresiaId !== undefined) {
+            dataToUpdate.membresiaId = updateData.membresiaId || null;
+        }
+
+        await collection.doc(eventId).update(dataToUpdate);
         return res.json({
-            success: true,
-            ...data
+            message: "Evento actualizado exitosamente",
+            id: eventId,
         });
     } catch (err) {
         console.error('updateEvent error:', err);
