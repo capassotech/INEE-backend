@@ -125,7 +125,6 @@ export const reminderReview = async (req: Request, res: Response) => {
         const current = await reminderRef.get();
         if (!current.exists) return job.stop();
         const data = current.data() as any;
-        // Solo detener si ESTE documento ya fue marcado como enviado
         if (data?.status === "sent" && current.id === reminderRef.id) return job.stop();
         
         const courseTitle = (course.data() as any)?.titulo || "el curso";
