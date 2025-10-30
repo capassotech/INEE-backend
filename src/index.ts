@@ -18,7 +18,7 @@ import profesorsRoutes from "./modules/profesors/routes";
 import backModulesRoutes from "./modules/back-modules/routes";
 import testVocacionalRoutes from "./modules/test-vocacional/routes";
 import ebooksRoutes from "./modules/ebooks/routes";
-
+import reviewsRoutes from "./modules/reviews/routes";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -33,15 +33,13 @@ app.use("/api/users", usersRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/newsletter", newsletterRoutes);
 app.use("/api/membership", membershipRoutes);
-app.use("/api/contact", contactRoutes);
-app.use("/api/newsletter", newsletterRoutes);
-app.use("/api/membership", membershipRoutes);
 app.use("/api/testimonios", testimonialsRoutes);
 app.use("/api/eventos", eventsRoutes);
 app.use("/api/profesores", profesorsRoutes);
 app.use("/api/modulos", backModulesRoutes);
 app.use("/api/test-vocacional", testVocacionalRoutes);
 app.use("/api/ebooks", ebooksRoutes);
+app.use("/api/reviews", reviewsRoutes);
 
 app.get("/", (_, res) => {
   res.json({
@@ -50,6 +48,7 @@ app.get("/", (_, res) => {
     environment: process.env.NODE_ENV || "development",
   });
 });
+
 app.get("/health", (_, res) => {
   res.status(200).json({
     status: "OK",
