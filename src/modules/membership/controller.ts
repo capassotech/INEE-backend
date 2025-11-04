@@ -1,8 +1,7 @@
 import { Request, Response } from 'express';
 import { firestore } from '../../config/firebase';
 import { 
-  MembershipCreationData, 
-  MembershipUpdateData, 
+  MembershipUpdateData,
   MembershipId,
 } from '../../types/membership';
 
@@ -10,6 +9,7 @@ interface TypedRequest<T = any> extends Request {
   body: T;
   params: MembershipId;
 }
+
 
 export const getMembership = async (req: Request, res: Response) => {
   try {
@@ -19,8 +19,6 @@ export const getMembership = async (req: Request, res: Response) => {
       id: doc.id,
       ...doc.data()
     }));
-
-    console.log(`Found ${memberships.length} memberships`);
 
     return res.status(200).json({
       success: true,
@@ -63,45 +61,10 @@ export const getMembershipById = async (req: TypedRequest, res: Response) => {
   }
 };
 
-export const createMembership = async (req: TypedRequest<MembershipCreationData>, res: Response) => {
-  try {
-    const membershipData = req.body; 
-    const now = new Date();
-
-    const newMembership = {
-      ...membershipData,
-      fechaCreacion: now,
-      fechaActualizacion: now
-    };
-
-    const membershipRef = await firestore.collection('membresias').add(newMembership);
-    
-
-    const createdDoc = await membershipRef.get();
-    const createdMembership = {
-      id: createdDoc.id,
-      ...createdDoc.data()
-    };
-
-    console.log(`Created membership: ${membershipData.nombre} (ID: ${membershipRef.id})`);
-
-    return res.status(201).json({
-      success: true,
-      message: 'Membresía creada exitosamente',
-      data: createdMembership
-    });
-  } catch (error) {
-    console.error('Error creating membership:', error);
-    return res.status(500).json({
-      error: 'Error interno del servidor al crear la membresía'
-    });
-  }
-};
-
 export const updateMembership = async (req: TypedRequest<MembershipUpdateData>, res: Response) => {
   try {
     const { id } = req.params;
-    const updateData = req.body;
+    const { nombre, descripcion, precio, informacionAdicional } = req.body;
 
     const membershipDoc = await firestore.collection('membresias').doc(id).get();
     
@@ -111,20 +74,23 @@ export const updateMembership = async (req: TypedRequest<MembershipUpdateData>, 
       });
     }
 
-    const updatedData = {
-      ...updateData,
+    // Construir objeto de actualización solo con los campos proporcionados
+    const updatePayload: Partial<MembershipUpdateData> & { fechaActualizacion: Date } = {
       fechaActualizacion: new Date()
     };
 
-    await membershipDoc.ref.update(updatedData);
+    if (nombre !== undefined) updatePayload.nombre = nombre;
+    if (descripcion !== undefined) updatePayload.descripcion = descripcion;
+    if (precio !== undefined) updatePayload.precio = precio;
+    if (informacionAdicional !== undefined) updatePayload.informacionAdicional = informacionAdicional;
+
+    await membershipDoc.ref.update(updatePayload);
     
     const updatedDoc = await firestore.collection('membresias').doc(id).get();
     const updatedMembership = {
       id: updatedDoc.id,
       ...updatedDoc.data()
     };
-
-    console.log(`Updated membership: ${id}`);
 
     return res.status(200).json({
       success: true,
@@ -138,33 +104,3 @@ export const updateMembership = async (req: TypedRequest<MembershipUpdateData>, 
     });
   }
 };
-
-export const deleteMembership = async (req: TypedRequest, res: Response) => {
-  try {
-    const { id } = req.params;
-    
-    const membershipDoc = await firestore.collection('membresias').doc(id).get();
-    
-    if (!membershipDoc.exists) {
-      return res.status(404).json({
-        error: 'Membresía no encontrada'
-      });
-    }
-
-    await membershipDoc.ref.delete();
-
-    console.log(`Deleted membership: ${id}`);
-
-    return res.status(200).json({
-      success: true,
-      message: 'Membresía eliminada exitosamente'
-    });
-  } catch (error) {
-    console.error('Error deleting membership:', error);
-    return res.status(500).json({
-      error: 'Error interno del servidor al eliminar la membresía'
-    });
-  }
-};
-
-

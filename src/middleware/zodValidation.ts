@@ -105,7 +105,6 @@ export const basicSanitization = (
 ) => {
   const sanitizeString = (str: string): string => {
     const trimmed = str.trim().replace(/[\x00-\x1f\x7f-\x9f]/g, "");
-    // No truncar data URLs/base64 para evitar romper imágenes/documentos
     if (trimmed.startsWith("data:image/") || trimmed.startsWith("data:application/")) {
       return trimmed;
     }
