@@ -5,12 +5,15 @@ import { Request, Response } from "express";
 import { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { ValidatedCreateReview } from "../../types/reviews";
 
-const frontendUrl = "http://localhost:8080";
+const frontendUrl = "https://inee-plataforma.web.app";
 
-export const createReview = async (req: AuthenticatedRequest, res: Response) => {
+export const createReview = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
   try {
     const { courseId, rating, comment } = req.body as ValidatedCreateReview;
-    const userId = req.user.uid; 
+    const userId = req.user.uid;
 
     const existing = await firestore
       .collection("reviews")
@@ -19,7 +22,9 @@ export const createReview = async (req: AuthenticatedRequest, res: Response) => 
       .get();
 
     if (!existing.empty) {
-      return res.status(400).json({ error: "Ya dejaste una reseña para este curso." });
+      return res
+        .status(400)
+        .json({ error: "Ya dejaste una reseña para este curso." });
     }
 
     const newReview = {
@@ -31,7 +36,7 @@ export const createReview = async (req: AuthenticatedRequest, res: Response) => 
     };
 
     const docRef = await firestore.collection("reviews").add(newReview);
-    
+
     return res.status(201).json({
       id: docRef.id,
       ...newReview,
@@ -52,7 +57,7 @@ export const getReviewsByCourse = async (req: Request, res: Response) => {
       .orderBy("createdAt", "desc")
       .get();
 
-    const reviews = snapshot.docs.map(doc => ({
+    const reviews = snapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
     }));
@@ -63,7 +68,6 @@ export const getReviewsByCourse = async (req: Request, res: Response) => {
     return res.status(500).json({ error: "Error al cargar reseñas" });
   }
 };
-
 
 export const reminderReview = async (req: Request, res: Response) => {
   try {
@@ -84,9 +88,13 @@ export const reminderReview = async (req: Request, res: Response) => {
       .where("userId", "==", userId)
       .where("courseId", "==", courseId)
       .get();
-    const hasScheduled = reminderSnapshot.docs.some((d) => (d.data() as any)?.status === "scheduled");
+    const hasScheduled = reminderSnapshot.docs.some(
+      (d) => (d.data() as any)?.status === "scheduled"
+    );
     if (hasScheduled) {
-      return res.status(400).json({ error: "Ya existe un recordatorio para este usuario y curso" });
+      return res
+        .status(400)
+        .json({ error: "Ya existe un recordatorio para este usuario y curso" });
     }
 
     const userData = user.data() as any;
@@ -96,7 +104,7 @@ export const reminderReview = async (req: Request, res: Response) => {
     }
 
     const sendAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    // const sendAt = new Date(Date.now() + 2 * 60 * 1000);
+    //const sendAt = new Date(Date.now() + 2 * 60 * 1000);
 
     const reminderRef = await firestore.collection("review_reminders").add({
       userId,
@@ -110,7 +118,7 @@ export const reminderReview = async (req: Request, res: Response) => {
     const minute = sendAt.getMinutes();
     const hour = sendAt.getHours();
     const dayOfMonth = sendAt.getDate();
-    const month = sendAt.getMonth() + 1; 
+    const month = sendAt.getMonth() + 1;
     const cronExpr = `${minute} ${hour} ${dayOfMonth} ${month} *`;
 
     if (!process.env.RESEND_API_KEY) {
@@ -120,45 +128,54 @@ export const reminderReview = async (req: Request, res: Response) => {
 
     const resend = new Resend(process.env.RESEND_API_KEY);
 
-    const job = cron.schedule(cronExpr, async () => {
-      try {
-        const current = await reminderRef.get();
-        if (!current.exists) return job.stop();
-        const data = current.data() as any;
-        if (data?.status === "sent" && current.id === reminderRef.id) return job.stop();
-        
-        const courseTitle = (course.data() as any)?.titulo || "el curso";
-        const userName = userData?.nombre || "";
+    const job = cron.schedule(
+      cronExpr,
+      async () => {
+        try {
+          const current = await reminderRef.get();
+          if (!current.exists) return job.stop();
+          const data = current.data() as any;
+          if (data?.status === "sent" && current.id === reminderRef.id)
+            return job.stop();
 
-        await resend.emails.send({
-          from: "INEE Oficial <contacto@ineeoficial.com>",
-          to: email,
-          subject: `¿Nos contás tu experiencia en ${courseTitle}?`,
-          html: 
-            `<div>
+          const courseTitle = (course.data() as any)?.titulo || "el curso";
+          const userName = userData?.nombre || "";
+
+          await resend.emails.send({
+            from: "INEE Oficial <contacto@ineeoficial.com>",
+            to: email,
+            subject: `¿Nos contás tu experiencia en ${courseTitle}?`,
+            html: `<div>
               <p>¡Hola ${userName}! Felicitaciones y muchas gracias por completar el curso. ¿Podrías dejarnos una reseña para que otros usuarios puedan conocer tu opinión?</p>
               <a href="${frontendUrl}/course/${courseId}/review?mail=true">Dejar mi reseña</a>
              </div>
             `,
-        });
+          });
 
-        await reminderRef.update({ status: "sent", sentAt: new Date() });
-      } catch (e) {
-        console.error("Fallo al enviar email de recordatorio:", e);
-        await reminderRef.update({ status: "error", errorAt: new Date(), error: String(e) });
-      } finally {
-        job.stop(); 
-      }
-    }, { timezone: process.env.TZ || "America/Argentina/Buenos_Aires" });
+          await reminderRef.update({ status: "sent", sentAt: new Date() });
+        } catch (e) {
+          console.error("Fallo al enviar email de recordatorio:", e);
+          await reminderRef.update({
+            status: "error",
+            errorAt: new Date(),
+            error: String(e),
+          });
+        } finally {
+          job.stop();
+        }
+      },
+      { timezone: process.env.TZ || "America/Argentina/Buenos_Aires" }
+    );
 
     return res.json({
       message: "Recordatorio programado",
       reminderId: reminderRef.id,
       sendAt,
     });
-
   } catch (error) {
     console.error("Error al enviar recordatorio de review:", error);
-    return res.status(500).json({ error: "Error al enviar recordatorio de review" });
+    return res
+      .status(500)
+      .json({ error: "Error al enviar recordatorio de review" });
   }
 };
