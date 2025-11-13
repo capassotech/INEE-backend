@@ -7,12 +7,18 @@ import {
     deleteItemFromCart, 
     assignUserToCart, 
     mergeCarts,
+    getCartByUserId,
+    getCartById,
+    createCartWhithoutUser
 } from "./controller";
 
 const router = Router();
 
 router.get('/', getAllCarts);
-router.post('/', createCart);
+router.get('/:cartId', getCartById);
+router.get('/:userId', getCartByUserId);
+router.post('/:userId', createCart);
+router.post('/', createCartWhithoutUser);
 router.post('/:cartId/add-item', addItemToCart);
 router.put('/:cartId/update-quantity', updateQuantity)
 router.delete('/:cartId/delete-item', deleteItemFromCart)
