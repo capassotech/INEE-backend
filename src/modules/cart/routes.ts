@@ -15,7 +15,7 @@ import {
 const router = Router();
 
 router.get('/', getAllCarts);
-router.get('/:cartId', getCartById);
+router.get('/:cartId/get-cart-by-id', getCartById);
 router.get('/:userId', getCartByUserId);
 router.post('/:userId', createCart);
 router.post('/', createCartWhithoutUser);
