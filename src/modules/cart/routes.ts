@@ -3,27 +3,27 @@ import {
     getAllCarts, 
     createCart, 
     addItemToCart, 
-    updateQuantity, 
     deleteItemFromCart, 
     assignUserToCart, 
     mergeCarts,
     getCartByUserId,
     getCartById,
-    createCartWhithoutUser
+    createCartWhithoutUser,
+    clearCart
 } from "./controller";
 
 const router = Router();
 
 router.get('/', getAllCarts);
-router.get('/:cartId/get-cart-by-id', getCartById);
-router.get('/:userId', getCartByUserId);
-router.post('/:userId', createCart);
+router.get('/get-cart-by-id/:cartId', getCartById);
+router.get('/get-cart-by-userid/:userId', getCartByUserId);
+router.post('/create-cart/:userId', createCart);
 router.post('/', createCartWhithoutUser);
-router.post('/:cartId/add-item', addItemToCart);
-router.put('/:cartId/update-quantity', updateQuantity)
-router.delete('/:cartId/delete-item', deleteItemFromCart)
-router.put('/:cartId/assign-user', assignUserToCart)
-router.post('/:cartId/merge', mergeCarts)
+router.post('/add-item/:cartId', addItemToCart);
+router.delete('/delete-item/:cartId', deleteItemFromCart)
+router.put('/assign-user/:cartId', assignUserToCart)
+router.post('/merge/:cartId', mergeCarts)
+router.delete('/clear-cart/:cartId', clearCart)
 
 export default router;
 

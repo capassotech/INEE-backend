@@ -1,3 +1,4 @@
+import ca from "zod/v4/locales/ca.js";
 import { firestore } from "../../config/firebase";
 import { Request, Response } from "express";
 
@@ -110,44 +111,36 @@ export const addItemToCart = async (req: Request, res: Response) => {
 
 }
 
-export const updateQuantity = async (req: Request, res: Response) => {
-    const { cartId } = req.params;
-    const { productId, quantity } = req.body;
-    const cart = await firestore.collection('carts').doc(cartId).get();
-    if (!cart) {
-        return res.status(404).json({ error: 'Carrito no encontrado' });
-    }
-    const itemIndex = cart.data()?.items.find((item: any) => item.productId === productId);
-    if (!itemIndex) {
-        return res.status(404).json({ error: 'Item no encontrado' });
-    }
-
-    try {
-        await firestore.collection('carts').doc(cartId).update({
-            items: cart.data()?.items.map((item: any) => item.productId === productId ? { ...item, quantity } : item),
-            updatedAt: new Date(),
-        });
-        return res.json(cart.data());
-    } catch (error) {
-        console.error('Error al actualizar cantidad:', error);
-        return res.status(500).json({ error: 'Error al actualizar cantidad' });
-    }
-}
-
 export const deleteItemFromCart = async (req: Request, res: Response) => {
     const { cartId } = req.params;
     const { productId } = req.body;
-    const cart = await firestore.collection('carts').doc(cartId).get();
+    const cartRef = firestore.collection('carts').doc(cartId);
+    const cart = await cartRef.get();
     if (!cart.exists) {
         return res.status(404).json({ error: 'Carrito no encontrado' });
     }
 
     try {
-        await firestore.collection('carts').doc(cartId).update({
-            items: cart.data()?.items.filter((item: any) => item.productId !== productId),
-            updatedAt: new Date(),
+        const cartData = cart.data();
+        const currentItems = cartData?.items || [];
+        const updatedItems = currentItems.filter((item: any) => item.productId !== productId);
+
+        if (updatedItems.length === currentItems.length) {
+            return res.status(404).json({ error: 'Producto no encontrado en el carrito' });
+        }
+
+        if (updatedItems.length === 0) {
+            await cartRef.delete();
+            return res.json({ message: 'Carrito eliminado porque se removió el último producto' });
+        }
+
+        const updatedAt = new Date();
+        await cartRef.update({
+            items: updatedItems,
+            updatedAt,
         });
-        return res.json(cart.data());    
+
+        return res.json({ ...cartData, items: updatedItems, updatedAt });
     } catch (error) {
         console.error('Error al eliminar item del carrito:', error);
         return res.status(500).json({ error: 'Error al eliminar item del carrito' });
@@ -194,10 +187,7 @@ export const mergeCarts = async (req: Request, res: Response) => {
         const localItem = localCart[i];
         const cartItem = cartItems.find((item: any) => item.productId === localItem.productId);
         if (cartItem) {
-            newCart.push({
-                ...cartItem,
-                quantity: cartItem.quantity + localItem.quantity,
-            });
+            continue;
         } else {
             newCart.push(localItem);
         }
@@ -215,4 +205,20 @@ export const mergeCarts = async (req: Request, res: Response) => {
         console.error('Error al mergear carritos:', error);
         return res.status(500).json({ error: 'Error al mergear carritos' });
     }
-}   
+}
+
+export const clearCart = async (req: Request, res: Response) => {
+    try {
+        const { cartId } = req.params;
+        const cartRef = firestore.collection('carts').doc(cartId);
+        const cart = await cartRef.get();
+        if (!cart.exists) {
+            return res.status(404).json({ error: 'Carrito no encontrado' });
+        }
+        await cartRef.delete();
+        return res.json({ message: 'Carrito eliminado' });
+    } catch (error) {
+        console.error('Error al eliminar carrito:', error);
+        return res.status(500).json({ error: 'Error al eliminar carrito' });
+    }
+}
