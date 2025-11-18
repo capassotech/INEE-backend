@@ -3,6 +3,7 @@ import { Request, Response } from "express";
 import { Event, ValidatedCreateEvent, ValidatedUpdateEvent } from "../../types/events";
 import { firestore } from "../../config/firebase";
 import { validateUser } from "../../utils/utils";
+import { cache, CACHE_KEYS } from "../../utils/cache";
 
 const collection = firestore.collection('events');
 
@@ -12,6 +13,18 @@ export const getAllEvents = async (req: Request, res: Response) => {
         const limit = Math.min(parseInt(req.query.limit as string || '20'), 100); // Máximo 100
         const lastId = req.query.lastId as string | undefined;
         const search = req.query.search as string | undefined; // Búsqueda de texto
+        
+        // ✅ CACHÉ: Solo cachear si no hay búsqueda ni paginación
+        const shouldCache = !search && !lastId;
+        
+        if (shouldCache) {
+            const cacheKey = cache.generateKey(CACHE_KEYS.EVENTS, { limit });
+            const cached = cache.get(cacheKey);
+            if (cached) {
+                console.log('✅ [Cache] Hit para getAllEvents:', cacheKey);
+                return res.json(cached);
+            }
+        }
         
         // Para búsquedas, necesitamos un límite mayor para tener más resultados después del filtrado
         const queryLimit = search && search.trim() ? limit * 3 : limit; // 3x para búsquedas
@@ -58,7 +71,7 @@ export const getAllEvents = async (req: Request, res: Response) => {
         // Si hay más documentos que el límite, entonces hay más páginas
         const hasMore = snapshot.docs.length > queryLimit;
         
-        return res.json({
+        const response = {
             events,
             pagination: {
                 hasMore,
@@ -66,7 +79,16 @@ export const getAllEvents = async (req: Request, res: Response) => {
                 limit,
                 count: events.length
             }
-        });
+        };
+        
+        // ✅ CACHÉ: Guardar en caché si corresponde
+        if (shouldCache) {
+            const cacheKey = cache.generateKey(CACHE_KEYS.EVENTS, { limit });
+            cache.set(cacheKey, response, 300); // 5 minutos
+            console.log('💾 [Cache] Guardado getAllEvents:', cacheKey);
+        }
+        
+        return res.json(response);
     } catch (error) {
         console.error('getAllEvents error:', error);
         return res.status(500).json({ error: 'Error al obtener eventos' });
@@ -101,6 +123,10 @@ export const createEvent = async (req: AuthenticatedRequest, res: Response) => {
 
     const docRef = await collection.add(newEvent);
     const createdDoc = await docRef.get();
+
+    // ✅ CACHÉ: Invalidar caché de eventos al crear uno nuevo
+    cache.invalidatePattern(`${CACHE_KEYS.EVENTS}:`);
+    console.log('🗑️ [Cache] Invalidado caché de eventos (createEvent)');
 
     return res.status(201).json({
       id: createdDoc.id,
@@ -155,6 +181,11 @@ export const deleteEvent = async (req: AuthenticatedRequest, res: Response) => {
     try {
         const eventId = req.params.id;
         await collection.doc(eventId).delete();
+
+        // ✅ CACHÉ: Invalidar caché de eventos al eliminar
+        cache.invalidatePattern(`${CACHE_KEYS.EVENTS}:`);
+        console.log('🗑️ [Cache] Invalidado caché de eventos (deleteEvent)');
+
         return res.json({ success: true });
     } catch (err) {
         console.error('deleteEvent error:', err);

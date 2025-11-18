@@ -3,6 +3,7 @@ import { firestore } from "../../config/firebase";
 import { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { validateUser } from "../../utils/utils";
 import { ValidatedCreateEbook, ValidatedUpdateEbook } from "../../types/ebooks";
+import { cache, CACHE_KEYS } from "../../utils/cache";
 
 const collection = firestore.collection("ebooks");
 
@@ -12,6 +13,18 @@ export const getAllEbooks = async (req: Request, res: Response) => {
     const limit = Math.min(parseInt(req.query.limit as string || '20'), 100); // Máximo 100
     const lastId = req.query.lastId as string | undefined;
     const search = req.query.search as string | undefined; // Búsqueda de texto
+    
+    // ✅ CACHÉ: Solo cachear si no hay búsqueda ni paginación
+    const shouldCache = !search && !lastId;
+    
+    if (shouldCache) {
+      const cacheKey = cache.generateKey(CACHE_KEYS.EBOOKS, { limit });
+      const cached = cache.get(cacheKey);
+      if (cached) {
+        console.log('✅ [Cache] Hit para getAllEbooks:', cacheKey);
+        return res.json(cached);
+      }
+    }
     
     // Para búsquedas, necesitamos un límite mayor para tener más resultados después del filtrado
     const queryLimit = search && search.trim() ? limit * 3 : limit; // 3x para búsquedas
@@ -61,7 +74,7 @@ export const getAllEbooks = async (req: Request, res: Response) => {
     // Si hay más documentos que el límite, entonces hay más páginas
     const hasMore = snapshot.docs.length > queryLimit;
     
-    return res.json({
+    const response = {
       ebooks,
       pagination: {
         hasMore,
@@ -69,7 +82,16 @@ export const getAllEbooks = async (req: Request, res: Response) => {
         limit,
         count: ebooks.length
       }
-    });
+    };
+    
+    // ✅ CACHÉ: Guardar en caché si corresponde
+    if (shouldCache) {
+      const cacheKey = cache.generateKey(CACHE_KEYS.EBOOKS, { limit });
+      cache.set(cacheKey, response, 300); // 5 minutos
+      console.log('💾 [Cache] Guardado getAllEbooks:', cacheKey);
+    }
+    
+    return res.json(response);
   } catch (err) {
     console.error("getAllEbooks error:", err);
     return res.status(500).json({ error: "Error al obtener ebooks" });
@@ -108,6 +130,10 @@ export const createEbook = async (req: AuthenticatedRequest, res: Response) => {
     const docRef = await collection.add(newEbook);
     const createdDoc = await docRef.get();
 
+    // ✅ CACHÉ: Invalidar caché de ebooks al crear uno nuevo
+    cache.invalidatePattern(`${CACHE_KEYS.EBOOKS}:`);
+    console.log('🗑️ [Cache] Invalidado caché de ebooks (createEbook)');
+
     return res.status(201).json({
       id: createdDoc.id,
       ...createdDoc.data(),
@@ -139,6 +165,9 @@ export const updateEbook = async (req: AuthenticatedRequest, res: Response) => {
 
     await collection.doc(ebookId).update(dataToUpdate);
 
+    // ✅ CACHÉ: Invalidar caché de ebooks al actualizar
+    cache.invalidatePattern(`${CACHE_KEYS.EBOOKS}:`);
+    console.log('🗑️ [Cache] Invalidado caché de ebooks (updateEbook)');
 
     return res.json({
       message: "Ebook actualizado exitosamente",
@@ -160,6 +189,11 @@ export const deleteEbook = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const ebookId = req.params.id;
     await collection.doc(ebookId).delete();
+
+    // ✅ CACHÉ: Invalidar caché de ebooks al eliminar
+    cache.invalidatePattern(`${CACHE_KEYS.EBOOKS}:`);
+    console.log('🗑️ [Cache] Invalidado caché de ebooks (deleteEbook)');
+
     return res.json({ message: "Ebook eliminado exitosamente" });
   } catch (err) {
     return res.status(500).json({ error: "Error al eliminar ebook" });

@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import { cacheHeaders } from "./middleware/cacheHeaders";
 
 dotenv.config();
 
@@ -25,6 +26,10 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+
+// ✅ CACHÉ: Agregar headers de caché a todas las respuestas de API
+// Las respuestas se cachearán en el navegador por 5 minutos
+app.use("/api", cacheHeaders(300));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/formaciones", coursesRoutes);

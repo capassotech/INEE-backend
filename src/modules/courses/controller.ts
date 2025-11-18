@@ -3,6 +3,7 @@ import { firestore } from "../../config/firebase";
 import { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { ValidatedCourse, ValidatedUpdateCourse } from "../../types/courses";
 import { validateUser } from "../../utils/utils";
+import { cache, CACHE_KEYS } from "../../utils/cache";
 
 const collection = firestore.collection("courses");
 
@@ -16,6 +17,25 @@ export const getAllCourses = async (req: Request, res: Response) => {
     const type = req.query.type as string | undefined;
     const nivel = req.query.nivel as string | undefined;
     const search = req.query.search as string | undefined; // Búsqueda de texto
+    
+    // ✅ CACHÉ: Solo cachear si no hay búsqueda ni paginación (consultas más comunes)
+    // Las búsquedas y paginación son más dinámicas y no se cachean
+    const shouldCache = !search && !lastId;
+    
+    if (shouldCache) {
+      const cacheKey = cache.generateKey(CACHE_KEYS.COURSES, {
+        limit,
+        pilar: pilar || 'all',
+        type: type || 'all',
+        nivel: nivel || 'all',
+      });
+      
+      const cached = cache.get(cacheKey);
+      if (cached) {
+        console.log('✅ [Cache] Hit para getAllCourses:', cacheKey);
+        return res.json(cached);
+      }
+    }
     
     // Construir query base
     // Nota: Firestore requiere índices compuestos cuando se usan where() con orderBy()
@@ -122,7 +142,7 @@ export const getAllCourses = async (req: Request, res: Response) => {
     // Si hay más documentos que el límite, entonces hay más páginas
     const hasMore = snapshot.docs.length > limit;
 
-    return res.json({
+    const response = {
       courses,
       pagination: {
         hasMore,
@@ -130,7 +150,21 @@ export const getAllCourses = async (req: Request, res: Response) => {
         limit,
         count: courses.length
       }
-    });
+    };
+    
+    // ✅ CACHÉ: Guardar en caché si corresponde
+    if (shouldCache) {
+      const cacheKey = cache.generateKey(CACHE_KEYS.COURSES, {
+        limit,
+        pilar: pilar || 'all',
+        type: type || 'all',
+        nivel: nivel || 'all',
+      });
+      cache.set(cacheKey, response, 300); // 5 minutos
+      console.log('💾 [Cache] Guardado getAllCourses:', cacheKey);
+    }
+
+    return res.json(response);
   } catch (err) {
     console.error("getAllCourses error:", err);
     return res.status(500).json({ error: "Error al obtener cursos" });
@@ -346,6 +380,10 @@ export const createCourse = async (
 
     const docRef = await collection.add({ ...courseData });
 
+    // ✅ CACHÉ: Invalidar caché de cursos al crear uno nuevo
+    cache.invalidatePattern(`${CACHE_KEYS.COURSES}:`);
+    console.log('🗑️ [Cache] Invalidado caché de cursos (createCourse)');
+
     return res.status(201).json({
       id: docRef.id,
       message: "Curso creado exitosamente",
@@ -406,6 +444,10 @@ export const updateCourse = async (
 
     await collection.doc(id).update({ ...updateData });
 
+    // ✅ CACHÉ: Invalidar caché de cursos al actualizar
+    cache.invalidatePattern(`${CACHE_KEYS.COURSES}:`);
+    console.log('🗑️ [Cache] Invalidado caché de cursos (updateCourse)');
+
     return res.json({
       message: "Curso actualizado exitosamente",
       id: id,
@@ -436,6 +478,11 @@ export const deleteCourse = async (
     }
 
     await collection.doc(id).delete();
+
+    // ✅ CACHÉ: Invalidar caché de cursos al eliminar
+    cache.invalidatePattern(`${CACHE_KEYS.COURSES}:`);
+    console.log('🗑️ [Cache] Invalidado caché de cursos (deleteCourse)');
+
     return res.json({
       message: "Curso eliminado exitosamente",
       id: id,
