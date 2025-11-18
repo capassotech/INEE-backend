@@ -11,11 +11,28 @@ export const getAllCourses = async (req: Request, res: Response) => {
     const limit = Math.min(parseInt(req.query.limit as string || '20'), 100); // Máximo 100
     const lastId = req.query.lastId as string | undefined;
     
-    let query = collection
-      .orderBy('__name__') // Ordenar por ID del documento
-      .limit(limit);
+    // Filtros opcionales
+    const pilar = req.query.pilar as string | undefined;
+    const type = req.query.type as string | undefined;
+    const nivel = req.query.nivel as string | undefined;
     
-    // Si hay un lastId, continuar desde ahí
+    // Construir query base
+    let query = collection.orderBy('__name__');
+    
+    // Aplicar filtros con where() cuando sea posible
+    if (pilar && pilar !== 'all') {
+      query = query.where('pilar', '==', pilar);
+    }
+    if (type && type !== 'all') {
+      query = query.where('type', '==', type);
+    }
+    if (nivel && nivel !== 'all') {
+      // Normalizar nivel: "inicial" -> "principiante" para compatibilidad
+      const normalizedNivel = nivel.toLowerCase() === 'inicial' ? 'principiante' : nivel.toLowerCase();
+      query = query.where('nivel', '==', normalizedNivel);
+    }
+    
+    // Aplicar paginación
     if (lastId) {
       const lastDoc = await collection.doc(lastId).get();
       if (lastDoc.exists) {
@@ -24,10 +41,7 @@ export const getAllCourses = async (req: Request, res: Response) => {
     }
     
     // Consultar limit + 1 para saber si hay más documentos
-    const extendedQuery = lastId 
-      ? collection.orderBy('__name__').startAfter(await collection.doc(lastId).get()).limit(limit + 1)
-      : collection.orderBy('__name__').limit(limit + 1);
-    
+    const extendedQuery = query.limit(limit + 1);
     const snapshot = await extendedQuery.get();
 
     if (snapshot.empty) {
@@ -44,10 +58,26 @@ export const getAllCourses = async (req: Request, res: Response) => {
 
     // Tomar solo los primeros 'limit' documentos
     const docs = snapshot.docs.slice(0, limit);
-    const courses = docs.map((doc) => ({
+    let courses = docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
     }));
+    
+    // Aplicar filtro de duración en memoria (ya que requiere cálculo)
+    const duracion = req.query.duracion as string | undefined;
+    if (duracion && duracion !== 'all') {
+      courses = courses.filter((course: any) => {
+        const courseDuration = course.duracion || 0;
+        const num = typeof courseDuration === "string" ? parseInt(courseDuration, 10) : courseDuration;
+        
+        if (duracion === "Menos de 1 mes") return num > 0 && num <= 100;
+        if (duracion === "1-3 meses") return num > 100 && num <= 300;
+        if (duracion === "3-6 meses") return num > 300 && num <= 600;
+        if (duracion === "6-12 meses") return num > 600 && num <= 1200;
+        if (duracion === "+1 año") return num > 1200;
+        return true;
+      });
+    }
     
     const lastDoc = docs[docs.length - 1];
     // Si hay más documentos que el límite, entonces hay más páginas
