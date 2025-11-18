@@ -17,16 +17,17 @@ export const getAllCourses = async (req: Request, res: Response) => {
     const nivel = req.query.nivel as string | undefined;
     
     // Construir query base
+    // Nota: Firestore requiere índices compuestos cuando se usan múltiples where() con orderBy()
+    // Por ahora, aplicamos solo un filtro where() a la vez para evitar problemas de índices
     let query = collection.orderBy('__name__');
     
-    // Aplicar filtros con where() cuando sea posible
+    // Aplicar filtros con where() - priorizar pilar, luego type, luego nivel
+    // Si hay múltiples filtros, aplicamos solo el primero para evitar problemas de índices
     if (pilar && pilar !== 'all') {
       query = query.where('pilar', '==', pilar);
-    }
-    if (type && type !== 'all') {
+    } else if (type && type !== 'all') {
       query = query.where('type', '==', type);
-    }
-    if (nivel && nivel !== 'all') {
+    } else if (nivel && nivel !== 'all') {
       // Normalizar nivel: "inicial" -> "principiante" para compatibilidad
       const normalizedNivel = nivel.toLowerCase() === 'inicial' ? 'principiante' : nivel.toLowerCase();
       query = query.where('nivel', '==', normalizedNivel);
@@ -63,7 +64,29 @@ export const getAllCourses = async (req: Request, res: Response) => {
       ...doc.data(),
     }));
     
-    // Aplicar filtro de duración en memoria (ya que requiere cálculo)
+    // Aplicar filtros adicionales en memoria (ya que Firestore tiene limitaciones con múltiples where())
+    // Aplicar todos los filtros que no se aplicaron en la query de Firestore
+    
+    // Filtro por pilar si no se aplicó en la query
+    if (pilar && pilar !== 'all') {
+      courses = courses.filter((course: any) => course.pilar === pilar);
+    }
+    
+    // Filtro por type si no se aplicó en la query
+    if (type && type !== 'all') {
+      courses = courses.filter((course: any) => course.type === type);
+    }
+    
+    // Filtro por nivel si no se aplicó en la query
+    if (nivel && nivel !== 'all') {
+      const normalizedNivel = nivel.toLowerCase() === 'inicial' ? 'principiante' : nivel.toLowerCase();
+      courses = courses.filter((course: any) => {
+        const courseNivel = (course.nivel || '').toLowerCase();
+        return courseNivel === normalizedNivel;
+      });
+    }
+    
+    // Filtro por duración en memoria (ya que requiere cálculo)
     const duracion = req.query.duracion as string | undefined;
     if (duracion && duracion !== 'all') {
       courses = courses.filter((course: any) => {
