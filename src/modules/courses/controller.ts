@@ -17,12 +17,16 @@ export const getAllCourses = async (req: Request, res: Response) => {
     const nivel = req.query.nivel as string | undefined;
     
     // Construir query base
-    // Nota: Firestore requiere índices compuestos cuando se usan múltiples where() con orderBy()
-    // Por ahora, aplicamos solo un filtro where() a la vez para evitar problemas de índices
+    // Nota: Firestore requiere índices compuestos cuando se usan where() con orderBy()
+    // Los índices están definidos en firestore.indexes.json para:
+    // - pilar + __name__
+    // - type + __name__
+    // - nivel + __name__
     let query = collection.orderBy('__name__');
     
     // Aplicar filtros con where() - priorizar pilar, luego type, luego nivel
-    // Si hay múltiples filtros, aplicamos solo el primero para evitar problemas de índices
+    // Solo aplicamos un filtro en Firestore para usar los índices compuestos
+    // Los filtros adicionales se aplican en memoria después
     if (pilar && pilar !== 'all') {
       query = query.where('pilar', '==', pilar);
     } else if (type && type !== 'all') {
