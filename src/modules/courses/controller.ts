@@ -142,12 +142,18 @@ export const getUserCourses = async (req: Request, res: Response) => {
     const { id } = req.params;
     const limit = Math.min(parseInt(req.query.limit as string || '10'), 100); // Máximo 100, default 10
     const lastId = req.query.lastId as string | undefined;
+    const search = req.query.search as string | undefined; // Búsqueda de texto
+    
+    // Para búsquedas, necesitamos un límite mayor para tener más resultados después del filtrado
+    const queryLimit = search && search.trim() ? limit * 3 : limit; // 3x para búsquedas
     
     console.log('🔍 [getUserCourses] Request params:', { 
       id, 
       limit, 
       lastId, 
-      queryLimit: req.query.limit,
+      search,
+      queryLimit,
+      queryLimitParam: req.query.limit,
       queryLastId: req.query.lastId 
     });
     
@@ -183,10 +189,10 @@ export const getUserCourses = async (req: Request, res: Response) => {
       }
     }
     
-    // Obtener los IDs para la página actual
-    const pageCourseIds = uniqueCourseIds.slice(startIndex, startIndex + limit + 1);
-    const hasMore = pageCourseIds.length > limit;
-    const currentPageIds = hasMore ? pageCourseIds.slice(0, limit) : pageCourseIds;
+    // Obtener los IDs para la página actual (usar queryLimit si hay búsqueda)
+    const pageCourseIds = uniqueCourseIds.slice(startIndex, startIndex + queryLimit + 1);
+    const hasMore = pageCourseIds.length > queryLimit;
+    const currentPageIds = hasMore ? pageCourseIds.slice(0, queryLimit) : pageCourseIds;
     
     console.log('📦 [getUserCourses] Pagination logic:', {
       totalCourseIds: uniqueCourseIds.length,
@@ -230,16 +236,38 @@ export const getUserCourses = async (req: Request, res: Response) => {
       }));
     
     // Eliminar duplicados por ID (por si acaso)
-    const uniqueCourses = coursesData.filter((course, index, self) =>
+    let uniqueCourses = coursesData.filter((course, index, self) =>
       index === self.findIndex((c) => c.id === course.id)
     );
 
-    const lastCourseId = currentPageIds[currentPageIds.length - 1];
+    // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
+    if (search && search.trim()) {
+      const searchLower = search.toLowerCase().trim();
+      uniqueCourses = uniqueCourses.filter((course: any) => {
+        const titulo = (course.titulo || '').toLowerCase();
+        const descripcion = (course.descripcion || '').toLowerCase();
+        return titulo.includes(searchLower) || descripcion.includes(searchLower);
+      });
+      // Limitar después del filtrado
+      uniqueCourses = uniqueCourses.slice(0, limit);
+    }
+
+    // Calcular lastId basado en los cursos filtrados
+    const lastCourseId = uniqueCourses.length > 0 
+      ? uniqueCourses[uniqueCourses.length - 1].id 
+      : (currentPageIds[currentPageIds.length - 1] || null);
+    
+    // Ajustar hasMore: si hay búsqueda, verificar si hay más resultados después del filtrado
+    let finalHasMore = hasMore;
+    if (search && search.trim()) {
+      // Si hay búsqueda, hasMore se determina si obtuvimos queryLimit resultados
+      finalHasMore = pageCourseIds.length > queryLimit;
+    }
 
     const responseData = {
       courses: uniqueCourses,
       pagination: {
-        hasMore,
+        hasMore: finalHasMore,
         lastId: lastCourseId || null,
         limit,
         count: uniqueCourses.length
@@ -248,7 +276,7 @@ export const getUserCourses = async (req: Request, res: Response) => {
 
     console.log('📤 [getUserCourses] Returning response:', {
       coursesCount: uniqueCourses.length,
-      hasMore,
+      hasMore: finalHasMore,
       lastId: lastCourseId,
       limit,
       responseStructure: Object.keys(responseData)
