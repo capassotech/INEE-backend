@@ -11,11 +11,15 @@ export const getAllEbooks = async (req: Request, res: Response) => {
   try {
     const limit = Math.min(parseInt(req.query.limit as string || '20'), 100); // Máximo 100
     const lastId = req.query.lastId as string | undefined;
+    const search = req.query.search as string | undefined; // Búsqueda de texto
+    
+    // Para búsquedas, necesitamos un límite mayor para tener más resultados después del filtrado
+    const queryLimit = search && search.trim() ? limit * 3 : limit; // 3x para búsquedas
     
     // Consultar limit + 1 para saber si hay más documentos
     const extendedQuery = lastId 
-      ? collection.orderBy('__name__').startAfter(await collection.doc(lastId).get()).limit(limit + 1)
-      : collection.orderBy('__name__').limit(limit + 1);
+      ? collection.orderBy('__name__').startAfter(await collection.doc(lastId).get()).limit(queryLimit + 1)
+      : collection.orderBy('__name__').limit(queryLimit + 1);
     
     const snapshot = await extendedQuery.get();
 
@@ -31,16 +35,31 @@ export const getAllEbooks = async (req: Request, res: Response) => {
       });
     }
 
-    // Tomar solo los primeros 'limit' documentos
-    const docs = snapshot.docs.slice(0, limit);
-    const ebooks = docs.map((doc) => ({
+    // Tomar solo los primeros 'queryLimit' documentos
+    const docs = snapshot.docs.slice(0, queryLimit);
+    let ebooks = docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
     }));
     
+    // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
+    if (search && search.trim()) {
+      const searchLower = search.toLowerCase().trim();
+      ebooks = ebooks.filter((ebook: any) => {
+        const title = (ebook.title || ebook.titulo || '').toLowerCase();
+        const description = (ebook.description || ebook.descripcion || '').toLowerCase();
+        const author = (ebook.author || ebook.autor || '').toLowerCase();
+        return title.includes(searchLower) || 
+               description.includes(searchLower) || 
+               author.includes(searchLower);
+      });
+      // Limitar después del filtrado
+      ebooks = ebooks.slice(0, limit);
+    }
+    
     const lastDoc = docs[docs.length - 1];
     // Si hay más documentos que el límite, entonces hay más páginas
-    const hasMore = snapshot.docs.length > limit;
+    const hasMore = snapshot.docs.length > queryLimit;
     
     return res.json({
       ebooks,

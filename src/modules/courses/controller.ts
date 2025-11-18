@@ -15,6 +15,7 @@ export const getAllCourses = async (req: Request, res: Response) => {
     const pilar = req.query.pilar as string | undefined;
     const type = req.query.type as string | undefined;
     const nivel = req.query.nivel as string | undefined;
+    const search = req.query.search as string | undefined; // Búsqueda de texto
     
     // Construir query base
     // Nota: Firestore requiere índices compuestos cuando se usan where() con orderBy()
@@ -103,6 +104,17 @@ export const getAllCourses = async (req: Request, res: Response) => {
         if (duracion === "6-12 meses") return num > 600 && num <= 1200;
         if (duracion === "+1 año") return num > 1200;
         return true;
+      });
+    }
+    
+    // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
+    // Esto es mucho más eficiente que cargar todos los documentos en el frontend
+    if (search && search.trim()) {
+      const searchLower = search.toLowerCase().trim();
+      courses = courses.filter((course: any) => {
+        const titulo = (course.titulo || '').toLowerCase();
+        const descripcion = (course.descripcion || '').toLowerCase();
+        return titulo.includes(searchLower) || descripcion.includes(searchLower);
       });
     }
     

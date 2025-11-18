@@ -47,10 +47,14 @@ export const getUsers = async (req: any, res: Response) => {
   try {
     const limit = Math.min(parseInt(req.query.limit as string || '20'), 100); // Máximo 100
     const lastId = req.query.lastId as string | undefined;
+    const search = req.query.search as string | undefined; // Búsqueda de texto
+    
+    // Para búsquedas, necesitamos un límite mayor para tener más resultados después del filtrado
+    const queryLimit = search && search.trim() ? limit * 3 : limit; // 3x para búsquedas
     
     let query = firestore.collection('users')
       .orderBy('__name__') // Ordenar por ID del documento
-      .limit(limit);
+      .limit(queryLimit);
     
     // Si hay un lastId, continuar desde ahí
     if (lastId) {
@@ -61,13 +65,30 @@ export const getUsers = async (req: any, res: Response) => {
     }
     
     const snapshot = await query.get();
-    const users = snapshot.docs.map(doc => ({
+    let users = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }));
     
+    // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
+    if (search && search.trim()) {
+      const searchLower = search.toLowerCase().trim();
+      users = users.filter((user: any) => {
+        const nombre = (user.nombre || '').toLowerCase();
+        const apellido = (user.apellido || '').toLowerCase();
+        const email = (user.email || '').toLowerCase();
+        const nombreCompleto = `${nombre} ${apellido}`.toLowerCase();
+        return nombre.includes(searchLower) || 
+               apellido.includes(searchLower) || 
+               email.includes(searchLower) ||
+               nombreCompleto.includes(searchLower);
+      });
+      // Limitar después del filtrado
+      users = users.slice(0, limit);
+    }
+    
     const lastDoc = snapshot.docs[snapshot.docs.length - 1];
-    const hasMore = snapshot.docs.length === limit;
+    const hasMore = snapshot.docs.length === queryLimit;
     
     console.log(`Found ${users.length} registered users (paginated)`);
 
