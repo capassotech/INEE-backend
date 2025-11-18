@@ -207,3 +207,14 @@ export const deleteCourse = async (
   }
 };
 
+export const checkCourseExists = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const doc = await collection.doc(id).get();
+    return res.json({ exists: doc.exists });
+  } catch (err) {
+    console.error("checkCourseExists error:", err);
+    return res.status(500).json({ error: "Error al verificar curso" });
+  }
+};
+

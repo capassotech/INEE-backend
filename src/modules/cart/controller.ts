@@ -29,6 +29,7 @@ export const getCartById = async (req: Request, res: Response) => {
 export const getCartByUserId = async (req: Request, res: Response) => {
     try {
         const { userId } = req.params;
+        console.log(userId);
         const cart = await firestore.collection('carts').where('userId', '==', userId).get();
         if (cart.empty) {
             return res.status(200).json({ error: 'Carrito no encontrado' });
