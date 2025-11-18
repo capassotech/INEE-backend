@@ -17,8 +17,9 @@ import { Request, Response } from 'express';
 const router = Router();
 
 router.get('/', getAllCourses);
-router.get('/:id', getCourseById);
+// IMPORTANTE: La ruta /user/:id debe ir ANTES de /:id para evitar conflictos
 router.get('/user/:id', getUserCourses);
+router.get('/:id', getCourseById);
 
 router.post('/', 
     authMiddleware,

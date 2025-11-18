@@ -20,6 +20,7 @@ export interface UserProfile {
   activo: boolean;
   fechaEliminacion?: Date;
   membresia_id?: string;
+  cursos_asignados?: string[];
 }
 
 export interface LoginData {

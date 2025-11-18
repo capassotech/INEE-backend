@@ -51,18 +51,54 @@ export const createReview = async (
 export const getReviewsByCourse = async (req: Request, res: Response) => {
   try {
     const { courseId } = req.params;
-    const snapshot = await firestore
+    const limit = Math.min(parseInt(req.query.limit as string || '20'), 100); // Máximo 100
+    const lastId = req.query.lastId as string | undefined;
+    
+    let query = firestore
       .collection("reviews")
       .where("courseId", "==", courseId)
       .orderBy("createdAt", "desc")
-      .get();
+      .limit(limit);
+    
+    // Si hay un lastId, continuar desde ahí
+    if (lastId) {
+      const lastDoc = await firestore.collection("reviews").doc(lastId).get();
+      if (lastDoc.exists) {
+        query = query.startAfter(lastDoc);
+      }
+    }
+    
+    const snapshot = await query.get();
+
+    if (snapshot.empty) {
+      return res.json({
+        reviews: [],
+        pagination: {
+          hasMore: false,
+          lastId: null,
+          limit,
+          count: 0
+        }
+      });
+    }
 
     const reviews = snapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
     }));
+    
+    const lastDoc = snapshot.docs[snapshot.docs.length - 1];
+    const hasMore = snapshot.docs.length === limit;
 
-    return res.json(reviews);
+    return res.json({
+      reviews,
+      pagination: {
+        hasMore,
+        lastId: lastDoc?.id,
+        limit,
+        count: reviews.length
+      }
+    });
   } catch (error) {
     console.error("Error al obtener reseñas:", error);
     return res.status(500).json({ error: "Error al cargar reseñas" });

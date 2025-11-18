@@ -8,8 +8,53 @@ const collection = firestore.collection('events');
 
 
 export const getAllEvents = async (req: Request, res: Response) => {
-    const events = await collection.get();
-    return res.json(events.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+    try {
+        const limit = Math.min(parseInt(req.query.limit as string || '20'), 100); // Máximo 100
+        const lastId = req.query.lastId as string | undefined;
+        
+        // Consultar limit + 1 para saber si hay más documentos
+        const extendedQuery = lastId 
+            ? collection.orderBy('__name__').startAfter(await collection.doc(lastId).get()).limit(limit + 1)
+            : collection.orderBy('__name__').limit(limit + 1);
+        
+        const snapshot = await extendedQuery.get();
+
+        if (snapshot.empty) {
+            return res.json({
+                events: [],
+                pagination: {
+                    hasMore: false,
+                    lastId: null,
+                    limit,
+                    count: 0
+                }
+            });
+        }
+
+        // Tomar solo los primeros 'limit' documentos
+        const docs = snapshot.docs.slice(0, limit);
+        const events = docs.map((doc) => ({ 
+            id: doc.id, 
+            ...doc.data() 
+        }));
+        
+        const lastDoc = docs[docs.length - 1];
+        // Si hay más documentos que el límite, entonces hay más páginas
+        const hasMore = snapshot.docs.length > limit;
+        
+        return res.json({
+            events,
+            pagination: {
+                hasMore,
+                lastId: lastDoc?.id,
+                limit,
+                count: events.length
+            }
+        });
+    } catch (error) {
+        console.error('getAllEvents error:', error);
+        return res.status(500).json({ error: 'Error al obtener eventos' });
+    }
 };
 
 export const getEventById = async (req: Request, res: Response) => {
