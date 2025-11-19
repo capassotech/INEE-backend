@@ -100,7 +100,7 @@ export const getMembershipById = async (req: TypedRequest, res: Response) => {
 export const updateMembership = async (req: TypedRequest<MembershipUpdateData>, res: Response) => {
   try {
     const { id } = req.params;
-    const { nombre, descripcion, precio, informacionAdicional } = req.body;
+    const { nombre, descripcion, precio, informacionAdicional, discountPercent } = req.body;
 
     const membershipDoc = await firestore.collection('membresias').doc(id).get();
     
@@ -119,6 +119,7 @@ export const updateMembership = async (req: TypedRequest<MembershipUpdateData>, 
     if (descripcion !== undefined) updatePayload.descripcion = descripcion;
     if (precio !== undefined) updatePayload.precio = precio;
     if (informacionAdicional !== undefined) updatePayload.informacionAdicional = informacionAdicional;
+    if (discountPercent !== undefined) updatePayload.discountPercent = discountPercent;
 
     await membershipDoc.ref.update(updatePayload);
     

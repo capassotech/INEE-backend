@@ -36,6 +36,12 @@ const membershipBaseSchemaForCreation = {
     .max(365, "La duración no puede exceder 365 días"),
 
   estado: z.enum(MembershipState),
+
+  discountPercent: z.number()
+    .min(0, "El porcentaje de descuento debe ser mayor o igual a 0")
+    .max(100, "El porcentaje de descuento no puede exceder 100")
+    .transform(val => Math.round(val * 100) / 100) // Redondear a 2 decimales
+    .optional(),
 };
 
 // ✅ Esquema de ACTUALIZACIÓN: SOLO los 4 campos permitidos
@@ -63,6 +69,12 @@ export const UpdateMembershipSchema = z.object({
     .min(10, "La información adicional debe tener al menos 10 caracteres")
     .max(1000, "La información adicional no puede exceder 1000 caracteres")
     .transform(str => str.trim())
+    .optional(),
+
+  discountPercent: z.number()
+    .min(0, "El porcentaje de descuento debe ser mayor o igual a 0")
+    .max(100, "El porcentaje de descuento no puede exceder 100")
+    .transform(val => Math.round(val * 100) / 100) // Redondear a 2 decimales
     .optional(),
 })
   .refine(data => {
