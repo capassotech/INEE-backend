@@ -4,21 +4,55 @@ import { ValidatedModule, ValidatedUpdateModule } from "../../types/modules";
 
 export const getBackModules = async (req: Request, res: Response) => {
     try {
-        const backModules = await firestore.collection('modulos').get();
+        const limit = Math.min(parseInt(req.query.limit as string || '20'), 100); // Máximo 100
+        const lastId = req.query.lastId as string | undefined;
         
-        if (backModules.empty) {
-            return res.json([]);
+        let query = firestore.collection('modulos')
+            .orderBy('__name__') // Ordenar por ID del documento
+            .limit(limit);
+        
+        // Si hay un lastId, continuar desde ahí
+        if (lastId) {
+            const lastDoc = await firestore.collection('modulos').doc(lastId).get();
+            if (lastDoc.exists) {
+                query = query.startAfter(lastDoc);
+            }
         }
         
-        const modules = backModules.docs.map((doc) => ({ 
+        const snapshot = await query.get();
+        
+        if (snapshot.empty) {
+            return res.json({
+                modules: [],
+                pagination: {
+                    hasMore: false,
+                    lastId: null,
+                    limit,
+                    count: 0
+                }
+            });
+        }
+        
+        const modules = snapshot.docs.map((doc) => ({ 
             id: doc.id, 
             ...doc.data() 
         }));
         
-        res.json(modules);
+        const lastDoc = snapshot.docs[snapshot.docs.length - 1];
+        const hasMore = snapshot.docs.length === limit;
+        
+        return res.json({
+            modules,
+            pagination: {
+                hasMore,
+                lastId: lastDoc?.id,
+                limit,
+                count: modules.length
+            }
+        });
     } catch (error) {
         console.error('getBackModules error:', error);
-        res.status(500).json({ error: 'Error al obtener módulos' });
+        return res.status(500).json({ error: 'Error al obtener módulos' });
     }
 }
 

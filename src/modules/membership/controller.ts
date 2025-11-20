@@ -13,17 +13,53 @@ interface TypedRequest<T = any> extends Request {
 
 export const getMembership = async (req: Request, res: Response) => {
   try {
-    const membershipCollection = await firestore.collection('membresias').get();
+    const limit = Math.min(parseInt(req.query.limit as string || '20'), 100); // Máximo 100
+    const lastId = req.query.lastId as string | undefined;
     
-    const memberships = membershipCollection.docs.map(doc => ({
+    let query = firestore.collection('membresias')
+      .orderBy('__name__') // Ordenar por ID del documento
+      .limit(limit);
+    
+    // Si hay un lastId, continuar desde ahí
+    if (lastId) {
+      const lastDoc = await firestore.collection('membresias').doc(lastId).get();
+      if (lastDoc.exists) {
+        query = query.startAfter(lastDoc);
+      }
+    }
+    
+    const snapshot = await query.get();
+    
+    if (snapshot.empty) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+        pagination: {
+          hasMore: false,
+          lastId: null,
+          limit,
+          count: 0
+        }
+      });
+    }
+    
+    const memberships = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }));
+    
+    const lastDoc = snapshot.docs[snapshot.docs.length - 1];
+    const hasMore = snapshot.docs.length === limit;
 
     return res.status(200).json({
       success: true,
       data: memberships,
-      count: memberships.length
+      pagination: {
+        hasMore,
+        lastId: lastDoc?.id,
+        limit,
+        count: memberships.length
+      }
     });
   } catch (error) {
     console.error('Error fetching memberships:', error);
@@ -64,7 +100,7 @@ export const getMembershipById = async (req: TypedRequest, res: Response) => {
 export const updateMembership = async (req: TypedRequest<MembershipUpdateData>, res: Response) => {
   try {
     const { id } = req.params;
-    const { nombre, descripcion, precio, informacionAdicional } = req.body;
+    const { nombre, descripcion, precio, informacionAdicional, discountPercent } = req.body;
 
     const membershipDoc = await firestore.collection('membresias').doc(id).get();
     
@@ -83,6 +119,7 @@ export const updateMembership = async (req: TypedRequest<MembershipUpdateData>, 
     if (descripcion !== undefined) updatePayload.descripcion = descripcion;
     if (precio !== undefined) updatePayload.precio = precio;
     if (informacionAdicional !== undefined) updatePayload.informacionAdicional = informacionAdicional;
+    if (discountPercent !== undefined) updatePayload.discountPercent = discountPercent;
 
     await membershipDoc.ref.update(updatePayload);
     

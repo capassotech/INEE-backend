@@ -397,10 +397,30 @@ export const getUserProfile = async (
       });
     }
 
+    let membresia = null;
+    if (userData.membresia) { 
+      const membresiaDoc = await firestore
+        .collection("membresias")
+        .doc(userData.membresia) 
+        .get();
+
+      if (membresiaDoc.exists) {
+        const membresiaData = membresiaDoc.data();
+
+        // ✅ Verificar que membresiaData exista y tenga nombre
+        if (membresiaData && typeof membresiaData.nombre === "string") {
+          membresia = {
+            id: membresiaDoc.id,
+            nombre: membresiaData.nombre,
+          };
+        }
+      }
+    }
+
     return res.json({
       uid,
       ...userData,
-      // Convertir timestamps de Firestore a fechas JavaScript
+      membresia,
       fechaRegistro:
         userData.fechaRegistro?.toDate?.() || userData.fechaRegistro,
       fechaActualizacion:
@@ -460,9 +480,8 @@ export const updateUserProfile = async (
       const userDoc = await firestore.collection("users").doc(uid).get();
       const userData = userDoc.data();
 
-      const newDisplayName = `${updateData.nombre || userData?.nombre} ${
-        updateData.apellido || userData?.apellido
-      }`;
+      const newDisplayName = `${updateData.nombre || userData?.nombre} ${updateData.apellido || userData?.apellido
+        }`;
 
       await firebaseAuth.updateUser(uid, {
         displayName: newDisplayName,
