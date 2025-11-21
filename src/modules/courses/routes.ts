@@ -7,6 +7,7 @@ import {
   updateCourse,
   deleteCourse,
   getUserCourses,
+  checkCourseExists,
 } from './controller';
 import { authMiddleware } from '../../middleware/authMiddleware';
 import { AuthenticatedRequest } from '../../middleware/authMiddleware';
@@ -17,7 +18,8 @@ import { Request, Response } from 'express';
 const router = Router();
 
 router.get('/', getAllCourses);
-// IMPORTANTE: La ruta /user/:id debe ir ANTES de /:id para evitar conflictos
+router.get('/check/:id', checkCourseExists);
+router.get('/:id', getCourseById);
 router.get('/user/:id', getUserCourses);
 router.get('/:id', getCourseById);
 
