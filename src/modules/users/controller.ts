@@ -46,19 +46,18 @@ export const getUser = async (req: any, res: Response) => {
 export const getUsers = async (req: any, res: Response) => {
   try {
     const rawLimit = parseInt((req.query.limit as string) || (req.query.pageSize as string) || '20', 10);
-    const limit = Math.min(Number.isNaN(rawLimit) ? 20 : rawLimit, 100); // Máximo 100
+    const limit = Math.min(Number.isNaN(rawLimit) ? 20 : rawLimit, 100); 
     const pageQuery = req.query.page as string | undefined;
     const lastId = req.query.lastId as string | undefined;
     const page = Math.max(parseInt(pageQuery || '1', 10) || 1, 1);
     const offset = (page - 1) * limit;
-    const search = req.query.search as string | undefined; // Búsqueda de texto
+    const search = req.query.search as string | undefined; 
     const hasSearch = Boolean(search && search.trim());
     
-    // Para búsquedas, necesitamos un límite mayor para tener más resultados después del filtrado
-    const queryLimit = hasSearch ? Math.min(limit * 3, 300) : limit; // 3x para búsquedas con tope
+    const queryLimit = hasSearch ? Math.min(limit * 3, 300) : limit; 
     const shouldUseOffset = Boolean(pageQuery) && !lastId;
     
-    let query = firestore.collection('users').orderBy('__name__'); // Ordenar por ID del documento
+    let query = firestore.collection('users').orderBy('__name__');
     
     if (lastId && !shouldUseOffset) {
       const lastDoc = await firestore.collection('users').doc(lastId).get();
@@ -81,7 +80,6 @@ export const getUsers = async (req: any, res: Response) => {
       ...doc.data()
     }));
     
-    // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
     if (hasSearch) {
       const searchLower = search!.toLowerCase().trim();
       users = users.filter((user: any) => {
@@ -94,7 +92,6 @@ export const getUsers = async (req: any, res: Response) => {
                email.includes(searchLower) ||
                nombreCompleto.includes(searchLower);
       });
-      // Limitar después del filtrado
       users = users.slice(0, limit);
     }
     
