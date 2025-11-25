@@ -45,34 +45,45 @@ export const getUser = async (req: any, res: Response) => {
 
 export const getUsers = async (req: any, res: Response) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit as string || '20'), 100); // Máximo 100
+    const rawLimit = parseInt((req.query.limit as string) || (req.query.pageSize as string) || '20', 10);
+    const limit = Math.min(Number.isNaN(rawLimit) ? 20 : rawLimit, 100); // Máximo 100
+    const pageQuery = req.query.page as string | undefined;
     const lastId = req.query.lastId as string | undefined;
+    const page = Math.max(parseInt(pageQuery || '1', 10) || 1, 1);
+    const offset = (page - 1) * limit;
     const search = req.query.search as string | undefined; // Búsqueda de texto
+    const hasSearch = Boolean(search && search.trim());
     
     // Para búsquedas, necesitamos un límite mayor para tener más resultados después del filtrado
-    const queryLimit = search && search.trim() ? limit * 3 : limit; // 3x para búsquedas
+    const queryLimit = hasSearch ? Math.min(limit * 3, 300) : limit; // 3x para búsquedas con tope
+    const shouldUseOffset = Boolean(pageQuery) && !lastId;
     
-    let query = firestore.collection('users')
-      .orderBy('__name__') // Ordenar por ID del documento
-      .limit(queryLimit);
+    let query = firestore.collection('users').orderBy('__name__'); // Ordenar por ID del documento
     
-    // Si hay un lastId, continuar desde ahí
-    if (lastId) {
+    if (lastId && !shouldUseOffset) {
       const lastDoc = await firestore.collection('users').doc(lastId).get();
       if (lastDoc.exists) {
         query = query.startAfter(lastDoc);
       }
+    } else if (shouldUseOffset && offset > 0) {
+      query = query.offset(offset);
     }
     
-    const snapshot = await query.get();
+    query = query.limit(queryLimit);
+
+    const [snapshot, totalUsersAggregate] = await Promise.all([
+      query.get(),
+      firestore.collection('users').count().get()
+    ]);
+
     let users = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }));
     
     // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
-    if (search && search.trim()) {
-      const searchLower = search.toLowerCase().trim();
+    if (hasSearch) {
+      const searchLower = search!.toLowerCase().trim();
       users = users.filter((user: any) => {
         const nombre = (user.nombre || '').toLowerCase();
         const apellido = (user.apellido || '').toLowerCase();
@@ -87,8 +98,14 @@ export const getUsers = async (req: any, res: Response) => {
       users = users.slice(0, limit);
     }
     
+    const totalUsers = totalUsersAggregate.data().count ?? 0;
+    const totalPages = totalUsers > 0 ? Math.ceil(totalUsers / limit) : 1;
     const lastDoc = snapshot.docs[snapshot.docs.length - 1];
-    const hasMore = snapshot.docs.length === queryLimit;
+    const hasMore = hasSearch
+      ? snapshot.docs.length === queryLimit
+      : shouldUseOffset
+        ? page < totalPages
+        : snapshot.docs.length === queryLimit;
     
     console.log(`Found ${users.length} registered users (paginated)`);
 
@@ -96,8 +113,12 @@ export const getUsers = async (req: any, res: Response) => {
       users,
       pagination: {
         hasMore,
-        lastId: lastDoc?.id,
+        lastId: lastDoc?.id ?? null,
         limit,
+        page: shouldUseOffset ? page : undefined,
+        nextPage: shouldUseOffset && hasMore ? page + 1 : undefined,
+        total: hasSearch ? undefined : totalUsers,
+        totalPages: hasSearch ? undefined : totalPages,
         count: users.length
       }
     });
