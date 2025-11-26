@@ -49,6 +49,7 @@ app.get("/", (_, res) => {
   });
 });
 
+
 app.get("/health", (_, res) => {
   res.status(200).json({
     status: "OK",
