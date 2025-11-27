@@ -22,7 +22,7 @@ router.post('/', createCartWhithoutUser);
 router.post('/add-item/:cartId', addItemToCart);
 router.delete('/delete-item/:cartId', deleteItemFromCart)
 router.put('/assign-user/:cartId', assignUserToCart)
-router.post('/merge/:cartId', mergeCarts)
+router.post('/merge/:userId', mergeCarts)
 router.delete('/clear-cart/:cartId', clearCart)
 
 export default router;
