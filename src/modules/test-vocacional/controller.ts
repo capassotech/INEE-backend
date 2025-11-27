@@ -8,14 +8,43 @@ export const getPreguntaById = async (req: Request, res: Response) => {
         const { id } = req.params;
         const pregunta = await firestore.collection('preguntas').doc(id).get();
 
-        const respuestas = [];
-
-        for (const id_pregunta of pregunta.data()?.id_respuestas) {
-            const respuesta = await firestore.collection('respuestas').doc(id_pregunta).get();
-            respuestas.push(respuesta.data());
+        if (!pregunta.exists) {
+            return res.status(404).json({ error: 'Pregunta no encontrada' });
         }
 
+        const idRespuestas = pregunta.data()?.id_respuestas || [];
+        
+        if (idRespuestas.length === 0) {
+            return res.json({
+                ...pregunta.data(),
+                respuestas: []
+            });
+        }
+
+        // ✅ OPTIMIZACIÓN: Batch read con getAll() para evitar N+1 queries
+        // Firestore Admin SDK permite leer múltiples documentos en una sola operación
+        const BATCH_SIZE = 10; // Firestore getAll() tiene límite de 10 documentos
+        const batches = [];
+        
+        for (let i = 0; i < idRespuestas.length; i += BATCH_SIZE) {
+            const batch = idRespuestas.slice(i, i + BATCH_SIZE);
+            const refs = batch.map((respuestaId: string) => 
+                firestore.collection('respuestas').doc(respuestaId)
+            );
+            batches.push(firestore.getAll(...refs));
+        }
+        
+        const allDocs = await Promise.all(batches);
+        const respuestas = allDocs
+            .flat()
+            .filter(doc => doc.exists) // Filtrar documentos que no existen
+            .map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+
         return res.json({
+            id: pregunta.id,
             ...pregunta.data(),
             respuestas: respuestas
         });

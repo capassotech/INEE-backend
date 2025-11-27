@@ -7,6 +7,7 @@ import {
   updateCourse,
   deleteCourse,
   getUserCourses,
+  checkCourseExists,
 } from './controller';
 import { authMiddleware } from '../../middleware/authMiddleware';
 import { AuthenticatedRequest } from '../../middleware/authMiddleware';
@@ -17,8 +18,10 @@ import { Request, Response } from 'express';
 const router = Router();
 
 router.get('/', getAllCourses);
+router.get('/check/:id', checkCourseExists);
 router.get('/:id', getCourseById);
 router.get('/user/:id', getUserCourses);
+router.get('/:id', getCourseById);
 
 router.post('/', 
     authMiddleware,
