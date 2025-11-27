@@ -96,9 +96,17 @@ export const getAllEvents = async (req: Request, res: Response) => {
 };
 
 export const getEventById = async (req: Request, res: Response) => {
-    const eventId = req.params.id;
-    const event = await collection.doc(eventId).get();
-    return res.json({ id: event.id, ...event.data() });
+    try {
+        const eventId = req.params.id;
+        const event = await collection.doc(eventId).get();
+        if (!event.exists) {
+            return res.status(404).json({ error: 'Evento no encontrado' });
+        }
+        return res.json({ id: event.id, ...event.data() });
+    } catch (error) {
+        console.error('getEventById error:', error);
+        return res.status(500).json({ error: 'Error al obtener evento' });
+    }
 };
 
 
