@@ -20,6 +20,7 @@ import backModulesRoutes from "./modules/back-modules/routes";
 import testVocacionalRoutes from "./modules/test-vocacional/routes";
 import ebooksRoutes from "./modules/ebooks/routes";
 import reviewsRoutes from "./modules/reviews/routes";
+import progressRoutes from "./modules/progress/routes";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -45,6 +46,7 @@ app.use("/api/modulos", backModulesRoutes);
 app.use("/api/test-vocacional", testVocacionalRoutes);
 app.use("/api/ebooks", ebooksRoutes);
 app.use("/api/reviews", reviewsRoutes);
+app.use("/api/progreso", progressRoutes);
 
 app.get("/", (_, res) => {
   res.json({
