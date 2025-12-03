@@ -48,38 +48,29 @@ export const getUsers = async (req: any, res: Response) => {
     const rawLimit = parseInt((req.query.limit as string) || (req.query.pageSize as string) || '20', 10);
     const limit = Math.min(Number.isNaN(rawLimit) ? 20 : rawLimit, 100); 
     const pageQuery = req.query.page as string | undefined;
-    const lastId = req.query.lastId as string | undefined;
     const page = Math.max(parseInt(pageQuery || '1', 10) || 1, 1);
     const offset = (page - 1) * limit;
     const search = req.query.search as string | undefined; 
+    const status = req.query.status as string | undefined; // 'activo' | 'inactivo' | undefined
+    const sortBy = req.query.sortBy as string | undefined; // 'name' | 'date' | 'totalSpent' | undefined
+    
     const hasSearch = Boolean(search && search.trim());
+    const hasStatusFilter = Boolean(status && status !== 'all');
+    const hasSort = Boolean(sortBy);
     
-    const queryLimit = hasSearch ? Math.min(limit * 3, 300) : limit; 
-    const shouldUseOffset = Boolean(pageQuery) && !lastId;
+    // Para búsquedas y filtros, necesitamos obtener más documentos para filtrar
+    const queryLimit = (hasSearch || hasStatusFilter || hasSort) ? Math.min(limit * 10, 1000) : limit;
     
-    let query = firestore.collection('users').orderBy('__name__');
-    
-    if (lastId && !shouldUseOffset) {
-      const lastDoc = await firestore.collection('users').doc(lastId).get();
-      if (lastDoc.exists) {
-        query = query.startAfter(lastDoc);
-      }
-    } else if (shouldUseOffset && offset > 0) {
-      query = query.offset(offset);
-    }
-    
-    query = query.limit(queryLimit);
-
-    const [snapshot, totalUsersAggregate] = await Promise.all([
-      query.get(),
-      firestore.collection('users').count().get()
-    ]);
+    // Obtener todos los usuarios (o una muestra grande si hay filtros)
+    let query = firestore.collection('users').orderBy('__name__').limit(queryLimit);
+    const snapshot = await query.get();
 
     let users = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }));
     
+    // Aplicar filtro de búsqueda
     if (hasSearch) {
       const searchLower = search!.toLowerCase().trim();
       users = users.filter((user: any) => {
@@ -92,30 +83,60 @@ export const getUsers = async (req: any, res: Response) => {
                email.includes(searchLower) ||
                nombreCompleto.includes(searchLower);
       });
-      users = users.slice(0, limit);
     }
     
-    const totalUsers = totalUsersAggregate.data().count ?? 0;
-    const totalPages = totalUsers > 0 ? Math.ceil(totalUsers / limit) : 1;
-    const lastDoc = snapshot.docs[snapshot.docs.length - 1];
-    const hasMore = hasSearch
-      ? snapshot.docs.length === queryLimit
-      : shouldUseOffset
-        ? page < totalPages
-        : snapshot.docs.length === queryLimit;
+    // Aplicar filtro de estado
+    if (hasStatusFilter) {
+      const isActive = status === 'activo';
+      users = users.filter((user: any) => user.activo === isActive);
+    }
     
-
+    // Aplicar ordenamiento
+    if (hasSort) {
+      switch (sortBy) {
+        case 'name':
+          users.sort((a: any, b: any) => {
+            const nameA = `${a.nombre || ''} ${a.apellido || ''}`.toLowerCase();
+            const nameB = `${b.nombre || ''} ${b.apellido || ''}`.toLowerCase();
+            return nameA.localeCompare(nameB);
+          });
+          break;
+        case 'date':
+          users.sort((a: any, b: any) => {
+            const dateA = a.fechaRegistro?._seconds ? new Date(a.fechaRegistro._seconds * 1000).getTime() : 0;
+            const dateB = b.fechaRegistro?._seconds ? new Date(b.fechaRegistro._seconds * 1000).getTime() : 0;
+            return dateB - dateA; // Más recientes primero
+          });
+          break;
+        case 'totalSpent':
+          users.sort((a: any, b: any) => {
+            const totalA = a.totalInvertido || 0;
+            const totalB = b.totalInvertido || 0;
+            return totalB - totalA; // Mayor a menor
+          });
+          break;
+      }
+    }
+    
+    // Calcular totales después de aplicar filtros
+    const totalFiltered = users.length;
+    const totalPages = totalFiltered > 0 ? Math.ceil(totalFiltered / limit) : 1;
+    
+    // Aplicar paginación
+    const paginatedUsers = users.slice(offset, offset + limit);
+    const hasMore = offset + limit < totalFiltered;
+    
     return res.json({
-      users,
+      users: paginatedUsers,
       pagination: {
         hasMore,
-        lastId: lastDoc?.id ?? null,
+        lastId: null,
         limit,
-        page: shouldUseOffset ? page : undefined,
-        nextPage: shouldUseOffset && hasMore ? page + 1 : undefined,
-        total: hasSearch ? undefined : totalUsers,
-        totalPages: hasSearch ? undefined : totalPages,
-        count: users.length
+        page,
+        nextPage: hasMore ? page + 1 : undefined,
+        total: totalFiltered,
+        totalPages,
+        count: paginatedUsers.length
       }
     });
   } catch (error) {
