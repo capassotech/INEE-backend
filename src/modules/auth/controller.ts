@@ -201,13 +201,15 @@ export const loginUser = async (req: Request, res: Response) => {
         });
       }
 
-      // Generar token personalizado para el sistema
-      const customToken = await firebaseAuth.createCustomToken(uid);
-      console.log(`Token personalizado generado para UID: ${uid}`);
+      // Retornar el idToken que viene de Firebase Auth (no customToken)
+      // El idToken es lo que el middleware authMiddleware espera
+      const idToken = authResult.idToken;
+      console.log(`Login exitoso para UID: ${uid}`);
 
       return res.json({
         message: "Login exitoso",
-        customToken,
+        idToken, // Cambiado de customToken a idToken
+        customToken: await firebaseAuth.createCustomToken(uid), // Mantener por compatibilidad
         user: {
           uid,
           email: userData.email,

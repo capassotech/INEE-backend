@@ -22,7 +22,7 @@ import ebooksRoutes from "./modules/ebooks/routes";
 import reviewsRoutes from "./modules/reviews/routes";
 import cartRoutes from "./modules/cart/routes";
 import paymentsRoutes from "./modules/payments/routes";
-
+import progressRoutes from "./modules/progress/routes";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -49,6 +49,7 @@ app.use("/api/ebooks", ebooksRoutes);
 app.use("/api/reviews", reviewsRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/payments", paymentsRoutes);
+app.use("/api/progreso", progressRoutes);
 
 app.get("/", (_, res) => {
   res.json({

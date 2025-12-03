@@ -7,6 +7,8 @@ export interface UserRegistrationData {
   aceptaTerminos: boolean;
 }
 
+import { ResumenProgreso } from './progress';
+
 export interface UserProfile {
   uid: string;
   email: string;
@@ -21,6 +23,7 @@ export interface UserProfile {
   fechaEliminacion?: Date;
   membresia_id?: string;
   cursos_asignados?: string[];
+  resumen_progreso?: ResumenProgreso;
 }
 
 export interface LoginData {
