@@ -111,7 +111,6 @@ export const loginUser = async (req: Request, res: Response) => {
 
     const firebaseApiKey = "AIzaSyAZDT5DM68-9qYH23HdKAsOTaV_qCAPEiw";
 
-    console.log(`Intentando login para email: ${email}`);
 
     try {
       const response = await fetch(
@@ -131,39 +130,26 @@ export const loginUser = async (req: Request, res: Response) => {
 
       const authResult = await response.json();
 
-      console.log("idToken", authResult.idToken);
-
-      console.log(`Response status: ${response.status}`);
-      console.log(`Auth result:`, {
-        ...authResult,
-        // No loggear tokens por seguridad
-        idToken: authResult.idToken ? "[PRESENTE]" : "[AUSENTE]",
-        refreshToken: authResult.refreshToken ? "[PRESENTE]" : "[AUSENTE]",
-      });
       if (!response.ok) {
         console.error(`Error de Firebase Auth:`, authResult.error);
 
         // Manejar errores específicos de Firebase Auth
         if (authResult.error?.message === "EMAIL_NOT_FOUND") {
-          console.log(`Usuario no encontrado: ${email}`);
           return res.status(401).json({
             error: "Credenciales inválidas",
           });
         }
         if (authResult.error?.message === "INVALID_PASSWORD") {
-          console.log(`Contraseña incorrecta para: ${email}`);
           return res.status(401).json({
             error: "Credenciales inválidas",
           });
         }
         if (authResult.error?.message === "USER_DISABLED") {
-          console.log(`Usuario deshabilitado: ${email}`);
           return res.status(403).json({
             error: "Usuario deshabilitado",
           });
         }
         if (authResult.error?.message === "TOO_MANY_ATTEMPTS_TRY_LATER") {
-          console.log(`Demasiados intentos para: ${email}`);
           return res.status(429).json({
             error: "Demasiados intentos fallidos. Intente más tarde",
           });
@@ -179,7 +165,6 @@ export const loginUser = async (req: Request, res: Response) => {
       }
       // Si llegamos aquí, las credenciales son válidas
       const uid = authResult.localId;
-      console.log(`Login exitoso para UID: ${uid}`);
 
       // Verificar datos adicionales en Firestore
       const userDoc = await firestore.collection("users").doc(uid).get();
@@ -195,7 +180,6 @@ export const loginUser = async (req: Request, res: Response) => {
 
       // Verificar que el usuario esté activo
       if (!userData?.activo) {
-        console.log(`Usuario ${uid} está desactivado`);
         return res.status(403).json({
           error: "Usuario desactivado. Contacte al administrador",
         });
@@ -204,7 +188,6 @@ export const loginUser = async (req: Request, res: Response) => {
       // Retornar el idToken que viene de Firebase Auth (no customToken)
       // El idToken es lo que el middleware authMiddleware espera
       const idToken = authResult.idToken;
-      console.log(`Login exitoso para UID: ${uid}`);
 
       return res.json({
         message: "Login exitoso",
@@ -288,7 +271,6 @@ export const googleRegister = async (req: Request, res: Response) => {
 
     const customToken = await firebaseAuth.createCustomToken(uid);
 
-    console.log(`Usuario registrado con Google: ${email}`);
 
     return res.json({
       message: "Usuario registrado exitosamente con Google",
@@ -589,13 +571,11 @@ export const checkEmailExists = async (req: Request, res: Response) => {
       });
     }
 
-    console.log(`Verificando si existe email: ${email}`);
 
     try {
       // Usar Firebase Admin para verificar si el usuario existe
       const userRecord = await firebaseAuth.getUserByEmail(email);
 
-      console.log(`Email ${email} encontrado con UID: ${userRecord.uid}`);
 
       // Verificar datos adicionales en Firestore
       const userDoc = await firestore
@@ -604,7 +584,6 @@ export const checkEmailExists = async (req: Request, res: Response) => {
         .get();
 
       if (!userDoc.exists) {
-        console.log(`Usuario ${userRecord.uid} no encontrado en Firestore`);
         return res.json({
           exists: false,
           message: "Usuario existe en Auth pero no en Firestore",
@@ -615,7 +594,6 @@ export const checkEmailExists = async (req: Request, res: Response) => {
 
       // Verificar que el usuario esté activo
       if (!userData?.activo) {
-        console.log(`Usuario ${userRecord.uid} está desactivado`);
         return res.status(403).json({
           error: "Usuario desactivado. Contacte al administrador",
         });
@@ -634,7 +612,6 @@ export const checkEmailExists = async (req: Request, res: Response) => {
       });
     } catch (firebaseError: any) {
       if (firebaseError.code === "auth/user-not-found") {
-        console.log(`Email ${email} no encontrado`);
         return res.json({
           exists: false,
           message: "Usuario no encontrado",

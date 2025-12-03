@@ -126,7 +126,6 @@ class MemoryCache {
     keysToDelete.forEach(key => this.cache.delete(key));
     
     if (keysToDelete.length > 0) {
-      console.log(`🧹 [Cache] Limpiadas ${keysToDelete.length} entradas expiradas`);
     }
   }
 

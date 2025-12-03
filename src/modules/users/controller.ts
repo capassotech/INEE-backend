@@ -104,7 +104,6 @@ export const getUsers = async (req: any, res: Response) => {
         ? page < totalPages
         : snapshot.docs.length === queryLimit;
     
-    console.log(`Found ${users.length} registered users (paginated)`);
 
     return res.json({
       users,
@@ -207,12 +206,9 @@ export const desasignarCursoFromUser = async (req: any, res: Response) => {
 }
 
 export const createUser = async (req: Request, res: Response) => {
-  console.log('🔵 createUser llamado - Body:', JSON.stringify(req.body, null, 2));
-  console.log('🔵 Headers:', req.headers);
   try {
     // El admin envía los datos en { user: {...} }, así que extraemos user o usamos el body directamente
     const userData: UserRegistrationData = req.body.user || req.body;
-    console.log('🔵 userData extraído:', JSON.stringify(userData, null, 2));
     
     const {
       email,

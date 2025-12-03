@@ -6,7 +6,6 @@ const router = Router();
 
 // Middleware de debug para todas las rutas
 router.use((req, res, next) => {
-  console.log(`🔍 [USERS] ${req.method} ${req.path}`);
   next();
 });
 
