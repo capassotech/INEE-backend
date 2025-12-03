@@ -179,11 +179,6 @@ export const getUserCourses = async (req: Request, res: Response) => {
     // Para búsquedas, necesitamos un límite mayor para tener más resultados después del filtrado
     const queryLimit = search && search.trim() ? limit * 3 : limit; // 3x para búsquedas
     
-      queryLimit,
-      queryLimitParam: req.query.limit,
-      queryLastId: req.query.lastId 
-    });
-    
     const doc = await firestore.collection('users').doc(id).get();
 
     if (!doc.exists) {
