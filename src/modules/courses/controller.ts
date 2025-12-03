@@ -32,7 +32,6 @@ export const getAllCourses = async (req: Request, res: Response) => {
       
       const cached = cache.get(cacheKey);
       if (cached) {
-        console.log('✅ [Cache] Hit para getAllCourses:', cacheKey);
         return res.json(cached);
       }
     }
@@ -161,7 +160,6 @@ export const getAllCourses = async (req: Request, res: Response) => {
         nivel: nivel || 'all',
       });
       cache.set(cacheKey, response, 300); // 5 minutos
-      console.log('💾 [Cache] Guardado getAllCourses:', cacheKey);
     }
 
     return res.json(response);
@@ -181,11 +179,6 @@ export const getUserCourses = async (req: Request, res: Response) => {
     // Para búsquedas, necesitamos un límite mayor para tener más resultados después del filtrado
     const queryLimit = search && search.trim() ? limit * 3 : limit; // 3x para búsquedas
     
-    console.log('🔍 [getUserCourses] Request params:', { 
-      id, 
-      limit, 
-      lastId, 
-      search,
       queryLimit,
       queryLimitParam: req.query.limit,
       queryLastId: req.query.lastId 
@@ -228,14 +221,6 @@ export const getUserCourses = async (req: Request, res: Response) => {
     const hasMore = pageCourseIds.length > queryLimit;
     const currentPageIds = hasMore ? pageCourseIds.slice(0, queryLimit) : pageCourseIds;
     
-    console.log('📦 [getUserCourses] Pagination logic:', {
-      totalCourseIds: uniqueCourseIds.length,
-      startIndex,
-      limit,
-      pageCourseIdsCount: pageCourseIds.length,
-      currentPageIdsCount: currentPageIds.length,
-      hasMore
-    });
     
     if (currentPageIds.length === 0) {
       return res.json({
@@ -308,13 +293,6 @@ export const getUserCourses = async (req: Request, res: Response) => {
       }
     };
 
-    console.log('📤 [getUserCourses] Returning response:', {
-      coursesCount: uniqueCourses.length,
-      hasMore: finalHasMore,
-      lastId: lastCourseId,
-      limit,
-      responseStructure: Object.keys(responseData)
-    });
 
     return res.json(responseData);
   } catch (err) {
@@ -382,7 +360,6 @@ export const createCourse = async (
 
     // ✅ CACHÉ: Invalidar caché de cursos al crear uno nuevo
     cache.invalidatePattern(`${CACHE_KEYS.COURSES}:`);
-    console.log('🗑️ [Cache] Invalidado caché de cursos (createCourse)');
 
     return res.status(201).json({
       id: docRef.id,
@@ -446,7 +423,6 @@ export const updateCourse = async (
 
     // ✅ CACHÉ: Invalidar caché de cursos al actualizar
     cache.invalidatePattern(`${CACHE_KEYS.COURSES}:`);
-    console.log('🗑️ [Cache] Invalidado caché de cursos (updateCourse)');
 
     return res.json({
       message: "Curso actualizado exitosamente",
@@ -481,7 +457,6 @@ export const deleteCourse = async (
 
     // ✅ CACHÉ: Invalidar caché de cursos al eliminar
     cache.invalidatePattern(`${CACHE_KEYS.COURSES}:`);
-    console.log('🗑️ [Cache] Invalidado caché de cursos (deleteCourse)');
 
     return res.json({
       message: "Curso eliminado exitosamente",

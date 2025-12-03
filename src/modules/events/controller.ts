@@ -21,7 +21,6 @@ export const getAllEvents = async (req: Request, res: Response) => {
             const cacheKey = cache.generateKey(CACHE_KEYS.EVENTS, { limit });
             const cached = cache.get(cacheKey);
             if (cached) {
-                console.log('✅ [Cache] Hit para getAllEvents:', cacheKey);
                 return res.json(cached);
             }
         }
@@ -85,7 +84,6 @@ export const getAllEvents = async (req: Request, res: Response) => {
         if (shouldCache) {
             const cacheKey = cache.generateKey(CACHE_KEYS.EVENTS, { limit });
             cache.set(cacheKey, response, 300); // 5 minutos
-            console.log('💾 [Cache] Guardado getAllEvents:', cacheKey);
         }
         
         return res.json(response);
@@ -134,7 +132,6 @@ export const createEvent = async (req: AuthenticatedRequest, res: Response) => {
 
     // ✅ CACHÉ: Invalidar caché de eventos al crear uno nuevo
     cache.invalidatePattern(`${CACHE_KEYS.EVENTS}:`);
-    console.log('🗑️ [Cache] Invalidado caché de eventos (createEvent)');
 
     return res.status(201).json({
       id: createdDoc.id,
@@ -192,7 +189,6 @@ export const deleteEvent = async (req: AuthenticatedRequest, res: Response) => {
 
         // ✅ CACHÉ: Invalidar caché de eventos al eliminar
         cache.invalidatePattern(`${CACHE_KEYS.EVENTS}:`);
-        console.log('🗑️ [Cache] Invalidado caché de eventos (deleteEvent)');
 
         return res.json({ success: true });
     } catch (err) {

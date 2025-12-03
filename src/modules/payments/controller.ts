@@ -84,7 +84,6 @@ export const createPayment = async (req: Request, res: Response) => {
 
         if (status === 'approved') {
             // TODO: asignar cursos / membresías al usuario según items
-            console.log(`Pago aprobado (sincrónico) para orderId=${orderId}, userId=${userId}`);
         }
 
         return res.json({

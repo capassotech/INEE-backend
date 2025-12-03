@@ -21,7 +21,6 @@ export const getAllEbooks = async (req: Request, res: Response) => {
       const cacheKey = cache.generateKey(CACHE_KEYS.EBOOKS, { limit });
       const cached = cache.get(cacheKey);
       if (cached) {
-        console.log('✅ [Cache] Hit para getAllEbooks:', cacheKey);
         return res.json(cached);
       }
     }
@@ -88,7 +87,6 @@ export const getAllEbooks = async (req: Request, res: Response) => {
     if (shouldCache) {
       const cacheKey = cache.generateKey(CACHE_KEYS.EBOOKS, { limit });
       cache.set(cacheKey, response, 300); // 5 minutos
-      console.log('💾 [Cache] Guardado getAllEbooks:', cacheKey);
     }
     
     return res.json(response);
@@ -132,7 +130,6 @@ export const createEbook = async (req: AuthenticatedRequest, res: Response) => {
 
     // ✅ CACHÉ: Invalidar caché de ebooks al crear uno nuevo
     cache.invalidatePattern(`${CACHE_KEYS.EBOOKS}:`);
-    console.log('🗑️ [Cache] Invalidado caché de ebooks (createEbook)');
 
     return res.status(201).json({
       id: createdDoc.id,
@@ -167,7 +164,6 @@ export const updateEbook = async (req: AuthenticatedRequest, res: Response) => {
 
     // ✅ CACHÉ: Invalidar caché de ebooks al actualizar
     cache.invalidatePattern(`${CACHE_KEYS.EBOOKS}:`);
-    console.log('🗑️ [Cache] Invalidado caché de ebooks (updateEbook)');
 
     return res.json({
       message: "Ebook actualizado exitosamente",
@@ -192,7 +188,6 @@ export const deleteEbook = async (req: AuthenticatedRequest, res: Response) => {
 
     // ✅ CACHÉ: Invalidar caché de ebooks al eliminar
     cache.invalidatePattern(`${CACHE_KEYS.EBOOKS}:`);
-    console.log('🗑️ [Cache] Invalidado caché de ebooks (deleteEbook)');
 
     return res.json({ message: "Ebook eliminado exitosamente" });
   } catch (err) {
