@@ -14,6 +14,7 @@
     "npm": ">=8.0.0"
   },
   "dependencies": {
+    "@mercadopago/sdk-js": "^0.0.3",
     "@types/node-cron": "^3.0.11",
     "axios": "^1.11.0",
     "cors": "^2.8.5",

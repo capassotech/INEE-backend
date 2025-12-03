@@ -3,6 +3,8 @@ import { firestore } from '../../config/firebase';
 import { Resend } from "resend";
 import { MercadoPagoConfig, Payment } from "mercadopago";
 import { createOrder, updateOrderStatus } from "../orders/controller";
+import crypto from 'crypto';
+
 
 const mpClient = new MercadoPagoConfig({
     accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN || '',
@@ -61,6 +63,9 @@ export const createPayment = async (req: Request, res: Response) => {
                     userId,
                     orderId,
                 },
+            },
+            requestOptions: {
+                idempotencyKey: `order-${orderId}-${Date.now()}` 
             }
         });
 
@@ -94,37 +99,44 @@ export const createPayment = async (req: Request, res: Response) => {
     }
 }
 
+
 export const handleWebhook = async (req: Request, res: Response) => {
     try {
-      const { type, data } = req.body;
+        const xSignature = req.headers['x-signature'] as string;
+        const xRequestId = req.headers['x-request-id'] as string;
+        
+        if (!validateWebhookSignature(req.body, xSignature, xRequestId)) {
+            console.warn('Firma de webhook inválida');
+            return res.sendStatus(401);
+        }
 
-      if (type !== 'payment') {
-        return res.sendStatus(200);
-      }
 
-      const paymentClient = new Payment(mpClient);
-      const payment = await paymentClient.get({ id: data.id });
-
-      const { metadata, status } = payment;
-
-      if (!metadata || !metadata.userId || !metadata.orderId) {
-        console.warn('Metadata faltante en el pago:', data.id);
-        return res.sendStatus(400);
-      }
-
-      await updateOrderStatus(metadata.orderId, status || '');
-
-      if (status === 'approved') {
-        // Agregar productos al usuario luego de la compra exitosa
-        console.log(`Pago aprobado (webhook) para orderId=${metadata.orderId}, userId=${metadata.userId}`);
-      }
-
-      return res.sendStatus(200);
     } catch (err) {
-      console.error('handleWebhook error:', err);
-      return res.sendStatus(500);
+        console.error('handleWebhook error:', err);
+        return res.sendStatus(500);
     }
-  };
+};
+
+const validateWebhookSignature = (body: any, signature: string, requestId: string): boolean => {
+    const secret = process.env.MERCADO_PAGO_WEBHOOK_SECRET || '';
+    
+    const parts = signature.split(',');
+    let ts = '';
+    let hash = '';
+    
+    parts.forEach(part => {
+        const [key, value] = part.split('=');
+        if (key.trim() === 'ts') ts = value;
+        if (key.trim() === 'v1') hash = value;
+    });
+    
+    const manifest = `id:${body.data.id};request-id:${requestId};ts:${ts};`;
+    const hmac = crypto.createHmac('sha256', secret);
+    hmac.update(manifest);
+    const calculatedHash = hmac.digest('hex');
+    
+    return calculatedHash === hash;
+};
 
 const calculateTotalPrice = async (items: any[]): Promise<number> => {
     let totalPrice = 0;
@@ -139,20 +151,20 @@ const validateProds = async (items: any[]): Promise<boolean> => {
     for (const item of items) {
         const prod = await firestore.collection('courses').doc(item.id).get();
         if (prod.exists) {
-            return true;
+            continue; 
         }
 
         const course = await firestore.collection('events').doc(item.id).get();
         if (course.exists) {
-            return true;
+            continue;
         }
 
         const ebook = await firestore.collection('ebooks').doc(item.id).get();
         if (ebook.exists) {
-            return true;
+            continue;
         }
 
-        return false;
+        return false; 
     }
-    return false;
+    return true;
 }
