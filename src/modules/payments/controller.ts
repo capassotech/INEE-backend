@@ -15,24 +15,25 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 export const createPayment = async (req: Request, res: Response) => {
     try {
         const {
-            userId,
             items,
-            totalPrice,
-            token,
-            paymentMethodId,
-            installments = 1,
-            issuerId,
+            payer,
+            back_urls,
+            auto_return,
+            external_reference,
+            metadata
         } = req.body;
 
-        if (!userId || !Array.isArray(items) || items.length === 0 || !totalPrice) {
+        console.log(req.body);
+
+        if (!metadata.userId || !Array.isArray(items) || items.length === 0 || !metadata.totalAmount) {
             return res.status(400).json({ error: "Faltan datos de la orden (userId, items, totalPrice)" });
         }
 
-        if (!token || !paymentMethodId) {
-            return res.status(400).json({ error: "Faltan datos de pago (token, paymentMethodId)" });
-        }
+        // if (!token || !paymentMethodId) {
+        //     return res.status(400).json({ error: "Faltan datos de pago (token, paymentMethodId)" });
+        // }
 
-        const user = await firestore.collection('users').doc(userId).get();
+        const user = await firestore.collection('users').doc(metadata.userId).get();
         if (!user.exists) {
             return res.status(400).json({ error: "Usuario no encontrado" });
         }
@@ -42,25 +43,24 @@ export const createPayment = async (req: Request, res: Response) => {
         }
 
         const total = await calculateTotalPrice(items);
-        const transactionAmount = total || totalPrice;
+        const transactionAmount = total || metadata.totalAmount;
 
-        const orderId = await createOrder(userId, items, transactionAmount, 'pending');
+        const orderId = await createOrder(metadata.userId, items, transactionAmount, 'pending');
 
         const paymentClient = new Payment(mpClient);
         const payment = await paymentClient.create({
             body: {
                 transaction_amount: Number(transactionAmount),
-                token,
+                // token,
                 description: "Compra INEE",
-                installments,
-                payment_method_id: paymentMethodId,
-                issuer_id: issuerId,
+                // installments,
+                // payment_method_id: paymentMethodId,
                 payer: {
                     email: user.data()?.email || '',
                     first_name: user.data()?.nombre || '',
                 },
                 metadata: {
-                    userId,
+                    userId: metadata.userId,
                     orderId,
                 },
             },
