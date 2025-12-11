@@ -23,14 +23,14 @@ import reviewsRoutes from "./modules/reviews/routes";
 import cartRoutes from "./modules/cart/routes";
 import paymentsRoutes from "./modules/payments/routes";
 import progressRoutes from "./modules/progress/routes";
+import ordersRoutes from "./modules/orders/routes";
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
 
-// ✅ CACHÉ: Agregar headers de caché a todas las respuestas de API
-// Las respuestas se cachearán en el navegador por 5 minutos
 app.use("/api", cacheHeaders(300));
 
 app.use("/api/auth", authRoutes);
@@ -50,6 +50,7 @@ app.use("/api/reviews", reviewsRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/payments", paymentsRoutes);
 app.use("/api/progreso", progressRoutes);
+app.use("/api/orders", ordersRoutes);
 
 app.get("/", (_, res) => {
   res.json({
