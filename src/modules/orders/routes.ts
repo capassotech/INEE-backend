@@ -4,8 +4,8 @@ import { getOrders, getOrderById } from "./controller";
 
 const router = Router();
 
-router.get("/order", getOrders)
+router.get("/", getOrders)
 
-router.get("/order/:orderId", getOrderById)
+router.get("/:orderId", getOrderById)
 
 export default router;
