@@ -24,7 +24,9 @@ import cartRoutes from "./modules/cart/routes";
 import paymentsRoutes from "./modules/payments/routes";
 import progressRoutes from "./modules/progress/routes";
 import ordersRoutes from "./modules/orders/routes";
+import emailsRoutes from "./modules/emails/routes";
 import eventRegistrationsRoutes from "./modules/event-registrations/routes";
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -52,7 +54,6 @@ app.use("/api/cart", cartRoutes);
 app.use("/api/payments", paymentsRoutes);
 app.use("/api/progreso", progressRoutes);
 app.use("/api/orders", ordersRoutes);
-app.use("/api/inscripciones-eventos", eventRegistrationsRoutes);
 
 app.get("/", (_, res) => {
   res.json({
