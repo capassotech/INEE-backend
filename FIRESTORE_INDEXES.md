@@ -82,6 +82,18 @@ Ver la sección "Índices Definidos" más abajo para la lista completa con todos
    - Para: `reminderReview` - Verificar si ya existe un recordatorio programado
    - Query: `.where('userId', '==', userId).where('courseId', '==', courseId)`
 
+### Inscripciones Eventos
+
+1. **userId + eventoId + estado**
+   - Para: Verificar si el usuario ya está inscrito a un evento
+   - Query: `.where('userId', '==', userId).where('eventoId', '==', eventoId).where('estado', '==', 'activa')`
+   - Usado en: `verificarDisponibilidad`, `inscribirseEvento`, `webhookPagoEvento`, `comprarEInscribirse`, `verificarInscripcion`
+
+2. **userId + estado**
+   - Para: Listar todas las inscripciones activas de un usuario
+   - Query: `.where('userId', '==', userId).where('estado', '==', 'activa')`
+   - Usado en: `listarMisInscripciones`
+
 ### Courses (Cursos)
 
 1. **id_profesor + fechaCreacion (DESC)**
