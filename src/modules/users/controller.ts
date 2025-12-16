@@ -174,7 +174,44 @@ export const updateUser = async (req: any, res: Response) => {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    await userDoc.ref.update(req.body);
+    // Si el body tiene un campo 'user', usar ese, sino usar el body directamente
+    const userData = req.body.user || req.body;
+
+    // Preparar los datos para actualizar, asegurándonos de que los campos importantes se guarden correctamente
+    const updateData: any = {
+      fechaActualizacion: new Date(),
+    };
+
+    // PRIORIDAD 1: Procesar el campo activo primero si está presente
+    if (userData.activo !== undefined) {
+      updateData.activo = Boolean(userData.activo);
+      console.log('Campo activo establecido:', updateData.activo, typeof updateData.activo);
+    }
+
+    // Copiar todos los campos del usuario, pero manejar campos especiales
+    Object.keys(userData).forEach((key) => {
+      // Ignorar campos que no deben actualizarse directamente o que son objetos complejos
+      if (key === 'id' || key === 'fechaRegistro' || key === 'activo') {
+        return; // activo ya se procesó arriba
+      }
+
+      // Si es fechaActualizacion con formato _seconds, convertirla
+      if (key === 'fechaActualizacion' && userData[key] && typeof userData[key] === 'object' && userData[key]._seconds) {
+        updateData.fechaActualizacion = new Date(userData[key]._seconds * 1000);
+        return;
+      }
+
+      // Para otros campos, copiarlos tal cual
+      if (userData[key] !== undefined && userData[key] !== null) {
+        updateData[key] = userData[key];
+      }
+    });
+
+    console.log('Actualizando usuario:', uid);
+    console.log('Datos recibidos:', JSON.stringify(userData, null, 2));
+    console.log('Datos a actualizar en Firestore:', JSON.stringify(updateData, null, 2));
+
+    await userDoc.ref.update(updateData);
 
     const updatedDoc = await firestore.collection('users').doc(uid).get();
 
