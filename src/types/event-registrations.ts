@@ -29,7 +29,9 @@ export interface DisponibilidadInscripcion {
   requierePago: boolean;
   precio: number;
   mensaje: string;
-  accionRequerida: 'inscribir' | 'comprar' | 'no_disponible';
+  accionRequerida: 'inscribir' | 'comprar' | 'no_disponible' | 'ya_inscrito';
+  yaInscrito?: boolean;
+  inscripcionId?: string;
 }
 
 // Alerta para mostrar al usuario
