@@ -20,6 +20,7 @@ export const EventCreateSchema = z.object({
   precio: z.number(),
   membresiaId: z.string().nullable().optional(),
   imagen: z.union([z.string(), z.null()]).optional(),
+  estado: z.enum(["activo", "inactivo"]).optional(),
 });
 
 export const EventUpdateSchema = EventCreateSchema.partial();
