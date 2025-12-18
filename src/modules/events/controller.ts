@@ -170,6 +170,10 @@ export const updateEvent = async (req: AuthenticatedRequest, res: Response) => {
         }
 
         await collection.doc(eventId).update(dataToUpdate);
+        
+        // ✅ CACHÉ: Invalidar caché de eventos al actualizar
+        cache.invalidatePattern(`${CACHE_KEYS.EVENTS}:`);
+        
         return res.json({
             message: "Evento actualizado exitosamente",
             id: eventId,
