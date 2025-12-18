@@ -4,17 +4,43 @@ import { Resend } from "resend";
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 export const sendEmail = async (req: Request, res: Response) => {
-    console.log("Recibido");
-    const { nombre, email, whatsapp } = req.body;
-    console.log(nombre, email, whatsapp);
+    try {
+        const { nombre, email, whatsapp } = req.body;
 
+        if (!nombre || !email) {
+            return res.status(400).json({ 
+                message: "Los campos nombre y email son requeridos" 
+            });
+        }
 
-    await resend.emails.send({
-        from: "INEE Oficial <contacto@ineeoficial.com>",
-        to: "administracion@ineeoficial.com",
-        subject: `📧 Nuevo Email de ${email} - ${new Date().toLocaleDateString('es-ES')}`,
-        text: `Email: ${email}\nTeléfono: ${whatsapp}\nNombre: ${nombre}`,
-    });
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            return res.status(400).json({ 
+                message: "Formato de email inválido" 
+            });
+        }
 
-    return res.status(200).json({ message: "Email enviado correctamente" });
+        const { error } = await resend.emails.send({
+            from: "INEE Oficial <contacto@ineeoficial.com>",
+            to: "administracion@ineeoficial.com",
+            subject: `📧 Nuevo Email de ${email} - ${new Date().toLocaleDateString('es-ES')}`,
+            text: `Email: ${email}\nTeléfono: ${whatsapp || 'No proporcionado'}\nNombre: ${nombre}`,
+        });
+
+        if (error) {
+            console.error("Error al enviar email:", error);
+            return res.status(500).json({ 
+                message: "Error al enviar el email" 
+            });
+        }
+
+        return res.status(200).json({ 
+            success: true,
+            message: "Email enviado correctamente" 
+        });
+    } catch (error) {
+        console.error("Error inesperado en sendEmail:", error);
+        return res.status(500).json({ 
+            message: "Error interno del servidor" 
+        });
+    }
 }
