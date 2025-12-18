@@ -193,15 +193,68 @@ export const updateUser = async (req: any, res: Response) => {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    await userDoc.ref.update(req.body);
+    // Preparar datos de actualización
+    const updateData: any = {
+      fechaActualizacion: new Date(),
+    };
 
+    // Procesar todos los campos del body, incluyendo activo
+    const bodyData = req.body;
+    
+    // Si el frontend envía los datos dentro de un objeto 'user', extraerlos
+    const datosUsuario = bodyData.user || bodyData;
+
+    // Copiar todos los campos válidos al updateData
+    // Excluir campos que no deben actualizarse directamente
+    const camposExcluidos = ['id', 'uid', 'fechaRegistro', 'email', 'fechaActualizacion'];
+    
+    for (const [key, value] of Object.entries(datosUsuario)) {
+      // No incluir campos excluidos
+      if (camposExcluidos.includes(key)) {
+        continue;
+      }
+      
+      // Incluir el campo si tiene un valor válido (incluyendo false y 0)
+      if (value !== undefined && value !== null) {
+        // Validar que activo sea booleano
+        if (key === 'activo') {
+          if (typeof value === 'boolean') {
+            updateData.activo = value;
+          } else if (value === 'true' || value === true) {
+            updateData.activo = true;
+          } else if (value === 'false' || value === false) {
+            updateData.activo = false;
+          } else {
+            console.warn(`[updateUser] Valor inválido para activo: ${value}, tipo: ${typeof value}`);
+          }
+        } else {
+          // No copiar objetos de Firestore directamente (tienen _seconds, _nanoseconds)
+          if (typeof value === 'object' && value !== null && ('_seconds' in value || '_nanoseconds' in value)) {
+            continue;
+          }
+          updateData[key] = value;
+        }
+      }
+    }
+    
+    // Asegurar que fechaActualizacion siempre sea un Date nuevo
+    updateData.fechaActualizacion = new Date();
+
+    // Actualizar en Firestore
+    await userDoc.ref.update(updateData);
+
+    // Obtener documento actualizado
     const updatedDoc = await firestore.collection('users').doc(uid).get();
+    const updatedData = updatedDoc.data();
 
     return res.status(200).json({
       message: 'Usuario actualizado correctamente',
       user: {
         id: updatedDoc.id,
-        ...updatedDoc.data()
+        ...updatedData,
+        fechaRegistro: updatedData?.fechaRegistro?.toDate?.() || updatedData?.fechaRegistro,
+        fechaActualizacion: updatedData?.fechaActualizacion?.toDate?.() || updatedData?.fechaActualizacion,
+        fechaEliminacion: updatedData?.fechaEliminacion?.toDate?.() || updatedData?.fechaEliminacion,
       }
     });
   } catch (error) {
