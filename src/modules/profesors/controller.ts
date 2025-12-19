@@ -104,10 +104,6 @@ export const updateProfesor = async (req: Request, res: Response) => {
         
         // Si el frontend envía los datos dentro de un objeto 'profesor', extraerlos
         const datosProfesor = bodyData.profesor || bodyData;
-        const bodyData = req.body;
-        
-        // Si el frontend envía los datos dentro de un objeto 'profesor', extraerlos
-        const datosProfesor = bodyData.profesor || bodyData;
         
         const profesorRef = firestore.collection('profesores').doc(id);
         const profesorDoc = await profesorRef.get();
@@ -116,7 +112,6 @@ export const updateProfesor = async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'Profesor no encontrado' });
         }
         
-        // Preparar datos de actualización
         // Preparar datos de actualización
         const updateData: any = {
             updatedAt: new Date().toISOString(),
@@ -145,10 +140,6 @@ export const updateProfesor = async (req: Request, res: Response) => {
         await profesorRef.update(updateData);
         const updatedProfesor = await profesorRef.get();
         
-        res.json({ 
-            id: updatedProfesor.id, 
-            ...updatedProfesor.data() 
-        });
         res.json({ 
             id: updatedProfesor.id, 
             ...updatedProfesor.data() 
