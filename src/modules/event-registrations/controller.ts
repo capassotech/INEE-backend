@@ -66,6 +66,7 @@ export const verificarDisponibilidad = async (req: AuthenticatedRequest, res: Re
       .get();
 
     const yaInscrito = !inscripcionExistente.empty;
+    const inscripcionId = yaInscrito ? inscripcionExistente.docs[0].id : null;
 
     // Verificar si tiene la membresía requerida
     const tieneMembresia = membresiaIdEvento && membresiaIdUsuario === membresiaIdEvento;
@@ -73,12 +74,12 @@ export const verificarDisponibilidad = async (req: AuthenticatedRequest, res: Re
     // Determinar disponibilidad y acción requerida
     let puedeInscribirse = false;
     let requierePago = false;
-    let accionRequerida: 'inscribir' | 'comprar' | 'no_disponible' = 'no_disponible';
+    let accionRequerida: 'inscribir' | 'comprar' | 'no_disponible' | 'ya_inscrito' = 'no_disponible';
     let mensaje = '';
 
     if (yaInscrito) {
-      mensaje = 'Ya estás inscrito a este evento';
-      accionRequerida = 'no_disponible';
+      mensaje = '✅ Ya estás inscrito a este evento. No puedes inscribirte nuevamente.';
+      accionRequerida = 'ya_inscrito';
     } else if (esGratuito && tieneMembresia) {
       // Evento gratuito y tiene membresía → puede inscribirse gratis
       puedeInscribirse = true;
@@ -119,6 +120,8 @@ export const verificarDisponibilidad = async (req: AuthenticatedRequest, res: Re
       precio,
       mensaje,
       accionRequerida,
+      yaInscrito,
+      inscripcionId: inscripcionId || undefined,
     };
 
     return res.status(200).json({
@@ -192,9 +195,20 @@ export const inscribirseEvento = async (req: AuthenticatedRequest, res: Response
       .get();
 
     if (!inscripcionExistente.empty) {
+      const inscripcionData = inscripcionExistente.docs[0].data();
       return res.status(400).json({
+        success: false,
         error: 'Ya estás inscrito a este evento',
+        mensaje: '✅ Ya estás inscrito a este evento. No puedes inscribirte nuevamente.',
         inscripcionId: inscripcionExistente.docs[0].id,
+        alerta: {
+          mensaje: '⚠️ Ya estás inscrito a este evento. No puedes inscribirte nuevamente.',
+          tipo: 'warning',
+          mostrar: true,
+        },
+        fechaInscripcion: inscripcionData.fechaInscripcion?.toDate?.() 
+          ? inscripcionData.fechaInscripcion.toDate().toISOString()
+          : inscripcionData.fechaInscripcion,
       });
     }
 
@@ -516,11 +530,29 @@ export const verificarInscripcion = async (req: AuthenticatedRequest, res: Respo
       ...snapshot.docs[0].data(),
     } : null;
 
+    // Si está inscrito, incluir información adicional
+    if (estaInscrito && inscripcion) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          estaInscrito: true,
+          inscripcion: {
+            ...inscripcion,
+            fechaInscripcion: inscripcion.fechaInscripcion?.toDate?.() 
+              ? inscripcion.fechaInscripcion.toDate().toISOString()
+              : inscripcion.fechaInscripcion,
+          },
+          mensaje: '✅ Ya estás inscrito a este evento',
+        },
+      });
+    }
+
     return res.status(200).json({
       success: true,
       data: {
-        estaInscrito,
-        inscripcion,
+        estaInscrito: false,
+        inscripcion: null,
+        mensaje: 'No estás inscrito a este evento',
       },
     });
   } catch (error) {

@@ -55,6 +55,7 @@ app.use("/api/payments", paymentsRoutes);
 app.use("/api/progreso", progressRoutes);
 app.use("/api/orders", ordersRoutes);
 app.use("/api/emails", emailsRoutes);
+app.use("/api/inscripciones-eventos", eventRegistrationsRoutes);
 
 app.get("/", (_, res) => {
   res.json({
