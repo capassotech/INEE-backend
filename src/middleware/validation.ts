@@ -309,7 +309,6 @@ export const trackLoginResult = (
 
     if (res.statusCode === 200 || res.statusCode === 201) {
       loginAttempts.delete(clientIP);
-      console.log(`Login exitoso desde IP: ${clientIP}`);
     } else if (res.statusCode === 401 || res.statusCode === 403) {
       const attempt = loginAttempts.get(clientIP) || {
         count: 0,
@@ -319,9 +318,6 @@ export const trackLoginResult = (
       attempt.lastAttempt = now;
       loginAttempts.set(clientIP, attempt);
 
-      console.log(
-        `Login fallido desde IP: ${clientIP}, intentos: ${attempt.count}`
-      );
 
       if (attempt.count >= 3) {
         console.warn(

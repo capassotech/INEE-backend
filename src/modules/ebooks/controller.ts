@@ -21,7 +21,6 @@ export const getAllEbooks = async (req: Request, res: Response) => {
       const cacheKey = cache.generateKey(CACHE_KEYS.EBOOKS, { limit });
       const cached = cache.get(cacheKey);
       if (cached) {
-        console.log('✅ [Cache] Hit para getAllEbooks:', cacheKey);
         return res.json(cached);
       }
     }
@@ -88,7 +87,6 @@ export const getAllEbooks = async (req: Request, res: Response) => {
     if (shouldCache) {
       const cacheKey = cache.generateKey(CACHE_KEYS.EBOOKS, { limit });
       cache.set(cacheKey, response, 300); // 5 minutos
-      console.log('💾 [Cache] Guardado getAllEbooks:', cacheKey);
     }
     
     return res.json(response);
@@ -132,7 +130,6 @@ export const createEbook = async (req: AuthenticatedRequest, res: Response) => {
 
     // ✅ CACHÉ: Invalidar caché de ebooks al crear uno nuevo
     cache.invalidatePattern(`${CACHE_KEYS.EBOOKS}:`);
-    console.log('🗑️ [Cache] Invalidado caché de ebooks (createEbook)');
 
     return res.status(201).json({
       id: createdDoc.id,
@@ -155,23 +152,55 @@ export const updateEbook = async (req: AuthenticatedRequest, res: Response) => {
 
   try {
     const ebookId = req.params.id;
-    const updateData: ValidatedUpdateEbook = req.body;
+    const bodyData = req.body;
+    
+    // Si el frontend envía los datos dentro de un objeto 'ebook', extraerlos
+    const datosEbook = bodyData.ebook || bodyData;
 
     const ebookDoc = await collection.doc(ebookId).get();
     if (!ebookDoc.exists) {
       return res.status(404).json({ error: "Ebook no encontrado" });
     }
-    const dataToUpdate: any = { ...updateData };
+
+    // Preparar datos de actualización
+    const dataToUpdate: any = {};
+
+    // Copiar todos los campos válidos
+    // Excluir campos que no deben actualizarse directamente
+    const camposExcluidos = ['id'];
+    
+    for (const [key, value] of Object.entries(datosEbook)) {
+      // No incluir campos excluidos
+      if (camposExcluidos.includes(key)) {
+        continue;
+      }
+      
+      // Incluir el campo si tiene un valor válido (incluyendo false y 0)
+      if (value !== undefined && value !== null) {
+        // No copiar objetos de Firestore directamente (tienen _seconds, _nanoseconds)
+        if (typeof value === 'object' && value !== null && ('_seconds' in value || '_nanoseconds' in value)) {
+          continue;
+        }
+        dataToUpdate[key] = value;
+      }
+    }
 
     await collection.doc(ebookId).update(dataToUpdate);
 
     // ✅ CACHÉ: Invalidar caché de ebooks al actualizar
     cache.invalidatePattern(`${CACHE_KEYS.EBOOKS}:`);
-    console.log('🗑️ [Cache] Invalidado caché de ebooks (updateEbook)');
+
+    // Obtener documento actualizado
+    const updatedDoc = await collection.doc(ebookId).get();
+    const updatedData = updatedDoc.data();
 
     return res.json({
       message: "Ebook actualizado exitosamente",
       id: ebookId,
+      ebook: {
+        id: updatedDoc.id,
+        ...updatedData,
+      },
     });
   } catch (err) {
     console.error("❌ [UPDATE EBOOK ERROR]:", err);
@@ -192,7 +221,6 @@ export const deleteEbook = async (req: AuthenticatedRequest, res: Response) => {
 
     // ✅ CACHÉ: Invalidar caché de ebooks al eliminar
     cache.invalidatePattern(`${CACHE_KEYS.EBOOKS}:`);
-    console.log('🗑️ [Cache] Invalidado caché de ebooks (deleteEbook)');
 
     return res.json({ message: "Ebook eliminado exitosamente" });
   } catch (err) {

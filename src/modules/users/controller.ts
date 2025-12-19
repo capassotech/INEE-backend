@@ -45,59 +45,116 @@ export const getUser = async (req: any, res: Response) => {
 
 export const getUsers = async (req: any, res: Response) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit as string || '20'), 100); // Máximo 100
-    const lastId = req.query.lastId as string | undefined;
-    const search = req.query.search as string | undefined; // Búsqueda de texto
+    const rawLimit = parseInt((req.query.limit as string) || (req.query.pageSize as string) || '20', 10);
+    const limit = Math.min(Number.isNaN(rawLimit) ? 20 : rawLimit, 100); 
+    const pageQuery = req.query.page as string | undefined;
+    const page = Math.max(parseInt(pageQuery || '1', 10) || 1, 1);
+    const offset = (page - 1) * limit;
+    const search = req.query.search as string | undefined; 
+    const status = req.query.status as string | undefined;
+    const sortBy = req.query.sortBy as string | undefined;
     
-    // Para búsquedas, necesitamos un límite mayor para tener más resultados después del filtrado
-    const queryLimit = search && search.trim() ? limit * 3 : limit; // 3x para búsquedas
+    const hasSearch = Boolean(search && search.trim());
+    const hasStatusFilter = Boolean(status && status !== 'all');
+    const hasSort = Boolean(sortBy);
+    const hasFilters = hasSearch || hasStatusFilter || hasSort;
     
-    let query = firestore.collection('users')
-      .orderBy('__name__') // Ordenar por ID del documento
-      .limit(queryLimit);
+    let users: any[] = [];
+    let totalFiltered = 0;
     
-    // Si hay un lastId, continuar desde ahí
-    if (lastId) {
-      const lastDoc = await firestore.collection('users').doc(lastId).get();
-      if (lastDoc.exists) {
-        query = query.startAfter(lastDoc);
+    if (!hasFilters) {
+      try {
+        const countSnapshot = await firestore.collection('users').count().get();
+        totalFiltered = countSnapshot.data().count;
+      } catch (error) {
+        const allUsersSnapshot = await firestore.collection('users').get();
+        totalFiltered = allUsersSnapshot.size;
       }
-    }
-    
-    const snapshot = await query.get();
-    let users = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
-    
-    // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
-    if (search && search.trim()) {
-      const searchLower = search.toLowerCase().trim();
-      users = users.filter((user: any) => {
-        const nombre = (user.nombre || '').toLowerCase();
-        const apellido = (user.apellido || '').toLowerCase();
-        const email = (user.email || '').toLowerCase();
-        const nombreCompleto = `${nombre} ${apellido}`.toLowerCase();
-        return nombre.includes(searchLower) || 
-               apellido.includes(searchLower) || 
-               email.includes(searchLower) ||
-               nombreCompleto.includes(searchLower);
-      });
-      // Limitar después del filtrado
-      users = users.slice(0, limit);
-    }
-    
-    const lastDoc = snapshot.docs[snapshot.docs.length - 1];
-    const hasMore = snapshot.docs.length === queryLimit;
-    
-    console.log(`Found ${users.length} registered users (paginated)`);
+      
+      const pageQuery = firestore.collection('users')
+        .orderBy('__name__')
+        .offset(offset)
+        .limit(limit);
+      const pageSnapshot = await pageQuery.get();
+      users = pageSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+    } else {
+      const queryLimit = Math.min(limit * 10, 1000);
+      
+      let query = firestore.collection('users').orderBy('__name__').limit(queryLimit);
+      const snapshot = await query.get();
 
+      users = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+    
+      if (hasSearch) {
+        const searchLower = search!.toLowerCase().trim();
+        users = users.filter((user: any) => {
+          const nombre = (user.nombre || '').toLowerCase();
+          const apellido = (user.apellido || '').toLowerCase();
+          const email = (user.email || '').toLowerCase();
+          const nombreCompleto = `${nombre} ${apellido}`.toLowerCase();
+          return nombre.includes(searchLower) || 
+                 apellido.includes(searchLower) || 
+                 email.includes(searchLower) ||
+                 nombreCompleto.includes(searchLower);
+        });
+      }
+      
+      if (hasStatusFilter) {
+        const isActive = status === 'activo';
+        users = users.filter((user: any) => user.activo === isActive);
+      }
+
+      if (hasSort) {
+        switch (sortBy) {
+          case 'name':
+            users.sort((a: any, b: any) => {
+              const nameA = `${a.nombre || ''} ${a.apellido || ''}`.toLowerCase();
+              const nameB = `${b.nombre || ''} ${b.apellido || ''}`.toLowerCase();
+              return nameA.localeCompare(nameB);
+            });
+            break;
+          case 'date':
+            users.sort((a: any, b: any) => {
+              const dateA = a.fechaRegistro?._seconds ? new Date(a.fechaRegistro._seconds * 1000).getTime() : 0;
+              const dateB = b.fechaRegistro?._seconds ? new Date(b.fechaRegistro._seconds * 1000).getTime() : 0;
+              return dateB - dateA;
+            });
+            break;
+          case 'totalSpent':
+            users.sort((a: any, b: any) => {
+              const totalA = a.totalInvertido || 0;
+              const totalB = b.totalInvertido || 0;
+              return totalB - totalA;
+            });
+            break;
+        }
+      }
+      
+      totalFiltered = users.length;
+      
+      users = users.slice(offset, offset + limit);
+    }
+    
+    const totalPages = totalFiltered > 0 ? Math.ceil(totalFiltered / limit) : 1;
+    
+    const hasMore = offset + limit < totalFiltered;
+    
     return res.json({
       users,
       pagination: {
         hasMore,
-        lastId: lastDoc?.id,
+        lastId: null,
         limit,
+        page,
+        nextPage: hasMore ? page + 1 : undefined,
+        total: totalFiltered,
+        totalPages,
         count: users.length
       }
     });
@@ -136,15 +193,68 @@ export const updateUser = async (req: any, res: Response) => {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    await userDoc.ref.update(req.body);
+    // Preparar datos de actualización
+    const updateData: any = {
+      fechaActualizacion: new Date(),
+    };
 
+    // Procesar todos los campos del body, incluyendo activo
+    const bodyData = req.body;
+    
+    // Si el frontend envía los datos dentro de un objeto 'user', extraerlos
+    const datosUsuario = bodyData.user || bodyData;
+
+    // Copiar todos los campos válidos al updateData
+    // Excluir campos que no deben actualizarse directamente
+    const camposExcluidos = ['id', 'uid', 'fechaRegistro', 'email', 'fechaActualizacion'];
+    
+    for (const [key, value] of Object.entries(datosUsuario)) {
+      // No incluir campos excluidos
+      if (camposExcluidos.includes(key)) {
+        continue;
+      }
+      
+      // Incluir el campo si tiene un valor válido (incluyendo false y 0)
+      if (value !== undefined && value !== null) {
+        // Validar que activo sea booleano
+        if (key === 'activo') {
+          if (typeof value === 'boolean') {
+            updateData.activo = value;
+          } else if (value === 'true' || value === true) {
+            updateData.activo = true;
+          } else if (value === 'false' || value === false) {
+            updateData.activo = false;
+          } else {
+            console.warn(`[updateUser] Valor inválido para activo: ${value}, tipo: ${typeof value}`);
+          }
+        } else {
+          // No copiar objetos de Firestore directamente (tienen _seconds, _nanoseconds)
+          if (typeof value === 'object' && value !== null && ('_seconds' in value || '_nanoseconds' in value)) {
+            continue;
+          }
+          updateData[key] = value;
+        }
+      }
+    }
+    
+    // Asegurar que fechaActualizacion siempre sea un Date nuevo
+    updateData.fechaActualizacion = new Date();
+
+    // Actualizar en Firestore
+    await userDoc.ref.update(updateData);
+
+    // Obtener documento actualizado
     const updatedDoc = await firestore.collection('users').doc(uid).get();
+    const updatedData = updatedDoc.data();
 
     return res.status(200).json({
       message: 'Usuario actualizado correctamente',
       user: {
         id: updatedDoc.id,
-        ...updatedDoc.data()
+        ...updatedData,
+        fechaRegistro: updatedData?.fechaRegistro?.toDate?.() || updatedData?.fechaRegistro,
+        fechaActualizacion: updatedData?.fechaActualizacion?.toDate?.() || updatedData?.fechaActualizacion,
+        fechaEliminacion: updatedData?.fechaEliminacion?.toDate?.() || updatedData?.fechaEliminacion,
       }
     });
   } catch (error) {
@@ -189,12 +299,9 @@ export const desasignarCursoFromUser = async (req: any, res: Response) => {
 }
 
 export const createUser = async (req: Request, res: Response) => {
-  console.log('🔵 createUser llamado - Body:', JSON.stringify(req.body, null, 2));
-  console.log('🔵 Headers:', req.headers);
   try {
     // El admin envía los datos en { user: {...} }, así que extraemos user o usamos el body directamente
     const userData: UserRegistrationData = req.body.user || req.body;
-    console.log('🔵 userData extraído:', JSON.stringify(userData, null, 2));
     
     const {
       email,

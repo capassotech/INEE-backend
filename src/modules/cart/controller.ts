@@ -29,7 +29,6 @@ export const getCartById = async (req: Request, res: Response) => {
 export const getCartByUserId = async (req: Request, res: Response) => {
     try {
         const { userId } = req.params;
-        console.log(userId);
         const cart = await firestore.collection('carts').where('userId', '==', userId).get();
         if (cart.empty) {
             return res.status(200).json({ error: 'Carrito no encontrado' });
@@ -50,10 +49,41 @@ export const createCart = async (req: Request, res: Response) => {
         return res.status(400).json({ error: 'Carrito ya existe' });
     }
 
+    // Validar que cada producto existe (puede ser curso, evento o ebook)
     for (const item of items) {
-        const product = await firestore.collection('courses').doc(item.productId).get();
+        const { productId, productType } = item;
+        
+        if (!productType) {
+            return res.status(400).json({ 
+                error: 'Tipo de producto requerido. Debe ser: "course", "event" o "ebook"' 
+            });
+        }
+
+        let product = null;
+        let collectionName = '';
+
+        switch (productType) {
+            case 'course':
+                collectionName = 'courses';
+                break;
+            case 'event':
+                collectionName = 'events';
+                break;
+            case 'ebook':
+                collectionName = 'ebooks';
+                break;
+            default:
+                return res.status(400).json({ 
+                    error: `Tipo de producto inválido: ${productType}. Debe ser: "course", "event" o "ebook"` 
+                });
+        }
+
+        product = await firestore.collection(collectionName).doc(productId).get();
+        
         if (!product.exists) {
-            return res.status(404).json({ error: 'Curso no encontrado' });
+            return res.status(404).json({ 
+                error: `${productType === 'course' ? 'Curso' : productType === 'event' ? 'Evento' : 'Ebook'} no encontrado` 
+            });
         }
     }
 
@@ -173,35 +203,44 @@ export const assignUserToCart = async (req: Request, res: Response) => {
 }
 
 export const mergeCarts = async (req: Request, res: Response) => {
-    const { cartId } = req.params;
-    const { localCart } = req.body;
-    const cart = await firestore.collection('carts').doc(cartId).get();
-    if (!cart.exists) {
-        return res.status(404).json({ error: 'Carrito no encontrado' });
-    }
-
-    const cartItems = cart.data()?.items;
-
-    let i = 0
-    const newCart = []
-    while (i < localCart.length) {
-        const localItem = localCart[i];
-        const cartItem = cartItems.find((item: any) => item.productId === localItem.productId);
-        if (cartItem) {
-            continue;
-        } else {
-            newCart.push(localItem);
-        }
-        i++;
-    }
+    const { userId } = req.params;
+    const localCart = Array.isArray(req.body.localCart) ? req.body.localCart : [];
+    const localCartId = typeof req.body.localCartId === 'string' ? req.body.localCartId : undefined;
 
     try {
-        await firestore.collection('carts').doc(cartId).update({
-            items: newCart,
+        if (!userId) {
+            return res.status(400).json({ error: 'userId es requerido' });
+        }
+
+        const userCart = await firestore.collection('carts').where('userId', '==', userId).get();
+        if (userCart.empty) {
+            return res.status(404).json({ error: 'Carrito del usuario no encontrado' });
+        }
+
+        const userCartData = userCart.docs.flatMap(doc => doc.data().items ?? []);
+
+        let i = 0;
+        while (i < localCart.length) {
+            const localItem = localCart[i];
+            const userCartItem = userCartData.find((item: any) => item.productId === localItem.productId);
+            if (userCartItem) {
+                i++;
+                continue;
+            }
+            userCartData.push(localItem);
+            i++;
+        }
+
+        await firestore.collection('carts').doc(userCart.docs[0].id).update({
+            items: userCartData,
             updatedAt: new Date(),
         });
+
+        if (localCartId) {
+            await firestore.collection('carts').doc(localCartId).delete();
+        }
     
-        return res.json(cart.data());
+        return res.json(userCartData);
     } catch (error) {
         console.error('Error al mergear carritos:', error);
         return res.status(500).json({ error: 'Error al mergear carritos' });

@@ -6,7 +6,6 @@ const router = Router();
 
 // Middleware de debug
 router.use((req, res, next) => {
-  console.log(`🔍 [PROFESORES] ${req.method} ${req.path}`);
   next();
 });
 
