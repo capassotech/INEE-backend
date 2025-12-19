@@ -525,22 +525,26 @@ export const verificarInscripcion = async (req: AuthenticatedRequest, res: Respo
       .get();
 
     const estaInscrito = !snapshot.empty;
-    const inscripcion = estaInscrito ? {
+    const inscripcionData = estaInscrito ? snapshot.docs[0].data() : null;
+    const inscripcion: (InscripcionEvento & { id: string }) | null = estaInscrito ? {
       id: snapshot.docs[0].id,
-      ...snapshot.docs[0].data(),
-    } : null;
+      ...inscripcionData,
+    } as InscripcionEvento & { id: string } : null;
 
     // Si está inscrito, incluir información adicional
-    if (estaInscrito && inscripcion) {
+    if (estaInscrito && inscripcion && inscripcionData) {
+      // Manejar fechaInscripcion que puede ser Date o Firestore Timestamp
+      const fechaInscripcion = (inscripcionData.fechaInscripcion as any)?.toDate?.() 
+        ? (inscripcionData.fechaInscripcion as any).toDate().toISOString()
+        : inscripcionData.fechaInscripcion;
+      
       return res.status(200).json({
         success: true,
         data: {
           estaInscrito: true,
           inscripcion: {
             ...inscripcion,
-            fechaInscripcion: inscripcion.fechaInscripcion?.toDate?.() 
-              ? inscripcion.fechaInscripcion.toDate().toISOString()
-              : inscripcion.fechaInscripcion,
+            fechaInscripcion,
           },
           mensaje: '✅ Ya estás inscrito a este evento',
         },
