@@ -10,7 +10,7 @@ export interface Course {
     pilar: TipoPilar;
     precio: number;
     imagen: string;
-    id_profesor: string;
+    id_profesor: string | string[];  // Soporta uno o múltiples profesores
     estado: EstadoCurso;
     tags: string[];
     id_modulos: string[];
@@ -50,8 +50,8 @@ export const CourseSchema = z.object({
         .trim(),
     duracion: z.number()
         .int("La duración debe ser un número entero")
-        .min(1, "La duración debe ser al menos 1 minuto")
-        .max(10080, "La duración no puede exceder 1 semana (10080 minutos)"),
+        .min(1, "La duración debe ser al menos 1 semana")
+        .max(52, "La duración no puede exceder 52 semanas (1 año)"),
     nivel: z.enum(NivelCurso),
     modalidad: z.enum(ModalidadCurso),
     pilar: z.enum(TipoPilar),
@@ -59,10 +59,18 @@ export const CourseSchema = z.object({
         .min(0, "El precio no puede ser negativo")
         .max(999999, "El precio no puede exceder $999,999"),
     imagen: z.string().optional(),
-    id_profesor: z.string()
-        .min(1, "El ID del profesor es obligatorio")
-        .max(100, "El ID del profesor no puede exceder 100 caracteres")
-        .trim(),
+    id_profesor: z.union([
+        z.string()
+            .min(1, "El ID del profesor es obligatorio")
+            .max(100, "El ID del profesor no puede exceder 100 caracteres")
+            .trim(),
+        z.array(z.string()
+            .min(1, "El ID del profesor no puede estar vacío")
+            .max(100, "El ID del profesor no puede exceder 100 caracteres")
+            .trim())
+            .min(1, "Debe incluir al menos un profesor")
+            .max(10, "No puede tener más de 10 profesores")
+    ]),
     estado: z.enum(EstadoCurso),
     tags: z.array(z.string()
         .min(1, "Los tags no pueden estar vacíos"))

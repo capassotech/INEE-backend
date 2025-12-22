@@ -110,18 +110,18 @@ export const getAllCourses = async (req: Request, res: Response) => {
       });
     }
     
-    // Filtro por duración en memoria (ya que requiere cálculo)
+    // Filtro por duración en memoria (duración ahora en semanas)
     const duracion = req.query.duracion as string | undefined;
     if (duracion && duracion !== 'all') {
       courses = courses.filter((course: any) => {
         const courseDuration = course.duracion || 0;
         const num = typeof courseDuration === "string" ? parseInt(courseDuration, 10) : courseDuration;
         
-        if (duracion === "Menos de 1 mes") return num > 0 && num <= 100;
-        if (duracion === "1-3 meses") return num > 100 && num <= 300;
-        if (duracion === "3-6 meses") return num > 300 && num <= 600;
-        if (duracion === "6-12 meses") return num > 600 && num <= 1200;
-        if (duracion === "+1 año") return num > 1200;
+        if (duracion === "Menos de 1 mes") return num > 0 && num <= 4;    // <= 4 semanas
+        if (duracion === "1-3 meses") return num > 4 && num <= 12;         // 4-12 semanas
+        if (duracion === "3-6 meses") return num > 12 && num <= 26;        // 12-26 semanas
+        if (duracion === "6-12 meses") return num > 26 && num <= 52;       // 26-52 semanas
+        if (duracion === "+1 año") return num > 52;                        // > 52 semanas
         return true;
       });
     }
@@ -326,14 +326,17 @@ export const createCourse = async (
   try {
     const courseData: ValidatedCourse = req.body;
 
-    const profesorExists = await firestore
-      .collection("profesores")
-      .doc(courseData.id_profesor)
-      .get();
-    if (!profesorExists.exists) {
-      return res
-        .status(404)
-        .json({ error: "El profesor especificado no existe" });
+    // Verificar que todos los profesores existen
+    for (const profesorId of courseData.id_profesor) {
+      const profesorExists = await firestore
+        .collection("profesores")
+        .doc(profesorId)
+        .get();
+      if (!profesorExists.exists) {
+        return res
+          .status(404)
+          .json({ error: `El profesor con ID "${profesorId}" no existe` });
+      }
     }
 
     // Verificar que todos los módulos existen (solo si hay módulos)
@@ -389,14 +392,17 @@ export const updateCourse = async (
     }
 
     if (updateData.id_profesor) {
-      const profesorExists = await firestore
-        .collection("profesores")
-        .doc(updateData.id_profesor)
-        .get();
-      if (!profesorExists.exists) {
-        return res
-          .status(404)
-          .json({ error: "El profesor especificado no existe" });
+      // Verificar que todos los profesores existen
+      for (const profesorId of updateData.id_profesor) {
+        const profesorExists = await firestore
+          .collection("profesores")
+          .doc(profesorId)
+          .get();
+        if (!profesorExists.exists) {
+          return res
+            .status(404)
+            .json({ error: `El profesor con ID "${profesorId}" no existe` });
+        }
       }
     }
 

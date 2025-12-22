@@ -15,7 +15,11 @@ export interface Content {
     descripcion: string;
     tipo_contenido: TipoContenido;
     duracion: number;
-    url_contenido: string;
+    // Nuevo: múltiples URLs de contenido
+    urls_contenido: string[];
+    // Nuevo: bibliografía complementaria (opcional)
+    urls_bibliografia?: string[];
+    // Miniatura
     url_miniatura: string | null;
 }
 
@@ -41,9 +45,15 @@ export const ContentSchema = z.object({
         .int("La duración debe ser un número entero")
         .min(0, "La duración no puede ser negativa")
         .max(7200, "La duración no puede exceder 2 horas (7200 segundos)"),
-    url_contenido: z.string()
-        // .url("Debe ser una URL válida")
-        .min(1, "La URL del contenido es obligatoria"),
+    // Nuevo: array de URLs de contenido (al menos una requerida)
+    urls_contenido: z.array(z.string().min(1, "La URL no puede estar vacía"))
+        .min(1, "Debe incluir al menos una URL de contenido")
+        .max(10, "No puede tener más de 10 archivos de contenido"),
+    // Nuevo: array de URLs de bibliografía (opcional)
+    urls_bibliografia: z.array(z.string().min(1, "La URL no puede estar vacía"))
+        .max(20, "No puede tener más de 20 archivos de bibliografía")
+        .optional(),
+    // Miniatura
     url_miniatura: z.string()
         // .url("Debe ser una URL válida")
         .nullable()
@@ -64,8 +74,9 @@ export const ModuleSchema = z.object({
         .max(2000, "La descripción no puede exceder 2000 caracteres")
         .trim(),
     temas: z.array(z.string().min(1, "Los temas no pueden estar vacíos"))
-        .min(1, "Debe incluir al menos un tema")
-        .max(20, "No puede tener más de 20 temas"),
+        .max(20, "No puede tener más de 20 temas")
+        .optional()
+        .default([]),
     contenido: z.array(ContentSchema)
         .min(1, "Debe incluir al menos un contenido")
         .max(50, "No puede tener más de 50 contenidos")
