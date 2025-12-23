@@ -46,7 +46,6 @@ export const CourseSchema = z.object({
         .trim(),
     descripcion: z.string()
         .min(1, "La descripción del curso es obligatoria")
-        .max(3000, "La descripción no puede exceder 3000 caracteres")
         .trim(),
     duracion: z.number()
         .int("La duración debe ser un número entero")
