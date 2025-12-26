@@ -44,13 +44,24 @@ export const CourseSchema = z.object({
         .min(1, "El título del curso es obligatorio")
         .max(200, "El título no puede exceder 200 caracteres")
         .trim(),
-    descripcion: z.string()
-        .min(1, "La descripción del curso es obligatoria")
+    descripcion_corta: z.string()
+        .min(1, "La descripción corta del curso es obligatoria")
+        .max(200, "La descripción corta no puede exceder 200 caracteres")
         .trim(),
+    sobre_curso: z.string()
+        .min(1, "El sobre del curso es obligatorio")
+        .max(2000, "El sobre del curso no puede exceder 2000 caracteres")
+        .trim(),
+    metas: z.array(z.string())
+        .min(1, "Las metas son obligatorias"),
+    aprendizaje: z.array(z.string())
+        .min(1, "Los aprendizajes son obligatorios"),
     duracion: z.number()
         .int("La duración debe ser un número entero")
         .min(1, "La duración debe ser al menos 1 semana")
         .max(52, "La duración no puede exceder 52 semanas (1 año)"),
+    dirigida_a: z.array(z.string())
+        .min(1, "La dirigida a es obligatoria"),
     nivel: z.enum(NivelCurso),
     modalidad: z.enum(ModalidadCurso),
     pilar: z.enum(TipoPilar),
