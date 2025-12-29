@@ -1,6 +1,9 @@
 import { Request, Response } from 'express';
 import { firestore, firebaseAuth } from '../../config/firebase';
 import type { UserRegistrationData, UserProfile } from '../../types/user';
+import { Resend } from 'resend';
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 export const getUserProfile = async (req: any, res: Response) => {
   const uid = req.user.uid;
@@ -269,6 +272,18 @@ export const asignCourseToUser = async (req: any, res: Response) => {
 
   const userDoc = await firestore.collection('users').doc(id_usuario).get();
   const courseDoc = await firestore.collection('courses').doc(id_curso).get();
+
+  const { data, error } = await resend.emails.send({
+    from: "INEE Oficial <contacto@ineeoficial.com>",
+    to: userDoc.data()?.email || '',
+    subject: 'Curso asignado',
+    html: `<p>Hola ${userDoc.data()?.nombre || ''} ${userDoc.data()?.apellido || ''}! Te informamos que has sido asignado al curso ${courseDoc.data()?.titulo || ''} en INEE.</p>`,
+  })
+
+  if (error) {
+    console.error('Error al enviar email:', error);
+    return res.status(500).json({ error: 'Error al enviar email' });
+  }
 
   if (!userDoc.exists) {
     return res.status(404).json({ error: 'Usuario no encontrado' });
