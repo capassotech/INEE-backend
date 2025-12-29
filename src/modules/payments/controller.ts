@@ -5,7 +5,6 @@ import { MercadoPagoConfig, Payment } from "mercadopago";
 import { createOrder, updateOrderStatus } from "../orders/controller";
 import crypto from 'crypto';
 
-
 const mpClient = new MercadoPagoConfig({
     accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN || '',
 });
@@ -17,25 +16,38 @@ export const createPayment = async (req: Request, res: Response) => {
         const {
             items,
             metadata,
-            token,
+            cardData,
             installments = 1,
             paymentMethodId,
             payer: payerFromRequest
         } = req.body;
 
-        // Log del request body sin exponer el token completo por seguridad
-        const safeRequestBody = {
+        console.log('Payment request received:', {
             ...req.body,
-            token: token ? `${token.substring(0, 10)}...` : 'missing'
-        };
-        console.log('Payment request received:', safeRequestBody);
+            cardData: cardData ? {
+                cardNumber: cardData.cardNumber?.substring(0, 6) + '...',
+                cardholderName: cardData.cardholderName,
+                expirationMonth: cardData.expirationMonth,
+                expirationYear: cardData.expirationYear,
+                securityCode: '***',
+                identificationType: cardData.identificationType,
+                identificationNumber: cardData.identificationNumber
+            } : 'missing'
+        });
 
         if (!metadata.userId || !Array.isArray(items) || items.length === 0 || !metadata.totalAmount) {
             return res.status(400).json({ error: "Faltan datos de la orden (userId, items, totalPrice)" });
         }
 
-        if (!token || !paymentMethodId) {
-            return res.status(400).json({ error: "Faltan datos de pago (token, paymentMethodId)" });
+        // ← MODIFICADO: ahora validamos cardData en vez de token
+        if (!cardData || !paymentMethodId) {
+            return res.status(400).json({ error: "Faltan datos de pago (cardData, paymentMethodId)" });
+        }
+
+        // Validar campos de la tarjeta
+        if (!cardData.cardNumber || !cardData.securityCode || !cardData.expirationMonth ||
+            !cardData.expirationYear || !cardData.cardholderName || !cardData.identificationNumber) {
+            return res.status(400).json({ error: "Datos de tarjeta incompletos" });
         }
 
         const user = await firestore.collection('users').doc(metadata.userId).get();
@@ -51,7 +63,7 @@ export const createPayment = async (req: Request, res: Response) => {
         const transactionAmount = total || metadata.totalAmount;
 
         if (isNaN(transactionAmount) || transactionAmount <= 0) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 error: "El monto de la transacción es inválido",
                 details: `Monto calculado: ${total}, Monto metadata: ${metadata.totalAmount}`
             });
@@ -59,19 +71,102 @@ export const createPayment = async (req: Request, res: Response) => {
 
         const orderId = await createOrder(metadata.userId, items, transactionAmount, 'pending');
 
-        // Validar que el access token esté configurado
+        // Validar credenciales
         if (!process.env.MERCADO_PAGO_ACCESS_TOKEN) {
             console.error('MERCADO_PAGO_ACCESS_TOKEN no está configurado');
-            return res.status(500).json({ 
+            return res.status(500).json({
                 success: false,
                 error: "Error de configuración: Access Token de Mercado Pago no encontrado"
             });
         }
 
-        // Construir el objeto payer: usar datos del frontend si están disponibles, sino usar datos de Firebase
+        if (!process.env.MERCADO_PAGO_PUBLIC_KEY) {
+            console.error('MERCADO_PAGO_PUBLIC_KEY no está configurado');
+            return res.status(500).json({
+                success: false,
+                error: "Error de configuración: Public Key de Mercado Pago no encontrado"
+            });
+        }
+
+        console.log('Obteniendo información del BIN...');
+        const bin = cardData.cardNumber.replace(/\s/g, '').substring(0, 6);
+
+        const binInfoResponse = await fetch(
+            `https://api.mercadopago.com/v1/payment_methods/search?public_key=${process.env.MERCADO_PAGO_PUBLIC_KEY}&bin=${bin}`,
+            {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            }
+        );
+
+        let issuerId: string | undefined;
+        if (binInfoResponse.ok) {
+            const binData = await binInfoResponse.json();
+            if (binData.results && binData.results.length > 0) {
+                issuerId = binData.results[0].issuer?.id;
+                console.log('Issuer ID obtenido:', issuerId);
+            }
+        }
+
+        // Si no se pudo obtener el issuer_id, intentar con el default del payment method
+        if (!issuerId) {
+            console.warn('No se pudo obtener issuer_id del BIN, continuando sin él');
+        }
+
+        // ← NUEVO: CREAR TOKEN EN EL BACKEND
+        console.log('Creando token en backend...');
+        const tokenPayload = {
+            card_number: cardData.cardNumber.replace(/\s/g, ''),
+            security_code: cardData.securityCode,
+            expiration_month: parseInt(cardData.expirationMonth, 10),
+            expiration_year: parseInt(cardData.expirationYear, 10),
+            cardholder: {
+                name: cardData.cardholderName,
+                identification: {
+                    type: cardData.identificationType,
+                    number: cardData.identificationNumber,
+                },
+            },
+        };
+
+        const tokenResponse = await fetch(
+            `https://api.mercadopago.com/v1/card_tokens?public_key=${process.env.MERCADO_PAGO_PUBLIC_KEY}`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(tokenPayload),
+            }
+        );
+
+        if (!tokenResponse.ok) {
+            const errorData = await tokenResponse.json();
+            console.error('Error creando token en backend:', errorData);
+            return res.status(400).json({
+                success: false,
+                error: "Error al procesar la tarjeta",
+                details: errorData.message || errorData.cause?.[0]?.description || "Token inválido"
+            });
+        }
+
+        const tokenData = await tokenResponse.json();
+        const token = tokenData.id;
+
+        if (!token) {
+            return res.status(400).json({
+                success: false,
+                error: "No se pudo generar el token de la tarjeta"
+            });
+        }
+
+        console.log('✅ Token creado exitosamente en backend:', token.substring(0, 15) + '...');
+
+        // Construir el objeto payer
         const userData = user.data();
-        
-        // Construir el objeto payer base
+
         const payerBase = payerFromRequest ? {
             email: payerFromRequest.email || userData?.email || '',
             first_name: payerFromRequest.name || payerFromRequest.first_name || userData?.nombre || '',
@@ -82,36 +177,51 @@ export const createPayment = async (req: Request, res: Response) => {
             last_name: userData?.apellido || ''
         };
 
-        // Agregar identification solo si tiene valores válidos
         let payer: any = { ...payerBase };
-        
+
         if (payerFromRequest?.identification?.type && payerFromRequest?.identification?.number) {
             payer.identification = {
                 type: payerFromRequest.identification.type,
                 number: payerFromRequest.identification.number
             };
         } else if (payerFromRequest?.identification?.number) {
-            // Si solo viene el número, usar DNI como tipo por defecto
             payer.identification = {
                 type: payerFromRequest.identification.type || 'DNI',
                 number: payerFromRequest.identification.number
             };
         }
 
-        // Validar que el email del payer esté presente
         if (!payer.email) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 success: false,
                 error: "El email del pagador es requerido"
             });
         }
 
-        // Log del payload antes de enviar a Mercado Pago (sin el token completo por seguridad)
-        console.log('Enviando pago a Mercado Pago:', {
+        // Construir el body del pago
+        const paymentBody: any = {
             transaction_amount: Number(transactionAmount),
-            token_preview: token ? `${token.substring(0, 10)}...` : 'missing',
+            token,
+            description: "Compra INEE",
+            installments: Number(installments),
             payment_method_id: paymentMethodId,
-            installments,
+            payer,
+            metadata: {
+                userId: metadata.userId,
+                orderId,
+            },
+        };
+
+        if (issuerId) {
+            paymentBody.issuer_id = issuerId;
+        }
+
+        console.log('Enviando pago a Mercado Pago:', {
+            transaction_amount: paymentBody.transaction_amount,
+            token_preview: token.substring(0, 10) + '...',
+            payment_method_id: paymentBody.payment_method_id,
+            issuer_id: paymentBody.issuer_id || 'no incluido',
+            installments: paymentBody.installments,
             payer: {
                 email: payer.email,
                 first_name: payer.first_name,
@@ -122,20 +232,9 @@ export const createPayment = async (req: Request, res: Response) => {
 
         const paymentClient = new Payment(mpClient);
         const payment = await paymentClient.create({
-            body: {
-                transaction_amount: Number(transactionAmount),
-                token,
-                description: "Compra INEE",
-                installments,
-                payment_method_id: paymentMethodId,
-                payer,
-                metadata: {
-                    userId: metadata.userId,
-                    orderId,
-                },
-            },
+            body: paymentBody, // ← USAR EL BODY QUE CONSTRUIMOS
             requestOptions: {
-                idempotencyKey: `order-${orderId}-${Date.now()}` 
+                idempotencyKey: `order-${orderId}-${Date.now()}`
             }
         });
 
@@ -158,7 +257,7 @@ export const createPayment = async (req: Request, res: Response) => {
 
         if (status === 'approved') {
             // await assignProductsToUser(metadata.userId, items);
-            
+
             return res.json({
                 success: true,
                 message: "Pago aprobado exitosamente",
@@ -205,7 +304,7 @@ export const createPayment = async (req: Request, res: Response) => {
             error: err?.error,
             errorString: JSON.stringify(err, Object.getOwnPropertyNames(err))
         });
-        
+
         let errorMessage = err?.message || 'Error desconocido';
         let errorDetails: any = null;
         let statusCode = 500;
@@ -214,7 +313,7 @@ export const createPayment = async (req: Request, res: Response) => {
         if (err?.cause && Array.isArray(err.cause) && err.cause.length > 0) {
             const mpError = err.cause[0];
             if (mpError.code === 10102) {
-                userFriendlyMessage = "El token de la tarjeta ha expirado o no es válido. Por favor, intenta nuevamente generando un nuevo token.";
+                userFriendlyMessage = "Error al procesar la tarjeta. Por favor, verifica los datos e intenta nuevamente.";
                 errorMessage = mpError.description || errorMessage;
                 statusCode = 400;
                 errorDetails = {
@@ -249,12 +348,12 @@ export const createPayment = async (req: Request, res: Response) => {
             }
         }
 
-        if (err?.message === 'not_result_by_params' && !userFriendlyMessage.includes('token')) {
-            userFriendlyMessage = "El token de la tarjeta no se encontró o ha expirado. Por favor, intenta nuevamente.";
+        if (err?.message === 'not_result_by_params' && !userFriendlyMessage.includes('tarjeta')) {
+            userFriendlyMessage = "Error al procesar los datos de la tarjeta. Por favor, intenta nuevamente.";
             statusCode = 400;
         }
-        
-        return res.status(statusCode).json({ 
+
+        return res.status(statusCode).json({
             success: false,
             error: userFriendlyMessage,
             message: errorMessage,
@@ -275,7 +374,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
     try {
         const xSignature = req.headers['x-signature'] as string;
         const xRequestId = req.headers['x-request-id'] as string;
-        
+
         if (!validateWebhookSignature(req.body, xSignature, xRequestId)) {
             console.warn('Firma de webhook inválida');
             return res.sendStatus(401);
@@ -290,22 +389,22 @@ export const handleWebhook = async (req: Request, res: Response) => {
 
 const validateWebhookSignature = (body: any, signature: string, requestId: string): boolean => {
     const secret = process.env.MERCADO_PAGO_WEBHOOK_SECRET || '';
-    
+
     const parts = signature.split(',');
     let ts = '';
     let hash = '';
-    
+
     parts.forEach(part => {
         const [key, value] = part.split('=');
         if (key.trim() === 'ts') ts = value;
         if (key.trim() === 'v1') hash = value;
     });
-    
+
     const manifest = `id:${body.data.id};request-id:${requestId};ts:${ts};`;
     const hmac = crypto.createHmac('sha256', secret);
     hmac.update(manifest);
     const calculatedHash = hmac.digest('hex');
-    
+
     return calculatedHash === hash;
 };
 
@@ -313,7 +412,7 @@ const calculateTotalPrice = async (items: any[]): Promise<number> => {
     let totalPrice = 0;
     for (const item of items) {
         let price = Number(item.precio || item.price || 0);
-        
+
         if (isNaN(price) || price <= 0) {
             const productId = item.id || item.productId;
             if (!productId) {
@@ -350,14 +449,13 @@ const calculateTotalPrice = async (items: any[]): Promise<number> => {
         totalPrice += price;
     }
     return totalPrice;
-}
-
+};
 
 const validateProds = async (items: any[]): Promise<boolean> => {
     for (const item of items) {
         const prod = await firestore.collection('courses').doc(item.id).get();
         if (prod.exists) {
-            continue; 
+            continue;
         }
 
         const course = await firestore.collection('events').doc(item.id).get();
@@ -370,16 +468,16 @@ const validateProds = async (items: any[]): Promise<boolean> => {
             continue;
         }
 
-        return false; 
+        return false;
     }
     return true;
-}
+};
 
 const assignProductsToUser = async (userId: string, items: any[]): Promise<void> => {
     try {
         const userRef = firestore.collection('users').doc(userId);
         const userDoc = await userRef.get();
-        
+
         if (!userDoc.exists) {
             console.error(`Usuario ${userId} no encontrado`);
             return;
@@ -392,7 +490,7 @@ const assignProductsToUser = async (userId: string, items: any[]): Promise<void>
 
         for (const item of items) {
             const productId = item.id || item.productId;
-            
+
             // Verificar en qué colección está el producto
             const courseDoc = await firestore.collection('courses').doc(productId).get();
             if (courseDoc.exists && !cursosAsignados.includes(productId)) {
@@ -428,7 +526,7 @@ const assignProductsToUser = async (userId: string, items: any[]): Promise<void>
     } catch (error) {
         console.error('Error al asignar productos al usuario:', error);
     }
-}
+};
 
 const getPaymentErrorMessage = (statusDetail: string): string => {
     const errorMessages: { [key: string]: string } = {
@@ -449,4 +547,4 @@ const getPaymentErrorMessage = (statusDetail: string): string => {
     };
 
     return errorMessages[statusDetail] || 'El pago no pudo ser procesado. Intenta con otro medio de pago';
-}
+};
