@@ -12,7 +12,8 @@ import purchasesRoutes from "./modules/purchases/routes";
 import usersRoutes from "./modules/users/routes";
 import contactRoutes from "./modules/contact/routes";
 import newsletterRoutes from "./modules/newsletter/routes";
-import membershipRoutes from "./modules/membership/routes";
+// MEMBRESÍAS DESACTIVADAS - Comentado para posible reactivación futura
+// import membershipRoutes from "./modules/membership/routes";
 import testimonialsRoutes from "./modules/testimonials/routes";
 import eventsRoutes from "./modules/events/routes";
 import profesorsRoutes from "./modules/profesors/routes";
@@ -42,7 +43,8 @@ app.use("/api/purchases", purchasesRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/newsletter", newsletterRoutes);
-app.use("/api/membership", membershipRoutes);
+// MEMBRESÍAS DESACTIVADAS - Comentado para posible reactivación futura
+// app.use("/api/membership", membershipRoutes);
 app.use("/api/testimonios", testimonialsRoutes);
 app.use("/api/eventos", eventsRoutes);
 app.use("/api/profesores", profesorsRoutes);

@@ -16,8 +16,9 @@ export const getUserProfile = async (req: any, res: Response) => {
   return res.json(userDoc.data());
 };
 
+// MEMBRESÍAS DESACTIVADAS - Comentado para posible reactivación futura
 // Agregarle membresia al usuario
-export const addMembershipToUser = async (req: any, res: Response) => {
+/* export const addMembershipToUser = async (req: any, res: Response) => {
   const { uid, membershipId } = req.body;
   const userDoc = await firestore.collection('users').doc(uid).get();
   const membershipDoc = await firestore.collection('membresias').doc(membershipId).get();
@@ -33,7 +34,7 @@ export const addMembershipToUser = async (req: any, res: Response) => {
   else await userDoc.ref.update({ membresia: membershipId });
 
   return res.status(200).json({ message: 'Membresía agregada al usuario' });
-}
+} */
 
 export const getUser = async (req: any, res: Response) => {
   const uid = req.params.id;

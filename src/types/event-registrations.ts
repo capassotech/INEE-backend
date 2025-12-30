@@ -15,7 +15,7 @@ export interface InscripcionEvento {
   eventoId: string;
   fechaInscripcion: Date;
   estado: 'activa' | 'cancelada';
-  metodoPago: 'gratis' | 'pago' | 'membresia';
+  metodoPago: 'gratis' | 'pago' | 'membresia'; // 'membresia' desactivado pero mantenido en tipo para compatibilidad
   precioPagado?: number;
   paymentId?: string; // ID de pago de Mercado Pago si aplica
   paymentStatus?: 'approved' | 'pending' | 'cancelled';
@@ -25,7 +25,7 @@ export interface InscripcionEvento {
 export interface DisponibilidadInscripcion {
   puedeInscribirse: boolean;
   esGratuito: boolean;
-  tieneMembresia: boolean;
+  tieneMembresia: boolean; // Siempre false ya que las membresías están desactivadas
   requierePago: boolean;
   precio: number;
   mensaje: string;
@@ -50,7 +50,7 @@ export interface RespuestaInscripcion {
   requierePago?: boolean;
   precio?: number;
   eventoId?: string;
-  metodoPago?: 'gratis' | 'pago' | 'membresia';
+  metodoPago?: 'gratis' | 'pago' | 'membresia'; // 'membresia' desactivado pero mantenido en tipo para compatibilidad
   preferenciaPago?: {
     id: string;
     init_point: string;

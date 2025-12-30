@@ -122,10 +122,11 @@ export const createEvent = async (req: AuthenticatedRequest, res: Response) => {
       ...eventData,
     };
 
+    // MEMBRESÍAS DESACTIVADAS - Comentado para posible reactivación futura
     // Solo normaliza membresiaId como en updateEvent
-    if (newEvent.membresiaId !== undefined) {
-      newEvent.membresiaId = newEvent.membresiaId || null;
-    }
+    // if (newEvent.membresiaId !== undefined) {
+    //   newEvent.membresiaId = newEvent.membresiaId || null;
+    // }
 
     const docRef = await collection.add(newEvent);
     const createdDoc = await docRef.get();
@@ -165,9 +166,10 @@ export const updateEvent = async (req: AuthenticatedRequest, res: Response) => {
         const dataToUpdate: any = {
             ...updateData,
         };
-        if (updateData.membresiaId !== undefined) {
-            dataToUpdate.membresiaId = updateData.membresiaId || null;
-        }
+        // MEMBRESÍAS DESACTIVADAS - Comentado para posible reactivación futura
+        // if (updateData.membresiaId !== undefined) {
+        //     dataToUpdate.membresiaId = updateData.membresiaId || null;
+        // }
 
         await collection.doc(eventId).update(dataToUpdate);
         

@@ -7,7 +7,8 @@ export interface Event {
   hora: string;
   modalidad: string;
   precio: number;
-  membresiaId?: string | null;
+  // MEMBRESÍAS DESACTIVADAS - Comentado para posible reactivación futura
+  // membresiaId?: string | null;
   imagen?: string;
 }
 
@@ -18,7 +19,8 @@ export const EventCreateSchema = z.object({
   hora: z.string().min(1),
   modalidad: z.string().min(1),
   precio: z.number(),
-  membresiaId: z.string().nullable().optional(),
+  // MEMBRESÍAS DESACTIVADAS - Comentado para posible reactivación futura
+  // membresiaId: z.string().nullable().optional(),
   imagen: z.union([z.string(), z.null()]).optional(),
   estado: z.enum(['activo', 'inactivo']).optional(),
 });
