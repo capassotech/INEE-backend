@@ -199,7 +199,8 @@ export const loginUser = async (req: Request, res: Response) => {
           nombre: userData.nombre,
           apellido: userData.apellido,
           role: userData.role,
-          id_membresia: userData.membresia_id,
+          // MEMBRESÍAS DESACTIVADAS
+          // id_membresia: userData.membresia_id,
           ultimoLogin: new Date(),
         },
       });
@@ -381,7 +382,8 @@ export const getUserProfile = async (
       });
     }
 
-    let membresia = null;
+    // MEMBRESÍAS DESACTIVADAS - Comentado para posible reactivación futura
+    /* let membresia = null;
     if (userData.membresia) { 
       const membresiaDoc = await firestore
         .collection("membresias")
@@ -399,12 +401,12 @@ export const getUserProfile = async (
           };
         }
       }
-    }
+    } */
 
     return res.json({
       uid,
       ...userData,
-      membresia,
+      // membresia, // MEMBRESÍAS DESACTIVADAS
       fechaRegistro:
         userData.fechaRegistro?.toDate?.() || userData.fechaRegistro,
       fechaActualizacion:

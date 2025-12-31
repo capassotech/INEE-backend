@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware } from '../../middleware/authMiddleware';
-import { getUser, getUsers, getUserProfile, deleteUser, updateUser, addMembershipToUser, asignCourseToUser, desasignarCursoFromUser, createUser } from './controller';
+import { getUser, getUsers, getUserProfile, deleteUser, updateUser, /* addMembershipToUser, */ asignCourseToUser, desasignarCursoFromUser, createUser } from './controller';
 
 const router = Router();
 
@@ -11,7 +11,8 @@ router.use((req, res, next) => {
 
 router.get('/me', authMiddleware, getUserProfile);
 
-router.post('/add-membership', addMembershipToUser);
+// MEMBRESÍAS DESACTIVADAS - Comentado para posible reactivación futura
+// router.post('/add-membership', addMembershipToUser);
 
 // IMPORTANTE: Las rutas específicas deben ir ANTES de las rutas con parámetros
 router.post('/', authMiddleware, createUser);

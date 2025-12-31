@@ -27,7 +27,8 @@ export const verificarDisponibilidad = async (req: AuthenticatedRequest, res: Re
 
     const eventoData = eventoDoc.data();
     const precio = eventoData?.precio || 0;
-    const membresiaIdEvento = eventoData?.membresiaId || null;
+    // MEMBRESÍAS DESACTIVADAS
+    // const membresiaIdEvento = eventoData?.membresiaId || null;
     const esGratuito = precio === 0;
 
     // Obtener datos del usuario
@@ -36,7 +37,8 @@ export const verificarDisponibilidad = async (req: AuthenticatedRequest, res: Re
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    const userData = userDoc.data();
+    // MEMBRESÍAS DESACTIVADAS - Comentado para posible reactivación futura
+    /* const userData = userDoc.data();
     // Soporta múltiples formatos:
     // 1. membresia_id (string)
     // 2. membresia (objeto con id: {id: "..."})
@@ -48,14 +50,7 @@ export const verificarDisponibilidad = async (req: AuthenticatedRequest, res: Re
           ? userData.membresia 
           : userData?.membresia_id) || null;
     
-    // Debug: Log para verificar la lectura de membresía
-    console.log('[verificarDisponibilidad] Membresía del usuario:', {
-      membresiaIdUsuario,
-      membresia_id: userData?.membresia_id,
-      membresia: userData?.membresia,
-      membresiaType: typeof userData?.membresia,
-      membresiaIdEvento,
-    });
+    // MEMBRESÍAS DESACTIVADAS - Debug logs eliminados */
 
     // Verificar si ya está inscrito
     const inscripcionExistente = await collection
@@ -68,10 +63,11 @@ export const verificarDisponibilidad = async (req: AuthenticatedRequest, res: Re
     const yaInscrito = !inscripcionExistente.empty;
     const inscripcionId = yaInscrito ? inscripcionExistente.docs[0].id : null;
 
-    // Verificar si tiene la membresía requerida
-    const tieneMembresia = membresiaIdEvento && membresiaIdUsuario === membresiaIdEvento;
+    // MEMBRESÍAS DESACTIVADAS - Lógica simplificada sin membresías
+    // const tieneMembresia = membresiaIdEvento && membresiaIdUsuario === membresiaIdEvento;
+    const tieneMembresia = false; // Siempre false ya que las membresías están desactivadas
 
-    // Determinar disponibilidad y acción requerida
+    // Determinar disponibilidad y acción requerida (sin lógica de membresías)
     let puedeInscribirse = false;
     let requierePago = false;
     let accionRequerida: 'inscribir' | 'comprar' | 'no_disponible' | 'ya_inscrito' = 'no_disponible';
@@ -80,32 +76,14 @@ export const verificarDisponibilidad = async (req: AuthenticatedRequest, res: Re
     if (yaInscrito) {
       mensaje = '✅ Ya estás inscrito a este evento. No puedes inscribirte nuevamente.';
       accionRequerida = 'ya_inscrito';
-    } else if (esGratuito && tieneMembresia) {
-      // Evento gratuito y tiene membresía → puede inscribirse gratis
-      puedeInscribirse = true;
-      requierePago = false;
-      accionRequerida = 'inscribir';
-      mensaje = 'Puedes inscribirte gratis con tu membresía';
-    } else if (esGratuito && !tieneMembresia && membresiaIdEvento) {
-      // Evento gratuito pero requiere membresía específica
-      puedeInscribirse = false;
-      requierePago = false;
-      accionRequerida = 'no_disponible';
-      mensaje = 'Este evento requiere una membresía específica';
-    } else if (esGratuito && !membresiaIdEvento) {
+    } else if (esGratuito) {
       // Evento completamente gratuito sin requisitos
       puedeInscribirse = true;
       requierePago = false;
       accionRequerida = 'inscribir';
       mensaje = 'Puedes inscribirte gratis';
-    } else if (!esGratuito && tieneMembresia) {
-      // Evento de pago pero tiene membresía → puede inscribirse gratis
-      puedeInscribirse = true;
-      requierePago = false;
-      accionRequerida = 'inscribir';
-      mensaje = 'Puedes inscribirte gratis con tu membresía';
     } else {
-      // Evento de pago sin membresía → debe comprar
+      // Evento de pago → debe comprar
       puedeInscribirse = false;
       requierePago = true;
       accionRequerida = 'comprar';
@@ -115,7 +93,7 @@ export const verificarDisponibilidad = async (req: AuthenticatedRequest, res: Re
     const respuesta: DisponibilidadInscripcion = {
       puedeInscribirse,
       esGratuito,
-      tieneMembresia: tieneMembresia || false,
+      tieneMembresia: false, // Siempre false ya que las membresías están desactivadas
       requierePago,
       precio,
       mensaje,
@@ -156,7 +134,8 @@ export const inscribirseEvento = async (req: AuthenticatedRequest, res: Response
 
     const eventoData = eventoDoc.data();
     const precio = eventoData?.precio || 0;
-    const membresiaIdEvento = eventoData?.membresiaId || null;
+    // MEMBRESÍAS DESACTIVADAS
+    // const membresiaIdEvento = eventoData?.membresiaId || null;
     const esGratuito = precio === 0;
 
     // Obtener datos del usuario
@@ -165,7 +144,8 @@ export const inscribirseEvento = async (req: AuthenticatedRequest, res: Response
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    const userData = userDoc.data();
+    // MEMBRESÍAS DESACTIVADAS - Comentado para posible reactivación futura
+    /* const userData = userDoc.data();
     // Soporta múltiples formatos:
     // 1. membresia_id (string)
     // 2. membresia (objeto con id: {id: "..."})
@@ -184,7 +164,7 @@ export const inscribirseEvento = async (req: AuthenticatedRequest, res: Response
       membresia: userData?.membresia,
       membresiaType: typeof userData?.membresia,
       membresiaIdEvento,
-    });
+    }); */
 
     // Verificar si ya está inscrito
     const inscripcionExistente = await collection
@@ -212,18 +192,21 @@ export const inscribirseEvento = async (req: AuthenticatedRequest, res: Response
       });
     }
 
-    // Verificar si tiene la membresía requerida
-    const tieneMembresia = membresiaIdEvento && membresiaIdUsuario === membresiaIdEvento;
+    // MEMBRESÍAS DESACTIVADAS - Lógica simplificada sin membresías
+    // const tieneMembresia = membresiaIdEvento && membresiaIdUsuario === membresiaIdEvento;
+    const tieneMembresia = false; // Siempre false ya que las membresías están desactivadas
 
-    // Determinar si puede inscribirse gratis o requiere pago
+    // Determinar si puede inscribirse gratis o requiere pago (sin lógica de membresías)
     let puedeInscribirseGratis = false;
     let metodoPago: 'gratis' | 'pago' | 'membresia' = 'pago';
 
-    if (esGratuito && (!membresiaIdEvento || tieneMembresia)) {
-      // Evento gratuito sin requisitos o con membresía que tiene
+    if (esGratuito) {
+      // Evento gratuito sin requisitos
       puedeInscribirseGratis = true;
-      metodoPago = tieneMembresia ? 'membresia' : 'gratis';
-    } else if (!esGratuito && tieneMembresia) {
+      metodoPago = 'gratis';
+    }
+    // MEMBRESÍAS DESACTIVADAS - Eliminada lógica de membresías
+    /* else if (!esGratuito && tieneMembresia) {
       // Evento de pago pero tiene membresía
       puedeInscribirseGratis = true;
       metodoPago = 'membresia';
@@ -234,7 +217,7 @@ export const inscribirseEvento = async (req: AuthenticatedRequest, res: Response
         requiereMembresia: true,
         membresiaId: membresiaIdEvento,
       });
-    }
+    } */
 
     // Si requiere pago, retornar información para crear preferencia de pago
     // NOTA: Cuando el pago se apruebe (webhook), la inscripción se creará automáticamente
@@ -271,11 +254,12 @@ export const inscribirseEvento = async (req: AuthenticatedRequest, res: Response
     let mensajeAlerta = '';
     let tipoAlerta: 'success' | 'info' = 'success';
     
-    if (metodoPago === 'membresia') {
-      mensajeAlerta = '✅ ¡Inscripción exitosa! Te has inscrito al evento usando tu membresía.';
-    } else {
+    // MEMBRESÍAS DESACTIVADAS
+    // if (metodoPago === 'membresia') {
+    //   mensajeAlerta = '✅ ¡Inscripción exitosa! Te has inscrito al evento usando tu membresía.';
+    // } else {
       mensajeAlerta = '✅ ¡Inscripción exitosa! Te has inscrito al evento gratuito.';
-    }
+    // }
 
     return res.status(201).json({
       success: true,
