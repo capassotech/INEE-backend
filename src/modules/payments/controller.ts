@@ -164,7 +164,6 @@ export const createPayment = async (req: Request, res: Response) => {
 
         console.log('✅ Token creado exitosamente en backend:', token.substring(0, 15) + '...');
 
-        // Construir el objeto payer
         const userData = user.data();
 
         const payerBase = payerFromRequest ? {
@@ -177,18 +176,36 @@ export const createPayment = async (req: Request, res: Response) => {
             last_name: userData?.apellido || ''
         };
 
+        // ✅ CORREGIDO: Siempre incluir identification si está disponible
         let payer: any = { ...payerBase };
 
+        // Prioridad: payerFromRequest.identification > cardData.identification > userData.dni
         if (payerFromRequest?.identification?.type && payerFromRequest?.identification?.number) {
             payer.identification = {
                 type: payerFromRequest.identification.type,
                 number: payerFromRequest.identification.number
             };
-        } else if (payerFromRequest?.identification?.number) {
+        } else if (cardData?.identificationType && cardData?.identificationNumber) {
+            // Si no viene en payerFromRequest, usar los datos de cardData
             payer.identification = {
-                type: payerFromRequest.identification.type || 'DNI',
-                number: payerFromRequest.identification.number
+                type: cardData.identificationType,
+                number: cardData.identificationNumber
             };
+        } else if (userData?.dni) {
+            // Fallback: usar DNI del usuario
+            payer.identification = {
+                type: 'DNI',
+                number: userData.dni
+            };
+        }
+
+        // ✅ CRÍTICO: Verificar que identification esté presente antes de crear el pago
+        if (!payer.identification || !payer.identification.type || !payer.identification.number) {
+            console.error('❌ ERROR: payer.identification NO está completo:', payer);
+            return res.status(400).json({
+                success: false,
+                error: "El objeto identification del payer es requerido y debe incluir type y number"
+            });
         }
 
         if (!payer.email) {
