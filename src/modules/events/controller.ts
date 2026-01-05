@@ -2,7 +2,7 @@ import { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { Request, Response } from "express";
 import { Event, ValidatedCreateEvent, ValidatedUpdateEvent } from "../../types/events";
 import { firestore } from "../../config/firebase";
-import { validateUser } from "../../utils/utils";
+import { validateUser, normalizeText } from "../../utils/utils";
 import { cache, CACHE_KEYS } from "../../utils/cache";
 
 const collection = firestore.collection('events');
@@ -54,13 +54,14 @@ export const getAllEvents = async (req: Request, res: Response) => {
             ...doc.data() 
         }));
         
-        // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
+        // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados (normalizado sin tildes)
         if (search && search.trim()) {
-            const searchLower = search.toLowerCase().trim();
+            const normalizedSearch = normalizeText(search);
             events = events.filter((event: any) => {
-                const title = (event.title || '').toLowerCase();
-                const description = (event.description || '').toLowerCase();
-                return title.includes(searchLower) || description.includes(searchLower);
+                // Normalizar tanto title/titulo como description/descripcion para cubrir ambos casos
+                const title = normalizeText(event.title || event.titulo || '');
+                const description = normalizeText(event.description || event.descripcion || '');
+                return title.includes(normalizedSearch) || description.includes(normalizedSearch);
             });
             // Limitar después del filtrado
             events = events.slice(0, limit);
