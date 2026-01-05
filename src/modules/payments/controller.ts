@@ -22,29 +22,15 @@ export const createPayment = async (req: Request, res: Response) => {
             payer: payerFromRequest
         } = req.body;
 
-        console.log('Payment request received:', {
-            ...req.body,
-            cardData: cardData ? {
-                cardNumber: cardData.cardNumber?.substring(0, 6) + '...',
-                cardholderName: cardData.cardholderName,
-                expirationMonth: cardData.expirationMonth,
-                expirationYear: cardData.expirationYear,
-                securityCode: '***',
-                identificationType: cardData.identificationType,
-                identificationNumber: cardData.identificationNumber
-            } : 'missing'
-        });
-
+        // Validaciones básicas
         if (!metadata.userId || !Array.isArray(items) || items.length === 0 || !metadata.totalAmount) {
             return res.status(400).json({ error: "Faltan datos de la orden (userId, items, totalPrice)" });
         }
 
-        // ← MODIFICADO: ahora validamos cardData en vez de token
         if (!cardData || !paymentMethodId) {
             return res.status(400).json({ error: "Faltan datos de pago (cardData, paymentMethodId)" });
         }
 
-        // Validar campos de la tarjeta
         if (!cardData.cardNumber || !cardData.securityCode || !cardData.expirationMonth ||
             !cardData.expirationYear || !cardData.cardholderName || !cardData.identificationNumber) {
             return res.status(400).json({ error: "Datos de tarjeta incompletos" });
@@ -72,51 +58,35 @@ export const createPayment = async (req: Request, res: Response) => {
         const orderId = await createOrder(metadata.userId, items, transactionAmount, 'pending');
 
         // Validar credenciales
-        if (!process.env.MERCADO_PAGO_ACCESS_TOKEN) {
-            console.error('MERCADO_PAGO_ACCESS_TOKEN no está configurado');
+        if (!process.env.MERCADO_PAGO_ACCESS_TOKEN || !process.env.MERCADO_PAGO_PUBLIC_KEY) {
             return res.status(500).json({
                 success: false,
-                error: "Error de configuración: Access Token de Mercado Pago no encontrado"
+                error: "Error de configuración: Credenciales de Mercado Pago no encontradas"
             });
         }
 
-        if (!process.env.MERCADO_PAGO_PUBLIC_KEY) {
-            console.error('MERCADO_PAGO_PUBLIC_KEY no está configurado');
-            return res.status(500).json({
-                success: false,
-                error: "Error de configuración: Public Key de Mercado Pago no encontrado"
-            });
-        }
-
-        console.log('Obteniendo información del BIN...');
+        // Obtener issuer_id del BIN (opcional)
         const bin = cardData.cardNumber.replace(/\s/g, '').substring(0, 6);
+        let issuerId: string | undefined;
 
         const binInfoResponse = await fetch(
             `https://api.mercadopago.com/v1/payment_methods/search?public_key=${process.env.MERCADO_PAGO_PUBLIC_KEY}&bin=${bin}`,
             {
                 method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                }
+                headers: { 'Content-Type': 'application/json' }
             }
         );
 
-        let issuerId: string | undefined;
         if (binInfoResponse.ok) {
             const binData = await binInfoResponse.json();
             if (binData.results && binData.results.length > 0) {
                 issuerId = binData.results[0].issuer?.id;
-                console.log('Issuer ID obtenido:', issuerId);
             }
         }
 
-        // Si no se pudo obtener el issuer_id, intentar con el default del payment method
-        if (!issuerId) {
-            console.warn('No se pudo obtener issuer_id del BIN, continuando sin él');
-        }
-
-        // ← NUEVO: CREAR TOKEN EN EL BACKEND
-        console.log('Creando token en backend...');
+        // ============================================
+        // 📤 REQUEST 1: Crear Token de Tarjeta
+        // ============================================
         const tokenPayload = {
             card_number: cardData.cardNumber.replace(/\s/g, ''),
             security_code: cardData.securityCode,
@@ -131,30 +101,35 @@ export const createPayment = async (req: Request, res: Response) => {
             },
         };
 
+        console.log('📤 REQUEST a Mercado Pago - Crear Token:');
+        console.log('Endpoint: POST https://api.mercadopago.com/v1/card_tokens?public_key=...');
+        console.log('Request Body:', JSON.stringify(tokenPayload, null, 2));
+
         const tokenResponse = await fetch(
             `https://api.mercadopago.com/v1/card_tokens?public_key=${process.env.MERCADO_PAGO_PUBLIC_KEY}`,
             {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(tokenPayload),
             }
         );
 
+        const tokenData = await tokenResponse.json();
+
+        console.log('📥 RESPONSE de Mercado Pago - Crear Token:');
+        console.log('Status:', tokenResponse.status, tokenResponse.statusText);
+        console.log('Response Body:', JSON.stringify(tokenData, null, 2));
+
         if (!tokenResponse.ok) {
-            const errorData = await tokenResponse.json();
-            console.error('Error creando token en backend:', errorData);
+            console.error('❌ Error creando token:', tokenData);
             return res.status(400).json({
                 success: false,
                 error: "Error al procesar la tarjeta",
-                details: errorData.message || errorData.cause?.[0]?.description || "Token inválido"
+                details: tokenData.message || tokenData.cause?.[0]?.description || "Token inválido"
             });
         }
 
-        const tokenData = await tokenResponse.json();
         const token = tokenData.id;
-
         if (!token) {
             return res.status(400).json({
                 success: false,
@@ -162,10 +137,8 @@ export const createPayment = async (req: Request, res: Response) => {
             });
         }
 
-        console.log('✅ Token creado exitosamente en backend:', token.substring(0, 15) + '...');
-
+        // Construir objeto payer
         const userData = user.data();
-
         const payerBase = payerFromRequest ? {
             email: payerFromRequest.email || userData?.email || '',
             first_name: payerFromRequest.name || payerFromRequest.first_name || userData?.nombre || '',
@@ -176,7 +149,6 @@ export const createPayment = async (req: Request, res: Response) => {
             last_name: userData?.apellido || ''
         };
 
-        // ✅ CORREGIDO: Siempre incluir identification si está disponible
         let payer: any = { ...payerBase };
 
         // Prioridad: payerFromRequest.identification > cardData.identification > userData.dni
@@ -186,22 +158,20 @@ export const createPayment = async (req: Request, res: Response) => {
                 number: payerFromRequest.identification.number
             };
         } else if (cardData?.identificationType && cardData?.identificationNumber) {
-            // Si no viene en payerFromRequest, usar los datos de cardData
             payer.identification = {
                 type: cardData.identificationType,
                 number: cardData.identificationNumber
             };
         } else if (userData?.dni) {
-            // Fallback: usar DNI del usuario
             payer.identification = {
                 type: 'DNI',
                 number: userData.dni
             };
         }
 
-        // ✅ CRÍTICO: Verificar que identification esté presente antes de crear el pago
+        // Validar que identification esté presente
         if (!payer.identification || !payer.identification.type || !payer.identification.number) {
-            console.error('❌ ERROR: payer.identification NO está completo:', payer);
+            console.error('❌ ERROR: payer.identification NO está completo:', JSON.stringify(payer, null, 2));
             return res.status(400).json({
                 success: false,
                 error: "El objeto identification del payer es requerido y debe incluir type y number"
@@ -215,7 +185,9 @@ export const createPayment = async (req: Request, res: Response) => {
             });
         }
 
-        // Construir el body del pago
+        // ============================================
+        // 📤 REQUEST 2: Crear Pago
+        // ============================================
         const paymentBody: any = {
             transaction_amount: Number(transactionAmount),
             token,
@@ -233,32 +205,26 @@ export const createPayment = async (req: Request, res: Response) => {
             paymentBody.issuer_id = issuerId;
         }
 
-        console.log('Enviando pago a Mercado Pago:', {
-            transaction_amount: paymentBody.transaction_amount,
-            token_preview: token.substring(0, 10) + '...',
-            payment_method_id: paymentBody.payment_method_id,
-            issuer_id: paymentBody.issuer_id || 'no incluido',
-            installments: paymentBody.installments,
-            payer: {
-                email: payer.email,
-                first_name: payer.first_name,
-                last_name: payer.last_name,
-                identification: payer.identification || 'no incluido'
-            }
-        });
+        console.log('📤 REQUEST a Mercado Pago - Crear Pago:');
+        console.log('Endpoint: POST https://api.mercadopago.com/v1/payments');
+        console.log('Request Body:', JSON.stringify(paymentBody, null, 2));
 
         const paymentClient = new Payment(mpClient);
         const payment = await paymentClient.create({
-            body: paymentBody, // ← USAR EL BODY QUE CONSTRUIMOS
+            body: paymentBody,
             requestOptions: {
                 idempotencyKey: `order-${orderId}-${Date.now()}`
             }
         });
 
+        console.log('📥 RESPONSE de Mercado Pago - Crear Pago:');
+        console.log('Payment ID:', payment.id);
+        console.log('Status:', payment.status);
+        console.log('Status Detail:', payment.status_detail);
+        console.log('Full Response:', JSON.stringify(payment, null, 2));
+
         const status = payment.status || 'pending';
         const statusDetail = payment.status_detail;
-
-        console.log(`Payment ${payment.id} - Status: ${status}, Detail: ${statusDetail}`);
 
         await firestore.collection('orders').doc(orderId).update({
             status: status === 'approved' ? 'paid' : status,
@@ -273,8 +239,6 @@ export const createPayment = async (req: Request, res: Response) => {
         });
 
         if (status === 'approved') {
-            // await assignProductsToUser(metadata.userId, items);
-
             return res.json({
                 success: true,
                 message: "Pago aprobado exitosamente",
@@ -306,21 +270,30 @@ export const createPayment = async (req: Request, res: Response) => {
             statusDetail
         });
     } catch (err: any) {
-        console.error('createPayment error - Detalles completos:', {
-            message: err?.message,
-            name: err?.name,
-            response: err?.response ? {
-                data: err.response.data,
-                status: err.response.status,
-                statusText: err.response.statusText,
-                headers: err.response.headers
-            } : undefined,
-            cause: err?.cause,
-            stack: err?.stack,
-            apiResponse: err?.apiResponse,
-            error: err?.error,
-            errorString: JSON.stringify(err, Object.getOwnPropertyNames(err))
-        });
+        // ============================================
+        // ❌ ERROR: Capturar información completa
+        // ============================================
+        console.error('❌ ERROR completo de Mercado Pago:');
+        console.error('Error Message:', err?.message);
+        console.error('Error Name:', err?.name);
+        console.error('Error Status:', err?.status);
+        
+        if (err?.cause && Array.isArray(err.cause) && err.cause.length > 0) {
+            console.error('Error Cause:', JSON.stringify(err.cause, null, 2));
+        }
+
+        if (err?.response) {
+            console.error('Error Response Status:', err.response.status);
+            console.error('Error Response StatusText:', err.response.statusText);
+            console.error('Error Response Data:', JSON.stringify(err.response.data, null, 2));
+        }
+
+        if (err?.apiResponse) {
+            console.error('Error API Response:', JSON.stringify(err.apiResponse, null, 2));
+        }
+
+        // Error completo para debugging
+        console.error('Full Error Object:', JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
 
         let errorMessage = err?.message || 'Error desconocido';
         let errorDetails: any = null;
@@ -357,11 +330,6 @@ export const createPayment = async (req: Request, res: Response) => {
             } else if (err?.apiResponse) {
                 errorDetails = err.apiResponse;
                 errorMessage = err.apiResponse.message || errorMessage;
-            } else if (err?.error) {
-                errorDetails = err.error;
-                errorMessage = err.error.message || errorMessage;
-            } else if (typeof err === 'string') {
-                errorMessage = err;
             }
         }
 
@@ -374,17 +342,12 @@ export const createPayment = async (req: Request, res: Response) => {
             success: false,
             error: userFriendlyMessage,
             message: errorMessage,
-            details: errorDetails,
-            debug: process.env.NODE_ENV === 'development' ? {
-                errorType: err?.name,
-                hasResponse: !!err?.response,
-                hasApiResponse: !!err?.apiResponse,
-                errorStatus: err?.status,
-                errorCode: err?.cause?.[0]?.code
-            } : undefined
+            details: errorDetails
         });
     }
 }
+
+
 
 
 export const handleWebhook = async (req: Request, res: Response) => {
