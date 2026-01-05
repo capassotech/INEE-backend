@@ -2,7 +2,10 @@ import type { Request, Response } from "express";
 import { firebaseAuth, firestore } from "../../config/firebase";
 import type { UserRegistrationData, UserProfile } from "../../types/user";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware";
+import { Resend } from "resend";
 // Firebase Admin SDK ya está importado desde firebase config
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 export const registerUser = async (req: Request, res: Response) => {
   try {
@@ -51,6 +54,14 @@ export const registerUser = async (req: Request, res: Response) => {
 
     // Generar token personalizado para respuesta inmediata
     const customToken = await firebaseAuth.createCustomToken(userRecord.uid);
+
+    // Email enviado al usuario
+    await resend.emails.send({
+      from: "INEE Oficial <contacto@ineeoficial.com>",
+      to: userRecord.email || "",
+      subject: "Bienvenido a INEE",
+      html: `<p>Bienvenido a INEE ${nombre} ${apellido}! Te informamos que has sido registrado en INEE.</p>`,
+    });
 
     return res.status(201).json({
       message: "Usuario registrado exitosamente",
@@ -272,6 +283,13 @@ export const googleRegister = async (req: Request, res: Response) => {
 
     const customToken = await firebaseAuth.createCustomToken(uid);
 
+    // Email enviado al usuario
+    await resend.emails.send({
+      from: "INEE Oficial <contacto@ineeoficial.com>",
+      to: email,
+      subject: "Bienvenido a INEE",
+      html: `<p>Bienvenido a INEE ${nombre} ${apellido}! Te informamos que has sido registrado en INEE.</p>`,
+    });
 
     return res.json({
       message: "Usuario registrado exitosamente con Google",
@@ -514,7 +532,6 @@ export const deleteUser = async (req: AuthenticatedRequest, res: Response) => {
   }
 };
 
-// Función para refrescar token
 export const refreshToken = async (
   req: AuthenticatedRequest,
   res: Response
@@ -556,6 +573,7 @@ export const refreshToken = async (
     });
   }
 };
+
 export const checkEmailExists = async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
@@ -638,6 +656,7 @@ export const checkEmailExists = async (req: Request, res: Response) => {
     });
   }
 };
+
 export const updateUserAdditionalData = async (
   req: AuthenticatedRequest,
   res: Response
