@@ -38,7 +38,6 @@ export const ContentSchema = z.object({
         .trim(),
     descripcion: z.string()
         .min(1, "La descripción del contenido es obligatoria")
-        .max(1000, "La descripción no puede exceder 1000 caracteres")
         .trim(),
     tipo_contenido: z.enum(TipoContenido),
     duracion: z.number()
@@ -71,7 +70,6 @@ export const ModuleSchema = z.object({
         .trim(),
     descripcion: z.string()
         .min(1, "La descripción del módulo es obligatoria")
-        .max(2000, "La descripción no puede exceder 2000 caracteres")
         .trim(),
     temas: z.array(z.string().min(1, "Los temas no pueden estar vacíos"))
         .max(20, "No puede tener más de 20 temas")
