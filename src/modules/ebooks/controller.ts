@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { firestore } from "../../config/firebase";
 import { AuthenticatedRequest } from "../../middleware/authMiddleware";
-import { validateUser } from "../../utils/utils";
+import { validateUser, normalizeText } from "../../utils/utils";
 import { ValidatedCreateEbook, ValidatedUpdateEbook } from "../../types/ebooks";
 import { cache, CACHE_KEYS } from "../../utils/cache";
 
@@ -54,16 +54,16 @@ export const getAllEbooks = async (req: Request, res: Response) => {
       ...doc.data(),
     }));
     
-    // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
+    // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados (normalizado sin tildes)
     if (search && search.trim()) {
-      const searchLower = search.toLowerCase().trim();
+      const normalizedSearch = normalizeText(search);
       ebooks = ebooks.filter((ebook: any) => {
-        const title = (ebook.title || ebook.titulo || '').toLowerCase();
-        const description = (ebook.description || ebook.descripcion || '').toLowerCase();
-        const author = (ebook.author || ebook.autor || '').toLowerCase();
-        return title.includes(searchLower) || 
-               description.includes(searchLower) || 
-               author.includes(searchLower);
+        const title = normalizeText(ebook.title || ebook.titulo || '');
+        const description = normalizeText(ebook.description || ebook.descripcion || '');
+        const author = normalizeText(ebook.author || ebook.autor || '');
+        return title.includes(normalizedSearch) || 
+               description.includes(normalizedSearch) || 
+               author.includes(normalizedSearch);
       });
       // Limitar después del filtrado
       ebooks = ebooks.slice(0, limit);

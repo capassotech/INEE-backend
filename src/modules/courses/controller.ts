@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { firestore } from "../../config/firebase";
 import { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { ValidatedCourse, ValidatedUpdateCourse } from "../../types/courses";
-import { validateUser } from "../../utils/utils";
+import { validateUser, normalizeText } from "../../utils/utils";
 import { cache, CACHE_KEYS } from "../../utils/cache";
 
 const collection = firestore.collection("courses");
@@ -126,14 +126,14 @@ export const getAllCourses = async (req: Request, res: Response) => {
       });
     }
     
-    // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
+    // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados (normalizado sin tildes)
     // Esto es mucho más eficiente que cargar todos los documentos en el frontend
     if (search && search.trim()) {
-      const searchLower = search.toLowerCase().trim();
+      const normalizedSearch = normalizeText(search);
       courses = courses.filter((course: any) => {
-        const titulo = (course.titulo || '').toLowerCase();
-        const descripcion = (course.descripcion || '').toLowerCase();
-        return titulo.includes(searchLower) || descripcion.includes(searchLower);
+        const titulo = normalizeText(course.titulo || '');
+        const descripcion = normalizeText(course.descripcion || '');
+        return titulo.includes(normalizedSearch) || descripcion.includes(normalizedSearch);
       });
     }
     
@@ -256,13 +256,13 @@ export const getUserCourses = async (req: Request, res: Response) => {
       index === self.findIndex((c) => c.id === course.id)
     );
 
-    // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
+    // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados (normalizado sin tildes)
     if (search && search.trim()) {
-      const searchLower = search.toLowerCase().trim();
+      const normalizedSearch = normalizeText(search);
       uniqueCourses = uniqueCourses.filter((course: any) => {
-        const titulo = (course.titulo || '').toLowerCase();
-        const descripcion = (course.descripcion || '').toLowerCase();
-        return titulo.includes(searchLower) || descripcion.includes(searchLower);
+        const titulo = normalizeText(course.titulo || '');
+        const descripcion = normalizeText(course.descripcion || '');
+        return titulo.includes(normalizedSearch) || descripcion.includes(normalizedSearch);
       });
       // Limitar después del filtrado
       uniqueCourses = uniqueCourses.slice(0, limit);

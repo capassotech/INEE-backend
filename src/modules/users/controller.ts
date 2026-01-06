@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { firestore, firebaseAuth } from '../../config/firebase';
 import type { UserRegistrationData, UserProfile } from '../../types/user';
 import { Resend } from 'resend';
+import { normalizeText } from '../../utils/utils';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -96,16 +97,16 @@ export const getUsers = async (req: any, res: Response) => {
       }));
     
       if (hasSearch) {
-        const searchLower = search!.toLowerCase().trim();
+        const normalizedSearch = normalizeText(search!);
         users = users.filter((user: any) => {
-          const nombre = (user.nombre || '').toLowerCase();
-          const apellido = (user.apellido || '').toLowerCase();
-          const email = (user.email || '').toLowerCase();
-          const nombreCompleto = `${nombre} ${apellido}`.toLowerCase();
-          return nombre.includes(searchLower) || 
-                 apellido.includes(searchLower) || 
-                 email.includes(searchLower) ||
-                 nombreCompleto.includes(searchLower);
+          const nombre = normalizeText(user.nombre || '');
+          const apellido = normalizeText(user.apellido || '');
+          const email = normalizeText(user.email || '');
+          const nombreCompleto = normalizeText(`${user.nombre || ''} ${user.apellido || ''}`);
+          return nombre.includes(normalizedSearch) || 
+                 apellido.includes(normalizedSearch) || 
+                 email.includes(normalizedSearch) ||
+                 nombreCompleto.includes(normalizedSearch);
         });
       }
       
