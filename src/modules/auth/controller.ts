@@ -31,11 +31,21 @@ export const registerUser = async (req: Request, res: Response) => {
     }
 
     // Crear usuario en Firebase Auth
-    const userRecord = await firebaseAuth.createUser({
-      email,
-      password,
-      displayName: `${nombre} ${apellido}`,
-    });
+    let userRecord;
+    try {
+      userRecord = await firebaseAuth.createUser({
+        email,
+        password,
+        displayName: `${nombre} ${apellido}`,
+      });
+    } catch (authError: any) {
+      if (authError.code === "auth/email-already-exists") {
+        return res.status(409).json({
+          error: "Ya existe un usuario registrado con este email",
+        });
+      }
+      throw authError;
+    }
 
     // Crear perfil de usuario en Firestore
     const userProfile: Omit<UserProfile, "uid"> = {
@@ -50,7 +60,34 @@ export const registerUser = async (req: Request, res: Response) => {
       activo: true,
     };
 
-    await firestore.collection("users").doc(userRecord.uid).set(userProfile);
+    try {
+      await firestore.collection("users").doc(userRecord.uid).set(userProfile);
+      
+      // Verificar que el documento se creó correctamente
+      const verifyDoc = await firestore.collection("users").doc(userRecord.uid).get();
+      if (!verifyDoc.exists) {
+        // Intentar eliminar el usuario de Firebase Auth si falló la creación en Firestore
+        try {
+          await firebaseAuth.deleteUser(userRecord.uid);
+        } catch (deleteError) {
+          // Error silencioso al limpiar
+        }
+        return res.status(500).json({
+          error: "Error al crear el perfil del usuario",
+        });
+      }
+    } catch (firestoreError: any) {
+      // Intentar eliminar el usuario de Firebase Auth si falló la creación en Firestore
+      try {
+        await firebaseAuth.deleteUser(userRecord.uid);
+      } catch (deleteError) {
+        // Error silencioso al limpiar
+      }
+      return res.status(500).json({
+        error: "Error al crear el perfil del usuario",
+        details: process.env.NODE_ENV === "development" ? firestoreError.message : undefined,
+      });
+    }
 
     // Generar token personalizado para respuesta inmediata
     const customToken = await firebaseAuth.createCustomToken(userRecord.uid);
@@ -249,9 +286,35 @@ export const googleRegister = async (req: Request, res: Response) => {
   try {
     const { idToken, email, nombre, apellido, dni, aceptaTerminos } = req.body;
 
+    // ✅ VALIDACIÓN: DNI es obligatorio
+    if (!dni || typeof dni !== "string" || dni.trim() === "") {
+      return res.status(400).json({
+        error: "El DNI es requerido para completar el registro",
+      });
+    }
+
+    // ✅ VALIDACIÓN: Formato del DNI (7-8 dígitos)
+    if (!/^\d{7,8}$/.test(dni.trim())) {
+      return res.status(400).json({
+        error: "El DNI debe tener entre 7 y 8 dígitos numéricos",
+      });
+    }
+
     if (!idToken) {
       return res.status(400).json({
         error: "Token de Google requerido",
+      });
+    }
+
+    // ✅ VALIDACIÓN: Verificar si el DNI ya existe
+    const existingDniQuery = await firestore
+      .collection("users")
+      .where("dni", "==", dni.trim())
+      .get();
+
+    if (!existingDniQuery.empty) {
+      return res.status(409).json({
+        error: "Ya existe un usuario registrado con este DNI",
       });
     }
 
@@ -270,16 +333,32 @@ export const googleRegister = async (req: Request, res: Response) => {
       email,
       nombre,
       apellido,
-      dni,
+      dni: dni.trim(), // ✅ Asegurar que el DNI esté guardado
       photoURL: picture || "",
       provider: "google",
       fechaRegistro: new Date(),
+      fechaActualizacion: new Date(),
       aceptaTerminos,
       activo: true,
       role: "alumno",
     };
 
-    await firestore.collection("users").doc(uid).set(userProfile);
+    try {
+      await firestore.collection("users").doc(uid).set(userProfile);
+      
+      // Verificar que el documento se creó correctamente
+      const verifyDoc = await firestore.collection("users").doc(uid).get();
+      if (!verifyDoc.exists) {
+        return res.status(500).json({
+          error: "Error al crear el perfil del usuario",
+        });
+      }
+    } catch (firestoreError: any) {
+      return res.status(500).json({
+        error: "Error al crear el perfil del usuario",
+        details: process.env.NODE_ENV === "development" ? firestoreError.message : undefined,
+      });
+    }
 
     const customToken = await firebaseAuth.createCustomToken(uid);
 
@@ -405,7 +484,7 @@ export const getUserProfile = async (
     if (userData.membresia) { 
       const membresiaDoc = await firestore
         .collection("membresias")
-        .doc(userData.membresia) 
+        .doc(membresiaId) 
         .get();
 
       if (membresiaDoc.exists) {
