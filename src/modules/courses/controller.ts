@@ -328,8 +328,13 @@ export const createCourse = async (
   try {
     const courseData: ValidatedCourse = req.body;
 
+    // Normalizar id_profesor a array para facilitar la validación
+    const profesorIds = Array.isArray(courseData.id_profesor) 
+      ? courseData.id_profesor 
+      : [courseData.id_profesor];
+
     // Verificar que todos los profesores existen
-    for (const profesorId of courseData.id_profesor) {
+    for (const profesorId of profesorIds) {
       const profesorExists = await firestore
         .collection("profesores")
         .doc(profesorId)
@@ -394,8 +399,13 @@ export const updateCourse = async (
     }
 
     if (updateData.id_profesor) {
+      // Normalizar id_profesor a array para facilitar la validación
+      const profesorIds = Array.isArray(updateData.id_profesor) 
+        ? updateData.id_profesor 
+        : [updateData.id_profesor];
+
       // Verificar que todos los profesores existen
-      for (const profesorId of updateData.id_profesor) {
+      for (const profesorId of profesorIds) {
         const profesorExists = await firestore
           .collection("profesores")
           .doc(profesorId)

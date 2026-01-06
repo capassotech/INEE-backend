@@ -70,16 +70,16 @@ export const CourseSchema = z.object({
         .max(999999, "El precio no puede exceder $999,999"),
     imagen: z.string().optional(),
     id_profesor: z.union([
-        z.string()
-            .min(1, "El ID del profesor es obligatorio")
-            .max(100, "El ID del profesor no puede exceder 100 caracteres")
-            .trim(),
         z.array(z.string()
             .min(1, "El ID del profesor no puede estar vacío")
             .max(100, "El ID del profesor no puede exceder 100 caracteres")
             .trim())
             .min(1, "Debe incluir al menos un profesor")
-            .max(10, "No puede tener más de 10 profesores")
+            .max(10, "No puede tener más de 10 profesores"),
+        z.string()
+            .min(1, "El ID del profesor es obligatorio")
+            .max(100, "El ID del profesor no puede exceder 100 caracteres")
+            .trim()
     ]),
     estado: z.enum(EstadoCurso),
     tags: z.array(z.string()
