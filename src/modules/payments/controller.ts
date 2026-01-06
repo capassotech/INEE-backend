@@ -32,6 +32,28 @@ export const createPayment = async (req: Request, res: Response) => {
             return res.status(400).json({ error: "Faltan datos de pago (token, paymentMethodId)" });
         }
 
+        // Validar que el token tenga el formato correcto (debe ser un string no vacío)
+        if (typeof token !== 'string' || token.trim() === '') {
+            return res.status(400).json({ error: "El token de la tarjeta no es válido" });
+        }
+
+        // Validar que el paymentMethodId sea válido
+        if (typeof paymentMethodId !== 'string' || paymentMethodId.trim() === '') {
+            return res.status(400).json({ error: "El método de pago no es válido" });
+        }
+
+        // Verificar que las credenciales de MercadoPago estén configuradas
+        const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+        if (!accessToken || accessToken.trim() === '') {
+            console.error('MERCADO_PAGO_ACCESS_TOKEN no está configurado');
+            return res.status(500).json({ error: "Error de configuración del servidor de pagos" });
+        }
+
+        // Log para debugging (sin exponer el token completo)
+        const isProductionToken = accessToken.startsWith('APP_USR-');
+        const isTestToken = accessToken.startsWith('TEST-');
+        console.log('MercadoPago Access Token type:', isProductionToken ? 'PRODUCTION' : isTestToken ? 'TEST' : 'UNKNOWN');
+
         const user = await firestore.collection('users').doc(userId).get();
         if (!user.exists) {
             return res.status(400).json({ error: "Usuario no encontrado" });
@@ -47,25 +69,33 @@ export const createPayment = async (req: Request, res: Response) => {
         const orderId = await createOrder(userId, items, transactionAmount, 'pending');
 
         const paymentClient = new Payment(mpClient);
-        const payment = await paymentClient.create({
-            body: {
-                transaction_amount: Number(transactionAmount),
-                token,
-                description: "Compra INEE",
-                installments,
-                payment_method_id: paymentMethodId,
-                issuer_id: issuerId,
-                payer: {
-                    email: user.data()?.email || '',
-                    first_name: user.data()?.nombre || '',
-                },
-                metadata: {
-                    userId,
-                    orderId,
-                },
+        
+        // Construir el body del pago
+        const paymentBody: any = {
+            transaction_amount: Number(transactionAmount),
+            token,
+            description: "Compra INEE",
+            installments: Number(installments) || 1,
+            payment_method_id: paymentMethodId,
+            payer: {
+                email: user.data()?.email || '',
+                first_name: user.data()?.nombre || '',
             },
+            metadata: {
+                userId,
+                orderId,
+            },
+        };
+
+        // Solo agregar issuer_id si está presente y no es vacío
+        if (issuerId && issuerId.trim() !== '') {
+            paymentBody.issuer_id = issuerId;
+        }
+
+        const payment = await paymentClient.create({
+            body: paymentBody,
             requestOptions: {
-                idempotencyKey: `order-${orderId}-${Date.now()}` 
+                idempotencyKey: `order-${orderId}-${Date.now()}-${Math.random().toString(36).substring(7)}` 
             }
         });
 
@@ -94,7 +124,34 @@ export const createPayment = async (req: Request, res: Response) => {
         });
     } catch (err: any) {
         console.error('createPayment error:', err?.response?.data || err);
-        return res.status(500).json({ error: "Error al crear el pago", details: err?.message });
+        
+        // Extraer información detallada del error de MercadoPago
+        const errorData = err?.response?.data || {};
+        const errorMessage = errorData.message || err?.message || "Error al crear el pago";
+        const errorCause = errorData.cause || [];
+        
+        // Log detallado para debugging
+        console.error('MercadoPago Error Details:', {
+            message: errorMessage,
+            cause: errorCause,
+            status: err?.response?.status,
+            statusText: err?.response?.statusText,
+        });
+
+        // Si es el error 10102, proporcionar un mensaje más específico
+        if (errorCause.some((cause: any) => cause.code === 10102)) {
+            return res.status(400).json({ 
+                error: "El token de la tarjeta no es válido o ya fue utilizado. Por favor, ingresa los datos de la tarjeta nuevamente.",
+                details: errorMessage,
+                code: 10102
+            });
+        }
+
+        return res.status(500).json({ 
+            error: "Error al crear el pago", 
+            details: errorMessage,
+            cause: errorCause.length > 0 ? errorCause : undefined
+        });
     }
 }
 
