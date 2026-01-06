@@ -69,7 +69,11 @@ export const getProfesorById = async (req: Request, res: Response) => {
 
 export const createProfesor = async (req: Request, res: Response) => {
     try {
-        const { nombre, apellido, photo_url } = req.body;
+        const bodyData = req.body;
+        
+        // Si el frontend envía los datos dentro de un objeto 'profesor', extraerlos
+        const datosProfesor = bodyData.profesor || bodyData;
+        const { nombre, apellido, photo_url } = datosProfesor;
         
         if (!nombre || !apellido) {
             return res.status(400).json({ error: 'Nombre y apellido son requeridos' });
@@ -96,7 +100,10 @@ export const createProfesor = async (req: Request, res: Response) => {
 export const updateProfesor = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { nombre, apellido, photo_url } = req.body;
+        const bodyData = req.body;
+        
+        // Si el frontend envía los datos dentro de un objeto 'profesor', extraerlos
+        const datosProfesor = bodyData.profesor || bodyData;
         
         const profesorRef = firestore.collection('profesores').doc(id);
         const profesorDoc = await profesorRef.get();
@@ -105,18 +112,38 @@ export const updateProfesor = async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'Profesor no encontrado' });
         }
         
+        // Preparar datos de actualización
         const updateData: any = {
             updatedAt: new Date().toISOString(),
         };
         
-        if (nombre !== undefined) updateData.nombre = nombre;
-        if (apellido !== undefined) updateData.apellido = apellido;
-        if (photo_url !== undefined) updateData.photo_url = photo_url;
+        // Copiar todos los campos válidos
+        // Excluir campos que no deben actualizarse directamente
+        const camposExcluidos = ['id', 'createdAt'];
+        
+        for (const [key, value] of Object.entries(datosProfesor)) {
+            // No incluir campos excluidos
+            if (camposExcluidos.includes(key)) {
+                continue;
+            }
+            
+            // Incluir el campo si tiene un valor válido (incluyendo false, 0 y strings vacíos para photo_url)
+            if (value !== undefined && value !== null) {
+                // No copiar objetos de Firestore directamente (tienen _seconds, _nanoseconds)
+                if (typeof value === 'object' && value !== null && ('_seconds' in value || '_nanoseconds' in value)) {
+                    continue;
+                }
+                updateData[key] = value;
+            }
+        }
         
         await profesorRef.update(updateData);
         const updatedProfesor = await profesorRef.get();
         
-        res.json({ id: updatedProfesor.id, ...updatedProfesor.data() });
+        res.json({ 
+            id: updatedProfesor.id, 
+            ...updatedProfesor.data() 
+        });
     } catch (error) {
         console.error('updateProfesor error:', error);
         res.status(500).json({ error: 'Error al actualizar profesor' });

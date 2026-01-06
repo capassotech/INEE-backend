@@ -12,7 +12,8 @@ import purchasesRoutes from "./modules/purchases/routes";
 import usersRoutes from "./modules/users/routes";
 import contactRoutes from "./modules/contact/routes";
 import newsletterRoutes from "./modules/newsletter/routes";
-import membershipRoutes from "./modules/membership/routes";
+// MEMBRESÍAS DESACTIVADAS - Comentado para posible reactivación futura
+// import membershipRoutes from "./modules/membership/routes";
 import testimonialsRoutes from "./modules/testimonials/routes";
 import eventsRoutes from "./modules/events/routes";
 import profesorsRoutes from "./modules/profesors/routes";
@@ -23,14 +24,17 @@ import reviewsRoutes from "./modules/reviews/routes";
 import cartRoutes from "./modules/cart/routes";
 import paymentsRoutes from "./modules/payments/routes";
 import progressRoutes from "./modules/progress/routes";
+import ordersRoutes from "./modules/orders/routes";
+import emailsRoutes from "./modules/emails/routes";
+import eventRegistrationsRoutes from "./modules/event-registrations/routes";
+
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
 
-// ✅ CACHÉ: Agregar headers de caché a todas las respuestas de API
-// Las respuestas se cachearán en el navegador por 5 minutos
 app.use("/api", cacheHeaders(300));
 
 app.use("/api/auth", authRoutes);
@@ -39,7 +43,8 @@ app.use("/api/purchases", purchasesRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/newsletter", newsletterRoutes);
-app.use("/api/membership", membershipRoutes);
+// MEMBRESÍAS DESACTIVADAS - Comentado para posible reactivación futura
+// app.use("/api/membership", membershipRoutes);
 app.use("/api/testimonios", testimonialsRoutes);
 app.use("/api/eventos", eventsRoutes);
 app.use("/api/profesores", profesorsRoutes);
@@ -50,6 +55,9 @@ app.use("/api/reviews", reviewsRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/payments", paymentsRoutes);
 app.use("/api/progreso", progressRoutes);
+app.use("/api/orders", ordersRoutes);
+app.use("/api/emails", emailsRoutes);
+app.use("/api/inscripciones-eventos", eventRegistrationsRoutes);
 
 app.get("/", (_, res) => {
   res.json({
@@ -58,6 +66,7 @@ app.get("/", (_, res) => {
     environment: process.env.NODE_ENV || "development",
   });
 });
+
 
 app.get("/health", (_, res) => {
   res.status(200).json({
