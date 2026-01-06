@@ -21,8 +21,7 @@ export interface UserProfile {
   aceptaTerminos: boolean;
   activo: boolean;
   fechaEliminacion?: Date;
-  // MEMBRESÍAS DESACTIVADAS - Comentado para posible reactivación futura
-  // membresia_id?: string;
+  membresia_id?: string;
   cursos_asignados?: string[];
   resumen_progreso?: ResumenProgreso;
 }

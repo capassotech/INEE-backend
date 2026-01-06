@@ -15,16 +15,16 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 export const createPayment = async (req: Request, res: Response) => {
     try {
         const {
+            userId,
             items,
-            metadata,
+            totalPrice,
             token,
+            paymentMethodId,
             installments = 1,
-            paymentMethodId
+            issuerId,
         } = req.body;
 
-        console.log(req.body);
-
-        if (!metadata.userId || !Array.isArray(items) || items.length === 0 || !metadata.totalAmount) {
+        if (!userId || !Array.isArray(items) || items.length === 0 || !totalPrice) {
             return res.status(400).json({ error: "Faltan datos de la orden (userId, items, totalPrice)" });
         }
 
@@ -32,7 +32,29 @@ export const createPayment = async (req: Request, res: Response) => {
             return res.status(400).json({ error: "Faltan datos de pago (token, paymentMethodId)" });
         }
 
-        const user = await firestore.collection('users').doc(metadata.userId).get();
+        // Validar que el token tenga el formato correcto (debe ser un string no vacío)
+        if (typeof token !== 'string' || token.trim() === '') {
+            return res.status(400).json({ error: "El token de la tarjeta no es válido" });
+        }
+
+        // Validar que el paymentMethodId sea válido
+        if (typeof paymentMethodId !== 'string' || paymentMethodId.trim() === '') {
+            return res.status(400).json({ error: "El método de pago no es válido" });
+        }
+
+        // Verificar que las credenciales de MercadoPago estén configuradas
+        const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+        if (!accessToken || accessToken.trim() === '') {
+            console.error('MERCADO_PAGO_ACCESS_TOKEN no está configurado');
+            return res.status(500).json({ error: "Error de configuración del servidor de pagos" });
+        }
+
+        // Log para debugging (sin exponer el token completo)
+        const isProductionToken = accessToken.startsWith('APP_USR-');
+        const isTestToken = accessToken.startsWith('TEST-');
+        console.log('MercadoPago Access Token type:', isProductionToken ? 'PRODUCTION' : isTestToken ? 'TEST' : 'UNKNOWN');
+
+        const user = await firestore.collection('users').doc(userId).get();
         if (!user.exists) {
             return res.status(400).json({ error: "Usuario no encontrado" });
         }
@@ -42,95 +64,93 @@ export const createPayment = async (req: Request, res: Response) => {
         }
 
         const total = await calculateTotalPrice(items);
-        const transactionAmount = total || metadata.totalAmount;
+        const transactionAmount = total || totalPrice;
 
-        if (isNaN(transactionAmount) || transactionAmount <= 0) {
-            return res.status(400).json({ 
-                error: "El monto de la transacción es inválido",
-                details: `Monto calculado: ${total}, Monto metadata: ${metadata.totalAmount}`
-            });
-        }
-
-        const orderId = await createOrder(metadata.userId, items, transactionAmount, 'pending');
+        const orderId = await createOrder(userId, items, transactionAmount, 'pending');
 
         const paymentClient = new Payment(mpClient);
-        const payment = await paymentClient.create({
-            body: {
-                transaction_amount: Number(transactionAmount),
-                token,
-                description: "Compra INEE",
-                installments,
-                payment_method_id: paymentMethodId,
-                payer: {
-                    email: user.data()?.email || '',
-                    first_name: user.data()?.nombre || '',
-                },
-                metadata: {
-                    userId: metadata.userId,
-                    orderId,
-                },
+        
+        // Construir el body del pago
+        const paymentBody: any = {
+            transaction_amount: Number(transactionAmount),
+            token,
+            description: "Compra INEE",
+            installments: Number(installments) || 1,
+            payment_method_id: paymentMethodId,
+            payer: {
+                email: user.data()?.email || '',
+                first_name: user.data()?.nombre || '',
             },
+            metadata: {
+                userId,
+                orderId,
+            },
+        };
+
+        // Solo agregar issuer_id si está presente y no es vacío
+        if (issuerId && issuerId.trim() !== '') {
+            paymentBody.issuer_id = issuerId;
+        }
+
+        const payment = await paymentClient.create({
+            body: paymentBody,
             requestOptions: {
-                idempotencyKey: `order-${orderId}-${Date.now()}` 
+                idempotencyKey: `order-${orderId}-${Date.now()}-${Math.random().toString(36).substring(7)}` 
             }
         });
 
         const status = payment.status || 'pending';
-        const statusDetail = payment.status_detail;
-
-        console.log(`Payment ${payment.id} - Status: ${status}, Detail: ${statusDetail}`);
 
         await firestore.collection('orders').doc(orderId).update({
             status: status === 'approved' ? 'paid' : status,
             paymentId: payment.id,
             paymentStatus: status,
             paymentDetails: {
-                status_detail: statusDetail,
+                status_detail: payment.status_detail,
                 payment_method_id: payment.payment_method_id,
                 payment_type_id: payment.payment_type_id,
-            },
-            updatedAt: new Date()
+            }
         });
 
         if (status === 'approved') {
-            // await assignProductsToUser(metadata.userId, items);
-            
-            return res.json({
-                success: true,
-                message: "Pago aprobado exitosamente",
-                orderId,
-                paymentId: payment.id,
-                status,
-                statusDetail
-            });
-        }
-
-        if (status === 'rejected') {
-            return res.status(400).json({
-                success: false,
-                message: "Pago rechazado",
-                orderId,
-                paymentId: payment.id,
-                status,
-                statusDetail,
-                errorMessage: getPaymentErrorMessage(statusDetail || 'cc_rejected_other_reason')
-            });
+            // TODO: asignar cursos / membresías al usuario según items
         }
 
         return res.json({
-            success: true,
-            message: "Pago en proceso",
+            message: "Payment created",
             orderId,
             paymentId: payment.id,
             status,
-            statusDetail
         });
     } catch (err: any) {
         console.error('createPayment error:', err?.response?.data || err);
+        
+        // Extraer información detallada del error de MercadoPago
+        const errorData = err?.response?.data || {};
+        const errorMessage = errorData.message || err?.message || "Error al crear el pago";
+        const errorCause = errorData.cause || [];
+        
+        // Log detallado para debugging
+        console.error('MercadoPago Error Details:', {
+            message: errorMessage,
+            cause: errorCause,
+            status: err?.response?.status,
+            statusText: err?.response?.statusText,
+        });
+
+        // Si es el error 10102, proporcionar un mensaje más específico
+        if (errorCause.some((cause: any) => cause.code === 10102)) {
+            return res.status(400).json({ 
+                error: "El token de la tarjeta no es válido o ya fue utilizado. Por favor, ingresa los datos de la tarjeta nuevamente.",
+                details: errorMessage,
+                code: 10102
+            });
+        }
+
         return res.status(500).json({ 
-            success: false,
             error: "Error al crear el pago", 
-            details: err?.message 
+            details: errorMessage,
+            cause: errorCause.length > 0 ? errorCause : undefined
         });
     }
 }
@@ -177,42 +197,7 @@ const validateWebhookSignature = (body: any, signature: string, requestId: strin
 const calculateTotalPrice = async (items: any[]): Promise<number> => {
     let totalPrice = 0;
     for (const item of items) {
-        let price = Number(item.precio || item.price || 0);
-        
-        if (isNaN(price) || price <= 0) {
-            const productId = item.id || item.productId;
-            if (!productId) {
-                console.warn(`Item sin ID, no se puede obtener precio:`, item);
-                continue;
-            }
-
-            let productDoc = await firestore.collection('courses').doc(productId).get();
-            if (productDoc.exists) {
-                const data = productDoc.data();
-                price = Number(data?.precio || data?.price || 0);
-            } else {
-                // Buscar en events
-                productDoc = await firestore.collection('events').doc(productId).get();
-                if (productDoc.exists) {
-                    const data = productDoc.data();
-                    price = Number(data?.precio || data?.price || 0);
-                } else {
-                    // Buscar en ebooks
-                    productDoc = await firestore.collection('ebooks').doc(productId).get();
-                    if (productDoc.exists) {
-                        const data = productDoc.data();
-                        price = Number(data?.precio || data?.price || 0);
-                    }
-                }
-            }
-        }
-
-        if (isNaN(price) || price <= 0) {
-            console.warn(`No se pudo determinar precio válido para item:`, item);
-            continue;
-        }
-
-        totalPrice += price;
+        totalPrice += item.precio;
     }
     return totalPrice;
 }
@@ -238,80 +223,4 @@ const validateProds = async (items: any[]): Promise<boolean> => {
         return false; 
     }
     return true;
-}
-
-const assignProductsToUser = async (userId: string, items: any[]): Promise<void> => {
-    try {
-        const userRef = firestore.collection('users').doc(userId);
-        const userDoc = await userRef.get();
-        
-        if (!userDoc.exists) {
-            console.error(`Usuario ${userId} no encontrado`);
-            return;
-        }
-
-        const userData = userDoc.data();
-        const cursosAsignados = userData?.cursos_asignados || [];
-        const eventosAsignados = userData?.eventos_asignados || [];
-        const ebooksAsignados = userData?.ebooks_asignados || [];
-
-        for (const item of items) {
-            const productId = item.id || item.productId;
-            
-            // Verificar en qué colección está el producto
-            const courseDoc = await firestore.collection('courses').doc(productId).get();
-            if (courseDoc.exists && !cursosAsignados.includes(productId)) {
-                cursosAsignados.push(productId);
-                continue;
-            }
-
-            const eventDoc = await firestore.collection('events').doc(productId).get();
-            if (eventDoc.exists && !eventosAsignados.includes(productId)) {
-                eventosAsignados.push(productId);
-                continue;
-            }
-
-            const ebookDoc = await firestore.collection('ebooks').doc(productId).get();
-            if (ebookDoc.exists && !ebooksAsignados.includes(productId)) {
-                ebooksAsignados.push(productId);
-            }
-        }
-
-        // Actualizar el usuario con los nuevos productos asignados
-        await userRef.update({
-            cursos_asignados: cursosAsignados,
-            eventos_asignados: eventosAsignados,
-            ebooks_asignados: ebooksAsignados,
-            updatedAt: new Date()
-        });
-
-        console.log(`Productos asignados al usuario ${userId}:`, {
-            cursos: cursosAsignados.length,
-            eventos: eventosAsignados.length,
-            ebooks: ebooksAsignados.length
-        });
-    } catch (error) {
-        console.error('Error al asignar productos al usuario:', error);
-    }
-}
-
-const getPaymentErrorMessage = (statusDetail: string): string => {
-    const errorMessages: { [key: string]: string } = {
-        'cc_rejected_bad_filled_card_number': 'Número de tarjeta inválido',
-        'cc_rejected_bad_filled_date': 'Fecha de vencimiento inválida',
-        'cc_rejected_bad_filled_other': 'Revisa los datos de tu tarjeta',
-        'cc_rejected_bad_filled_security_code': 'Código de seguridad inválido',
-        'cc_rejected_blacklist': 'No pudimos procesar tu pago',
-        'cc_rejected_call_for_authorize': 'Debes autorizar el pago con tu banco',
-        'cc_rejected_card_disabled': 'Tarjeta deshabilitada. Contacta a tu banco',
-        'cc_rejected_card_error': 'No pudimos procesar tu tarjeta',
-        'cc_rejected_duplicated_payment': 'Ya procesaste un pago similar recientemente',
-        'cc_rejected_high_risk': 'Tu pago fue rechazado. Elige otro medio de pago',
-        'cc_rejected_insufficient_amount': 'Fondos insuficientes',
-        'cc_rejected_invalid_installments': 'La tarjeta no acepta el número de cuotas seleccionado',
-        'cc_rejected_max_attempts': 'Has alcanzado el límite de intentos. Elige otra tarjeta',
-        'cc_rejected_other_reason': 'Tu banco rechazó el pago. Intenta con otra tarjeta o contacta a tu banco',
-    };
-
-    return errorMessages[statusDetail] || 'El pago no pudo ser procesado. Intenta con otro medio de pago';
 }

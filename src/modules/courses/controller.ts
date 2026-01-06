@@ -110,18 +110,18 @@ export const getAllCourses = async (req: Request, res: Response) => {
       });
     }
     
-    // Filtro por duración en memoria (duración ahora en semanas)
+    // Filtro por duración en memoria (ya que requiere cálculo)
     const duracion = req.query.duracion as string | undefined;
     if (duracion && duracion !== 'all') {
       courses = courses.filter((course: any) => {
         const courseDuration = course.duracion || 0;
         const num = typeof courseDuration === "string" ? parseInt(courseDuration, 10) : courseDuration;
         
-        if (duracion === "Menos de 1 mes") return num > 0 && num <= 4;    // <= 4 semanas
-        if (duracion === "1-3 meses") return num > 4 && num <= 12;         // 4-12 semanas
-        if (duracion === "3-6 meses") return num > 12 && num <= 26;        // 12-26 semanas
-        if (duracion === "6-12 meses") return num > 26 && num <= 52;       // 26-52 semanas
-        if (duracion === "+1 año") return num > 52;                        // > 52 semanas
+        if (duracion === "Menos de 1 mes") return num > 0 && num <= 100;
+        if (duracion === "1-3 meses") return num > 100 && num <= 300;
+        if (duracion === "3-6 meses") return num > 300 && num <= 600;
+        if (duracion === "6-12 meses") return num > 600 && num <= 1200;
+        if (duracion === "+1 año") return num > 1200;
         return true;
       });
     }
@@ -150,8 +150,6 @@ export const getAllCourses = async (req: Request, res: Response) => {
         count: courses.length
       }
     };
-
-    console.log(response)
     
     // ✅ CACHÉ: Guardar en caché si corresponde
     if (shouldCache) {

@@ -49,41 +49,10 @@ export const createCart = async (req: Request, res: Response) => {
         return res.status(400).json({ error: 'Carrito ya existe' });
     }
 
-    // Validar que cada producto existe (puede ser curso, evento o ebook)
     for (const item of items) {
-        const { productId, productType } = item;
-        
-        if (!productType) {
-            return res.status(400).json({ 
-                error: 'Tipo de producto requerido. Debe ser: "course", "event" o "ebook"' 
-            });
-        }
-
-        let product = null;
-        let collectionName = '';
-
-        switch (productType) {
-            case 'course':
-                collectionName = 'courses';
-                break;
-            case 'event':
-                collectionName = 'events';
-                break;
-            case 'ebook':
-                collectionName = 'ebooks';
-                break;
-            default:
-                return res.status(400).json({ 
-                    error: `Tipo de producto inválido: ${productType}. Debe ser: "course", "event" o "ebook"` 
-                });
-        }
-
-        product = await firestore.collection(collectionName).doc(productId).get();
-        
+        const product = await firestore.collection('courses').doc(item.productId).get();
         if (!product.exists) {
-            return res.status(404).json({ 
-                error: `${productType === 'course' ? 'Curso' : productType === 'event' ? 'Evento' : 'Ebook'} no encontrado` 
-            });
+            return res.status(404).json({ error: 'Curso no encontrado' });
         }
     }
 

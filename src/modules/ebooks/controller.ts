@@ -152,55 +152,22 @@ export const updateEbook = async (req: AuthenticatedRequest, res: Response) => {
 
   try {
     const ebookId = req.params.id;
-    const bodyData = req.body;
-    
-    // Si el frontend envía los datos dentro de un objeto 'ebook', extraerlos
-    const datosEbook = bodyData.ebook || bodyData;
+    const updateData: ValidatedUpdateEbook = req.body;
 
     const ebookDoc = await collection.doc(ebookId).get();
     if (!ebookDoc.exists) {
       return res.status(404).json({ error: "Ebook no encontrado" });
     }
-
-    // Preparar datos de actualización
-    const dataToUpdate: any = {};
-
-    // Copiar todos los campos válidos
-    // Excluir campos que no deben actualizarse directamente
-    const camposExcluidos = ['id'];
-    
-    for (const [key, value] of Object.entries(datosEbook)) {
-      // No incluir campos excluidos
-      if (camposExcluidos.includes(key)) {
-        continue;
-      }
-      
-      // Incluir el campo si tiene un valor válido (incluyendo false y 0)
-      if (value !== undefined && value !== null) {
-        // No copiar objetos de Firestore directamente (tienen _seconds, _nanoseconds)
-        if (typeof value === 'object' && value !== null && ('_seconds' in value || '_nanoseconds' in value)) {
-          continue;
-        }
-        dataToUpdate[key] = value;
-      }
-    }
+    const dataToUpdate: any = { ...updateData };
 
     await collection.doc(ebookId).update(dataToUpdate);
 
     // ✅ CACHÉ: Invalidar caché de ebooks al actualizar
     cache.invalidatePattern(`${CACHE_KEYS.EBOOKS}:`);
 
-    // Obtener documento actualizado
-    const updatedDoc = await collection.doc(ebookId).get();
-    const updatedData = updatedDoc.data();
-
     return res.json({
       message: "Ebook actualizado exitosamente",
       id: ebookId,
-      ebook: {
-        id: updatedDoc.id,
-        ...updatedData,
-      },
     });
   } catch (err) {
     console.error("❌ [UPDATE EBOOK ERROR]:", err);

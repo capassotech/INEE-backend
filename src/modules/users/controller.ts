@@ -1,9 +1,6 @@
 import { Request, Response } from 'express';
 import { firestore, firebaseAuth } from '../../config/firebase';
 import type { UserRegistrationData, UserProfile } from '../../types/user';
-import { Resend } from 'resend';
-
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 export const getUserProfile = async (req: any, res: Response) => {
   const uid = req.user.uid;
@@ -16,9 +13,8 @@ export const getUserProfile = async (req: any, res: Response) => {
   return res.json(userDoc.data());
 };
 
-// MEMBRESÍAS DESACTIVADAS - Comentado para posible reactivación futura
 // Agregarle membresia al usuario
-/* export const addMembershipToUser = async (req: any, res: Response) => {
+export const addMembershipToUser = async (req: any, res: Response) => {
   const { uid, membershipId } = req.body;
   const userDoc = await firestore.collection('users').doc(uid).get();
   const membershipDoc = await firestore.collection('membresias').doc(membershipId).get();
@@ -34,7 +30,7 @@ export const getUserProfile = async (req: any, res: Response) => {
   else await userDoc.ref.update({ membresia: membershipId });
 
   return res.status(200).json({ message: 'Membresía agregada al usuario' });
-} */
+}
 
 export const getUser = async (req: any, res: Response) => {
   const uid = req.params.id;
@@ -55,102 +51,83 @@ export const getUsers = async (req: any, res: Response) => {
     const page = Math.max(parseInt(pageQuery || '1', 10) || 1, 1);
     const offset = (page - 1) * limit;
     const search = req.query.search as string | undefined; 
-    const status = req.query.status as string | undefined;
-    const sortBy = req.query.sortBy as string | undefined;
+    const status = req.query.status as string | undefined; // 'activo' | 'inactivo' | undefined
+    const sortBy = req.query.sortBy as string | undefined; // 'name' | 'date' | 'totalSpent' | undefined
     
     const hasSearch = Boolean(search && search.trim());
     const hasStatusFilter = Boolean(status && status !== 'all');
     const hasSort = Boolean(sortBy);
-    const hasFilters = hasSearch || hasStatusFilter || hasSort;
     
-    let users: any[] = [];
-    let totalFiltered = 0;
+    // Para búsquedas y filtros, necesitamos obtener más documentos para filtrar
+    const queryLimit = (hasSearch || hasStatusFilter || hasSort) ? Math.min(limit * 10, 1000) : limit;
     
-    if (!hasFilters) {
-      try {
-        const countSnapshot = await firestore.collection('users').count().get();
-        totalFiltered = countSnapshot.data().count;
-      } catch (error) {
-        const allUsersSnapshot = await firestore.collection('users').get();
-        totalFiltered = allUsersSnapshot.size;
-      }
-      
-      const pageQuery = firestore.collection('users')
-        .orderBy('__name__')
-        .offset(offset)
-        .limit(limit);
-      const pageSnapshot = await pageQuery.get();
-      users = pageSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-    } else {
-      const queryLimit = Math.min(limit * 10, 1000);
-      
-      let query = firestore.collection('users').orderBy('__name__').limit(queryLimit);
-      const snapshot = await query.get();
+    // Obtener todos los usuarios (o una muestra grande si hay filtros)
+    let query = firestore.collection('users').orderBy('__name__').limit(queryLimit);
+    const snapshot = await query.get();
 
-      users = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+    let users = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
     
-      if (hasSearch) {
-        const searchLower = search!.toLowerCase().trim();
-        users = users.filter((user: any) => {
-          const nombre = (user.nombre || '').toLowerCase();
-          const apellido = (user.apellido || '').toLowerCase();
-          const email = (user.email || '').toLowerCase();
-          const nombreCompleto = `${nombre} ${apellido}`.toLowerCase();
-          return nombre.includes(searchLower) || 
-                 apellido.includes(searchLower) || 
-                 email.includes(searchLower) ||
-                 nombreCompleto.includes(searchLower);
-        });
-      }
-      
-      if (hasStatusFilter) {
-        const isActive = status === 'activo';
-        users = users.filter((user: any) => user.activo === isActive);
-      }
-
-      if (hasSort) {
-        switch (sortBy) {
-          case 'name':
-            users.sort((a: any, b: any) => {
-              const nameA = `${a.nombre || ''} ${a.apellido || ''}`.toLowerCase();
-              const nameB = `${b.nombre || ''} ${b.apellido || ''}`.toLowerCase();
-              return nameA.localeCompare(nameB);
-            });
-            break;
-          case 'date':
-            users.sort((a: any, b: any) => {
-              const dateA = a.fechaRegistro?._seconds ? new Date(a.fechaRegistro._seconds * 1000).getTime() : 0;
-              const dateB = b.fechaRegistro?._seconds ? new Date(b.fechaRegistro._seconds * 1000).getTime() : 0;
-              return dateB - dateA;
-            });
-            break;
-          case 'totalSpent':
-            users.sort((a: any, b: any) => {
-              const totalA = a.totalInvertido || 0;
-              const totalB = b.totalInvertido || 0;
-              return totalB - totalA;
-            });
-            break;
-        }
-      }
-      
-      totalFiltered = users.length;
-      
-      users = users.slice(offset, offset + limit);
+    // Aplicar filtro de búsqueda
+    if (hasSearch) {
+      const searchLower = search!.toLowerCase().trim();
+      users = users.filter((user: any) => {
+        const nombre = (user.nombre || '').toLowerCase();
+        const apellido = (user.apellido || '').toLowerCase();
+        const email = (user.email || '').toLowerCase();
+        const nombreCompleto = `${nombre} ${apellido}`.toLowerCase();
+        return nombre.includes(searchLower) || 
+               apellido.includes(searchLower) || 
+               email.includes(searchLower) ||
+               nombreCompleto.includes(searchLower);
+      });
     }
     
+    // Aplicar filtro de estado
+    if (hasStatusFilter) {
+      const isActive = status === 'activo';
+      users = users.filter((user: any) => user.activo === isActive);
+    }
+    
+    // Aplicar ordenamiento
+    if (hasSort) {
+      switch (sortBy) {
+        case 'name':
+          users.sort((a: any, b: any) => {
+            const nameA = `${a.nombre || ''} ${a.apellido || ''}`.toLowerCase();
+            const nameB = `${b.nombre || ''} ${b.apellido || ''}`.toLowerCase();
+            return nameA.localeCompare(nameB);
+          });
+          break;
+        case 'date':
+          users.sort((a: any, b: any) => {
+            const dateA = a.fechaRegistro?._seconds ? new Date(a.fechaRegistro._seconds * 1000).getTime() : 0;
+            const dateB = b.fechaRegistro?._seconds ? new Date(b.fechaRegistro._seconds * 1000).getTime() : 0;
+            return dateB - dateA; // Más recientes primero
+          });
+          break;
+        case 'totalSpent':
+          users.sort((a: any, b: any) => {
+            const totalA = a.totalInvertido || 0;
+            const totalB = b.totalInvertido || 0;
+            return totalB - totalA; // Mayor a menor
+          });
+          break;
+      }
+    }
+    
+    // Calcular totales después de aplicar filtros
+    const totalFiltered = users.length;
     const totalPages = totalFiltered > 0 ? Math.ceil(totalFiltered / limit) : 1;
     
+    // Aplicar paginación
+    const paginatedUsers = users.slice(offset, offset + limit);
     const hasMore = offset + limit < totalFiltered;
     
     return res.json({
-      users,
+      users: paginatedUsers,
       pagination: {
         hasMore,
         lastId: null,
@@ -159,7 +136,7 @@ export const getUsers = async (req: any, res: Response) => {
         nextPage: hasMore ? page + 1 : undefined,
         total: totalFiltered,
         totalPages,
-        count: users.length
+        count: paginatedUsers.length
       }
     });
   } catch (error) {
@@ -197,68 +174,52 @@ export const updateUser = async (req: any, res: Response) => {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    // Preparar datos de actualización
+    // Si el body tiene un campo 'user', usar ese, sino usar el body directamente
+    const userData = req.body.user || req.body;
+
+    // Preparar los datos para actualizar, asegurándonos de que los campos importantes se guarden correctamente
     const updateData: any = {
       fechaActualizacion: new Date(),
     };
 
-    // Procesar todos los campos del body, incluyendo activo
-    const bodyData = req.body;
-    
-    // Si el frontend envía los datos dentro de un objeto 'user', extraerlos
-    const datosUsuario = bodyData.user || bodyData;
-
-    // Copiar todos los campos válidos al updateData
-    // Excluir campos que no deben actualizarse directamente
-    const camposExcluidos = ['id', 'uid', 'fechaRegistro', 'email', 'fechaActualizacion'];
-    
-    for (const [key, value] of Object.entries(datosUsuario)) {
-      // No incluir campos excluidos
-      if (camposExcluidos.includes(key)) {
-        continue;
-      }
-      
-      // Incluir el campo si tiene un valor válido (incluyendo false y 0)
-      if (value !== undefined && value !== null) {
-        // Validar que activo sea booleano
-        if (key === 'activo') {
-          if (typeof value === 'boolean') {
-            updateData.activo = value;
-          } else if (value === 'true' || value === true) {
-            updateData.activo = true;
-          } else if (value === 'false' || value === false) {
-            updateData.activo = false;
-          } else {
-            console.warn(`[updateUser] Valor inválido para activo: ${value}, tipo: ${typeof value}`);
-          }
-        } else {
-          // No copiar objetos de Firestore directamente (tienen _seconds, _nanoseconds)
-          if (typeof value === 'object' && value !== null && ('_seconds' in value || '_nanoseconds' in value)) {
-            continue;
-          }
-          updateData[key] = value;
-        }
-      }
+    // PRIORIDAD 1: Procesar el campo activo primero si está presente
+    if (userData.activo !== undefined) {
+      updateData.activo = Boolean(userData.activo);
+      console.log('Campo activo establecido:', updateData.activo, typeof updateData.activo);
     }
-    
-    // Asegurar que fechaActualizacion siempre sea un Date nuevo
-    updateData.fechaActualizacion = new Date();
 
-    // Actualizar en Firestore
+    // Copiar todos los campos del usuario, pero manejar campos especiales
+    Object.keys(userData).forEach((key) => {
+      // Ignorar campos que no deben actualizarse directamente o que son objetos complejos
+      if (key === 'id' || key === 'fechaRegistro' || key === 'activo') {
+        return; // activo ya se procesó arriba
+      }
+
+      // Si es fechaActualizacion con formato _seconds, convertirla
+      if (key === 'fechaActualizacion' && userData[key] && typeof userData[key] === 'object' && userData[key]._seconds) {
+        updateData.fechaActualizacion = new Date(userData[key]._seconds * 1000);
+        return;
+      }
+
+      // Para otros campos, copiarlos tal cual
+      if (userData[key] !== undefined && userData[key] !== null) {
+        updateData[key] = userData[key];
+      }
+    });
+
+    console.log('Actualizando usuario:', uid);
+    console.log('Datos recibidos:', JSON.stringify(userData, null, 2));
+    console.log('Datos a actualizar en Firestore:', JSON.stringify(updateData, null, 2));
+
     await userDoc.ref.update(updateData);
 
-    // Obtener documento actualizado
     const updatedDoc = await firestore.collection('users').doc(uid).get();
-    const updatedData = updatedDoc.data();
 
     return res.status(200).json({
       message: 'Usuario actualizado correctamente',
       user: {
         id: updatedDoc.id,
-        ...updatedData,
-        fechaRegistro: updatedData?.fechaRegistro?.toDate?.() || updatedData?.fechaRegistro,
-        fechaActualizacion: updatedData?.fechaActualizacion?.toDate?.() || updatedData?.fechaActualizacion,
-        fechaEliminacion: updatedData?.fechaEliminacion?.toDate?.() || updatedData?.fechaEliminacion,
+        ...updatedDoc.data()
       }
     });
   } catch (error) {
@@ -271,80 +232,23 @@ export const asignCourseToUser = async (req: any, res: Response) => {
   const { id_curso } = req.body;
   const id_usuario = req.params.id;
 
-  // Normalizar id_curso a un array
-  const idsCursos = Array.isArray(id_curso) ? id_curso : [id_curso];
-
-  if (!idsCursos.length) {
-    return res.status(400).json({ error: 'Debe proporcionar al menos un ID de curso' });
-  }
-
   const userDoc = await firestore.collection('users').doc(id_usuario).get();
+  const courseDoc = await firestore.collection('courses').doc(id_curso).get();
 
   if (!userDoc.exists) {
     return res.status(404).json({ error: 'Usuario no encontrado' });
   }
-
-  // Validar que todos los cursos existen
-  const courseDocs = await Promise.all(
-    idsCursos.map((id: string) => firestore.collection('courses').doc(id).get())
-  );
-
-  const cursosNoEncontrados = idsCursos.filter((id: string, index: number) => !courseDocs[index].exists);
-  if (cursosNoEncontrados.length > 0) {
-    return res.status(404).json({ 
-      error: 'Uno o más cursos no encontrados',
-      cursosNoEncontrados 
-    });
+  if (!courseDoc.exists) {
+    return res.status(404).json({ error: 'Curso no encontrado' });
   }
 
-  // Obtener títulos de los cursos para el email
-  const titulosCursos = courseDocs.map(doc => doc.data()?.titulo || '').filter(Boolean);
-  
-  // Actualizar cursos asignados sin duplicados
-  const cursosAsignadosActuales = userDoc.data()?.cursos_asignados || [];
-  const cursosNuevos = idsCursos.filter((id: string) => !cursosAsignadosActuales.includes(id));
-  const cursosAsignadosActualizados = [...new Set([...cursosAsignadosActuales, ...idsCursos])];
-
-  await userDoc.ref.update({ cursos_asignados: cursosAsignadosActualizados });
-
-  // Enviar email con información de los cursos asignados
-  const mensajeCursos = titulosCursos.length === 1 
-    ? `el curso ${titulosCursos[0]}`
-    : `los siguientes cursos: ${titulosCursos.join(', ')}`;
-
-  const { data, error } = await resend.emails.send({
-    from: "INEE Oficial <contacto@ineeoficial.com>",
-    to: userDoc.data()?.email || '',
-    subject: titulosCursos.length === 1 ? 'Curso asignado' : 'Cursos asignados',
-    html: `<p>Hola ${userDoc.data()?.nombre || ''} ${userDoc.data()?.apellido || ''}! Te informamos que has sido asignado a ${mensajeCursos} en INEE.</p>`,
-  });
-
-  if (error) {
-    console.error('Error al enviar email:', error);
-    // No retornar error aquí, ya se asignaron los cursos
-  }
-
-  const mensaje = cursosNuevos.length === idsCursos.length
-    ? (idsCursos.length === 1 ? 'Curso asignado al usuario' : 'Cursos asignados al usuario')
-    : `${cursosNuevos.length} nuevo(s) curso(s) asignado(s), ${idsCursos.length - cursosNuevos.length} ya estaban asignados`;
-
-  return res.status(200).json({ 
-    message: mensaje,
-    cursosAsignados: cursosNuevos,
-    cursosYaAsignados: idsCursos.filter((id: string) => cursosAsignadosActuales.includes(id))
-  });
+  await userDoc.ref.update({ cursos_asignados: [...userDoc.data()?.cursos_asignados || [], id_curso] });
+  return res.status(200).json({ message: 'Curso asignado al usuario' });
 }
 
 export const desasignarCursoFromUser = async (req: any, res: Response) => {
   const { id_curso } = req.body;
   const id_usuario = req.params.id;
-
-  // Normalizar id_curso a un array
-  const idsCursos = Array.isArray(id_curso) ? id_curso : [id_curso];
-
-  if (!idsCursos.length) {
-    return res.status(400).json({ error: 'Debe proporcionar al menos un ID de curso' });
-  }
 
   const userDoc = await firestore.collection('users').doc(id_usuario).get();
 
@@ -353,20 +257,10 @@ export const desasignarCursoFromUser = async (req: any, res: Response) => {
   }
 
   const cursosAsignados = userDoc.data()?.cursos_asignados || [];
-  const cursosActualizados = cursosAsignados.filter((cursoId: string) => !idsCursos.includes(cursoId));
-  const cursosDesasignados = idsCursos.filter((id: string) => cursosAsignados.includes(id));
+  const cursosActualizados = cursosAsignados.filter((cursoId: string) => cursoId !== id_curso);
 
   await userDoc.ref.update({ cursos_asignados: cursosActualizados });
-  
-  const mensaje = cursosDesasignados.length === idsCursos.length
-    ? (idsCursos.length === 1 ? 'Curso desasignado del usuario' : 'Cursos desasignados del usuario')
-    : `${cursosDesasignados.length} curso(s) desasignado(s), ${idsCursos.length - cursosDesasignados.length} no estaban asignados`;
-
-  return res.status(200).json({ 
-    message: mensaje,
-    cursosDesasignados,
-    cursosNoAsignados: idsCursos.filter((id: string) => !cursosAsignados.includes(id))
-  });
+  return res.status(200).json({ message: 'Curso desasignado del usuario' });
 }
 
 export const createUser = async (req: Request, res: Response) => {
@@ -439,14 +333,6 @@ export const createUser = async (req: Request, res: Response) => {
     };
 
     await firestore.collection('users').doc(userRecord.uid).set(userProfile);
-
-    // Enviar email al usuario creado
-    await resend.emails.send({
-      from: "INEE Oficial <contacto@ineeoficial.com>",
-      to: userRecord.email || "",
-      subject: "Bienvenido a INEE",
-      html: `<p>Bienvenido a INEE ${nombre} ${apellido}! Te informamos que has sido registrado en INEE.</p>`,
-    });
 
     // Retornar el usuario creado con el formato esperado por el admin
     return res.status(201).json({
