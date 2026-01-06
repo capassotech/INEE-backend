@@ -1,6 +1,9 @@
 import { Request, Response } from 'express';
 import { firestore, firebaseAuth } from '../../config/firebase';
 import type { UserRegistrationData, UserProfile } from '../../types/user';
+import { Resend } from 'resend';
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 export const getUserProfile = async (req: any, res: Response) => {
   const uid = req.user.uid;
@@ -13,8 +16,9 @@ export const getUserProfile = async (req: any, res: Response) => {
   return res.json(userDoc.data());
 };
 
+// MEMBRESÍAS DESACTIVADAS - Comentado para posible reactivación futura
 // Agregarle membresia al usuario
-export const addMembershipToUser = async (req: any, res: Response) => {
+/* export const addMembershipToUser = async (req: any, res: Response) => {
   const { uid, membershipId } = req.body;
   const userDoc = await firestore.collection('users').doc(uid).get();
   const membershipDoc = await firestore.collection('membresias').doc(membershipId).get();
@@ -30,7 +34,7 @@ export const addMembershipToUser = async (req: any, res: Response) => {
   else await userDoc.ref.update({ membresia: membershipId });
 
   return res.status(200).json({ message: 'Membresía agregada al usuario' });
-}
+} */
 
 export const getUser = async (req: any, res: Response) => {
   const uid = req.params.id;
@@ -267,23 +271,80 @@ export const asignCourseToUser = async (req: any, res: Response) => {
   const { id_curso } = req.body;
   const id_usuario = req.params.id;
 
+  // Normalizar id_curso a un array
+  const idsCursos = Array.isArray(id_curso) ? id_curso : [id_curso];
+
+  if (!idsCursos.length) {
+    return res.status(400).json({ error: 'Debe proporcionar al menos un ID de curso' });
+  }
+
   const userDoc = await firestore.collection('users').doc(id_usuario).get();
-  const courseDoc = await firestore.collection('courses').doc(id_curso).get();
 
   if (!userDoc.exists) {
     return res.status(404).json({ error: 'Usuario no encontrado' });
   }
-  if (!courseDoc.exists) {
-    return res.status(404).json({ error: 'Curso no encontrado' });
+
+  // Validar que todos los cursos existen
+  const courseDocs = await Promise.all(
+    idsCursos.map((id: string) => firestore.collection('courses').doc(id).get())
+  );
+
+  const cursosNoEncontrados = idsCursos.filter((id: string, index: number) => !courseDocs[index].exists);
+  if (cursosNoEncontrados.length > 0) {
+    return res.status(404).json({ 
+      error: 'Uno o más cursos no encontrados',
+      cursosNoEncontrados 
+    });
   }
 
-  await userDoc.ref.update({ cursos_asignados: [...userDoc.data()?.cursos_asignados || [], id_curso] });
-  return res.status(200).json({ message: 'Curso asignado al usuario' });
+  // Obtener títulos de los cursos para el email
+  const titulosCursos = courseDocs.map(doc => doc.data()?.titulo || '').filter(Boolean);
+  
+  // Actualizar cursos asignados sin duplicados
+  const cursosAsignadosActuales = userDoc.data()?.cursos_asignados || [];
+  const cursosNuevos = idsCursos.filter((id: string) => !cursosAsignadosActuales.includes(id));
+  const cursosAsignadosActualizados = [...new Set([...cursosAsignadosActuales, ...idsCursos])];
+
+  await userDoc.ref.update({ cursos_asignados: cursosAsignadosActualizados });
+
+  // Enviar email con información de los cursos asignados
+  const mensajeCursos = titulosCursos.length === 1 
+    ? `el curso ${titulosCursos[0]}`
+    : `los siguientes cursos: ${titulosCursos.join(', ')}`;
+
+  const { data, error } = await resend.emails.send({
+    from: "INEE Oficial <contacto@ineeoficial.com>",
+    to: userDoc.data()?.email || '',
+    subject: titulosCursos.length === 1 ? 'Curso asignado' : 'Cursos asignados',
+    html: `<p>Hola ${userDoc.data()?.nombre || ''} ${userDoc.data()?.apellido || ''}! Te informamos que has sido asignado a ${mensajeCursos} en INEE.</p>`,
+  });
+
+  if (error) {
+    console.error('Error al enviar email:', error);
+    // No retornar error aquí, ya se asignaron los cursos
+  }
+
+  const mensaje = cursosNuevos.length === idsCursos.length
+    ? (idsCursos.length === 1 ? 'Curso asignado al usuario' : 'Cursos asignados al usuario')
+    : `${cursosNuevos.length} nuevo(s) curso(s) asignado(s), ${idsCursos.length - cursosNuevos.length} ya estaban asignados`;
+
+  return res.status(200).json({ 
+    message: mensaje,
+    cursosAsignados: cursosNuevos,
+    cursosYaAsignados: idsCursos.filter((id: string) => cursosAsignadosActuales.includes(id))
+  });
 }
 
 export const desasignarCursoFromUser = async (req: any, res: Response) => {
   const { id_curso } = req.body;
   const id_usuario = req.params.id;
+
+  // Normalizar id_curso a un array
+  const idsCursos = Array.isArray(id_curso) ? id_curso : [id_curso];
+
+  if (!idsCursos.length) {
+    return res.status(400).json({ error: 'Debe proporcionar al menos un ID de curso' });
+  }
 
   const userDoc = await firestore.collection('users').doc(id_usuario).get();
 
@@ -292,10 +353,20 @@ export const desasignarCursoFromUser = async (req: any, res: Response) => {
   }
 
   const cursosAsignados = userDoc.data()?.cursos_asignados || [];
-  const cursosActualizados = cursosAsignados.filter((cursoId: string) => cursoId !== id_curso);
+  const cursosActualizados = cursosAsignados.filter((cursoId: string) => !idsCursos.includes(cursoId));
+  const cursosDesasignados = idsCursos.filter((id: string) => cursosAsignados.includes(id));
 
   await userDoc.ref.update({ cursos_asignados: cursosActualizados });
-  return res.status(200).json({ message: 'Curso desasignado del usuario' });
+  
+  const mensaje = cursosDesasignados.length === idsCursos.length
+    ? (idsCursos.length === 1 ? 'Curso desasignado del usuario' : 'Cursos desasignados del usuario')
+    : `${cursosDesasignados.length} curso(s) desasignado(s), ${idsCursos.length - cursosDesasignados.length} no estaban asignados`;
+
+  return res.status(200).json({ 
+    message: mensaje,
+    cursosDesasignados,
+    cursosNoAsignados: idsCursos.filter((id: string) => !cursosAsignados.includes(id))
+  });
 }
 
 export const createUser = async (req: Request, res: Response) => {
@@ -368,6 +439,14 @@ export const createUser = async (req: Request, res: Response) => {
     };
 
     await firestore.collection('users').doc(userRecord.uid).set(userProfile);
+
+    // Enviar email al usuario creado
+    await resend.emails.send({
+      from: "INEE Oficial <contacto@ineeoficial.com>",
+      to: userRecord.email || "",
+      subject: "Bienvenido a INEE",
+      html: `<p>Bienvenido a INEE ${nombre} ${apellido}! Te informamos que has sido registrado en INEE.</p>`,
+    });
 
     // Retornar el usuario creado con el formato esperado por el admin
     return res.status(201).json({

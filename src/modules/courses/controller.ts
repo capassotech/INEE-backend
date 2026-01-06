@@ -150,6 +150,8 @@ export const getAllCourses = async (req: Request, res: Response) => {
         count: courses.length
       }
     };
+
+    console.log(response)
     
     // ✅ CACHÉ: Guardar en caché si corresponde
     if (shouldCache) {
