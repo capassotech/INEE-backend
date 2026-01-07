@@ -39,15 +39,15 @@ export const ContentSchema = z.object({
     descripcion: z.string()
         .min(1, "La descripción del contenido es obligatoria")
         .trim(),
-    tipo_contenido: z.enum(TipoContenido),
+    tipo_contenido: z.nativeEnum(TipoContenido),
     duracion: z.number()
         .int("La duración debe ser un número entero")
         .min(0, "La duración no puede ser negativa")
         .max(7200, "La duración no puede exceder 2 horas (7200 segundos)"),
-    // Nuevo: array de URLs de contenido (al menos una requerida)
+    // Array de URLs de contenido (opcional, puede estar vacío)
     urls_contenido: z.array(z.string().min(1, "La URL no puede estar vacía"))
-        .min(1, "Debe incluir al menos una URL de contenido")
-        .max(10, "No puede tener más de 10 archivos de contenido"),
+        .max(10, "No puede tener más de 10 archivos de contenido")
+        .default([]),
     // Nuevo: array de URLs de bibliografía (opcional)
     urls_bibliografia: z.array(z.string().min(1, "La URL no puede estar vacía"))
         .max(20, "No puede tener más de 20 archivos de bibliografía")
