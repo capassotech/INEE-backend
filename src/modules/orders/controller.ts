@@ -1,16 +1,21 @@
 import { Request, Response } from "express";
 import { firestore } from '../../config/firebase';
 
-
+// Metodos necesarios
 export const createOrder = async (userId: string, items: any[], totalPrice: number, status: string) => {
+    // Generar número de orden legible: ORD-YYYY-NNNNNN
+    const year = new Date().getFullYear();
+    const orderNumber = `ORD-${year}-${Date.now().toString().slice(-6)}`;
+    
     const order = await firestore.collection('orders').add({
         userId,
         items,
         totalPrice,
         createdAt: new Date(),
-        status
+        status,
+        orderNumber
     });
-    return order.id;
+    return { orderId: order.id, orderNumber };
 }
 
 export const updateOrderStatus = async (orderId: string, status: string) => {
@@ -23,6 +28,8 @@ export const updatePreferenceId = async (orderId: string, preferenceId: string) 
     return order;
 }
 
+
+// Esto viene de las rutas
 export const getOrders = async (req: Request, res: Response) => {
     const orders = await firestore.collection('orders').get();
     return res.json(orders.docs.map((doc) => ({ id: doc.id, ...doc.data() })));

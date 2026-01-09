@@ -51,16 +51,17 @@ export const createPayment = async (req: Request, res: Response) => {
             });
         }
 
-        const orderId = await createOrder(metadata.userId, items, transactionAmount, 'pending');
+        const { orderId, orderNumber } = await createOrder(metadata.userId, items, transactionAmount, 'pending');
 
         const paymentClient = new Payment(mpClient);
         const payment = await paymentClient.create({
             body: {
                 transaction_amount: Number(transactionAmount),
                 token,
-                description: "Compra INEE",
+                description: `Compra INEE - Orden ${orderNumber}`,
                 installments,
                 payment_method_id: paymentMethodId,
+                external_reference: orderNumber, // Número de orden visible en MP
                 payer: {
                     email: user.data()?.email || '',
                     first_name: user.data()?.nombre || '',
@@ -68,6 +69,7 @@ export const createPayment = async (req: Request, res: Response) => {
                 metadata: {
                     userId: metadata.userId,
                     orderId,
+                    orderNumber,
                 },
             },
             requestOptions: {
@@ -99,6 +101,7 @@ export const createPayment = async (req: Request, res: Response) => {
                 success: true,
                 message: "Pago aprobado exitosamente",
                 orderId,
+                orderNumber,
                 paymentId: payment.id,
                 status,
                 statusDetail
@@ -110,6 +113,7 @@ export const createPayment = async (req: Request, res: Response) => {
                 success: false,
                 message: "Pago rechazado",
                 orderId,
+                orderNumber,
                 paymentId: payment.id,
                 status,
                 statusDetail,
@@ -117,10 +121,34 @@ export const createPayment = async (req: Request, res: Response) => {
             });
         }
 
+        const emailMessage = `
+            <p>Hola ${user.data()?.nombre || ''}</p>
+            <p>Tu pago ha sido procesado exitosamente. Te informamos que tu orden es la siguiente:</p>
+            <p>Orden: ${orderNumber}</p>
+            <p>Estado del pago: ${status}</p>
+            <p>Fecha de pago: ${new Date().toLocaleDateString('es-ES')}</p>
+            <p>Productos:</p>
+            <ul>
+                ${items.map((item: any) => `<li>${item.nombre} - ${item.precio}</li>`).join('')}
+            </ul>
+            <p>Total: ${total}</p>
+            <p>Medio de pago: ${paymentMethodId}</p>
+            <p>Gracias por tu compra. Te esperamos en INEE.</p>
+            <p>Atentamente, INEE.</p>
+        `;
+        
+        await resend.emails.send({
+            from: "INEE Oficial <contacto@ineeoficial.com>",
+            to: user.data()?.email || '',
+            subject: "Gracias por tu compra en INEE",
+            html: emailMessage
+        });
+
         return res.json({
             success: true,
             message: "Pago en proceso",
             orderId,
+            orderNumber,
             paymentId: payment.id,
             status,
             statusDetail
