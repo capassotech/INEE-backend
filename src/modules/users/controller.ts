@@ -371,6 +371,9 @@ export const desasignarCursoFromUser = async (req: any, res: Response) => {
 
 export const createUser = async (req: Request, res: Response) => {
   try {
+    console.log(`[createUser] ========== INICIO CREACIÓN DE USUARIO ==========`);
+    console.log(`[createUser] Body recibido:`, JSON.stringify(req.body, null, 2));
+    
     // El admin envía los datos en { user: {...} }, así que extraemos user o usamos el body directamente
     const userData: UserRegistrationData = req.body.user || req.body;
     
@@ -390,6 +393,8 @@ export const createUser = async (req: Request, res: Response) => {
 
     // Validaciones básicas
     if (!email || !password || !nombre || !apellido || !dni) {
+      console.error('[createUser] Error de validación: campos faltantes');
+      console.error('[createUser] Campos recibidos:', { email: !!email, password: !!password, nombre: !!nombre, apellido: !!apellido, dni: !!dni });
       return res.status(400).json({
         error: 'Todos los campos son requeridos',
       });
@@ -397,34 +402,41 @@ export const createUser = async (req: Request, res: Response) => {
 
     // Verificar si el email ya existe en Firebase Auth
     try {
+      console.log(`[createUser] Verificando si el email ya existe en Firebase Auth...`);
       await firebaseAuth.getUserByEmail(email);
       // Si llegamos aquí, el usuario ya existe
+      console.log(`[createUser] El email ya existe en Firebase Auth`);
       return res.status(409).json({
         error: 'Ya existe un usuario registrado con este email',
       });
     } catch (error: any) {
       // Si el error es 'auth/user-not-found', el usuario no existe, continuar
       if (error.code !== 'auth/user-not-found') {
-        console.error('Error verificando email:', error);
+        console.error('[createUser] Error verificando email:', error);
         throw error;
       }
+      console.log(`[createUser] Email no existe en Firebase Auth, continuando con la creación...`);
     }
 
     // Verificar si el DNI ya existe
+    console.log(`[createUser] Verificando si el DNI ya existe en Firestore...`);
     const existingDniQuery = await firestore
       .collection('users')
       .where('dni', '==', dni)
       .get();
 
     if (!existingDniQuery.empty) {
+      console.log(`[createUser] El DNI ya existe en Firestore`);
       return res.status(409).json({
         error: 'Ya existe un usuario registrado con este DNI',
       });
     }
+    console.log(`[createUser] DNI no existe en Firestore, continuando...`);
 
     // Crear usuario en Firebase Auth
     let userRecord;
     try {
+      console.log(`[createUser] Creando usuario en Firebase Auth con email: ${email}`);
       userRecord = await firebaseAuth.createUser({
         email,
         password,
@@ -432,21 +444,9 @@ export const createUser = async (req: Request, res: Response) => {
         emailVerified: false,
         disabled: false,
       });
-      
-      // Verificar que el usuario tiene el proveedor de password habilitado
-      const hasPasswordProvider = userRecord.providerData.some(p => p.providerId === 'password');
-      if (!hasPasswordProvider) {
-        // Intentar actualizar el usuario para asegurar que tenga el proveedor de password
-        try {
-          await firebaseAuth.updateUser(userRecord.uid, {
-            password: password,
-          });
-        } catch (updateError: any) {
-          console.error('Error actualizando usuario:', updateError);
-        }
-      }
+      console.log(`[createUser] Usuario creado en Firebase Auth exitosamente. UID: ${userRecord.uid}`);
     } catch (authError: any) {
-      console.error('Error creando usuario en Firebase Auth:', authError.code, authError.message);
+      console.error('[createUser] Error creando usuario en Firebase Auth:', authError.code, authError.message);
       throw authError;
     }
 
@@ -465,21 +465,38 @@ export const createUser = async (req: Request, res: Response) => {
     };
 
     try {
+      console.log(`[createUser] Guardando perfil de usuario en Firestore. UID: ${userRecord.uid}`);
+      console.log(`[createUser] Datos del perfil:`, JSON.stringify(userProfile, null, 2));
+      
       await firestore.collection('users').doc(userRecord.uid).set(userProfile);
+      
+      console.log(`[createUser] Perfil de usuario guardado exitosamente en Firestore`);
+      
+      // Verificar que el documento se guardó correctamente
+      const savedDoc = await firestore.collection('users').doc(userRecord.uid).get();
+      if (!savedDoc.exists) {
+        throw new Error('El documento no existe después de guardarlo');
+      }
+      console.log(`[createUser] Verificación: documento existe en Firestore`);
     } catch (firestoreError: any) {
-      console.error('Error creando perfil en Firestore. Intentando eliminar usuario de Auth...', firestoreError);
+      console.error('[createUser] Error creando perfil en Firestore:', firestoreError);
+      console.error('[createUser] Código de error:', firestoreError.code);
+      console.error('[createUser] Mensaje:', firestoreError.message);
+      
       // Si falla la creación en Firestore, eliminar el usuario de Auth para mantener consistencia
       try {
+        console.log(`[createUser] Intentando eliminar usuario de Auth debido a fallo en Firestore...`);
         await firebaseAuth.deleteUser(userRecord.uid);
+        console.log(`[createUser] Usuario eliminado de Auth exitosamente`);
       } catch (deleteError: any) {
-        console.error('Error eliminando usuario de Auth después de fallo en Firestore:', deleteError);
+        console.error('[createUser] Error eliminando usuario de Auth después de fallo en Firestore:', deleteError);
       }
       throw firestoreError;
     }
 
-    // Verificar que el usuario puede hacer login haciendo un login de prueba
-    // Esto asegura que las credenciales están correctamente configuradas en Firebase Auth
+    // Verificar que el login funciona correctamente con las credenciales recién creadas
     try {
+      console.log(`[createUser] Verificando que el login funciona con las credenciales creadas...`);
       const firebaseApiKey = "AIzaSyAZDT5DM68-9qYH23HdKAsOTaV_qCAPEiw";
       const loginResponse = await fetch(
         `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${firebaseApiKey}`,
@@ -499,25 +516,31 @@ export const createUser = async (req: Request, res: Response) => {
       const loginResult = await loginResponse.json();
 
       if (!loginResponse.ok) {
-        console.error('Error verificando login:', loginResult.error?.message || loginResult.error);
+        console.error('[createUser] ❌ Error verificando login:', loginResult.error?.message || loginResult.error);
+        console.error('[createUser] El usuario fue creado pero no puede hacer login. Verificar configuración de Firebase Auth.');
+      } else {
+        console.log(`[createUser] ✅ Login verificado exitosamente. El usuario puede ingresar con sus credenciales.`);
       }
     } catch (loginTestError: any) {
-      console.error('Error al verificar login:', loginTestError.message);
+      console.error('[createUser] Error al verificar login:', loginTestError.message);
     }
 
-    // Enviar email al usuario creado (no crítico si falla)
     try {
+      console.log(`[createUser] Enviando email de bienvenida a: ${userRecord.email}`);
       await resend.emails.send({
         from: "INEE Oficial <contacto@ineeoficial.com>",
         to: userRecord.email || "",
         subject: "Bienvenido a INEE",
         html: `<p>Bienvenido a INEE ${nombre} ${apellido}! Te informamos que has sido registrado en INEE.</p>`,
       });
+      console.log(`[createUser] Email de bienvenida enviado exitosamente`);
     } catch (emailError: any) {
-      console.error('Error enviando email de bienvenida:', emailError);
+      console.error('[createUser] Error enviando email de bienvenida:', emailError);
+      // No lanzar error aquí, el usuario ya fue creado exitosamente
     }
 
     // Retornar el usuario creado con el formato esperado por el admin
+    console.log(`[createUser] ✅ Usuario creado exitosamente. UID: ${userRecord.uid}, Email: ${email}`);
     return res.status(201).json({
       id: userRecord.uid,
       ...userProfile,
