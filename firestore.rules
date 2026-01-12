@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Reglas básicas - Ajusta según tus necesidades de seguridad
+    match /{document=**} {
+      allow read, write: if false; // Por defecto, denegar todo. Ajusta según necesites.
+    }
+  }
+}
+

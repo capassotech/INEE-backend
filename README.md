@@ -1,83 +1,76 @@
 # INEE Backend
 
-Este es el backend de INEE, una plataforma de cursos con tres interfaces:
+Backend de la plataforma INEE con Express + TypeScript, Firebase y Mercado Pago.
 
-- **Tienda online** donde los usuarios compran cursos.
-- **Panel de administración** para las socias propietarias.
-- **Portal de alumno** donde acceden a sus cursos comprados.
+## 🚀 Inicio Rápido
 
-El backend está construido con **Express + TypeScript**, usa **Firebase Authentication** y **Firestore**, e integra **Mercado Pago** para los pagos.
+```sh
+npm i
+cp .env.example .env  # Configura las variables de entorno
+npm run dev
+```
 
----
+## 🔧 Configuración de Entornos
 
-## 📁 Estructura del proyecto
+El backend debe configurarse con las credenciales de Firebase correspondientes al entorno:
 
+- **QA**: Usa credenciales del proyecto Firebase `inee-qa`
+- **Producción**: Usa credenciales del proyecto Firebase `inee-admin`
+
+### Variables Requeridas
+
+- `FIREBASE_PROJECT_ID` - ID del proyecto Firebase
+- `FIREBASE_CLIENT_EMAIL` - Email del service account
+- `FIREBASE_PRIVATE_KEY` - Clave privada del service account
+- `MERCADO_PAGO_ACCESS_TOKEN` - Token de acceso de Mercado Pago
+- `MERCADO_PAGO_WEBHOOK_SECRET` - Secret para validar webhooks
+- `FRONTEND_URL` - URL del frontend (para CORS)
+- `PORT` - Puerto del servidor (default: 3000)
+
+**Importante:** El backend de QA debe usar las credenciales de Firebase de QA, y el de producción las de producción. Esto asegura que los tokens generados sean válidos para el proyecto correcto.
+
+## 📁 Estructura
+
+```
 /src
-/modules
-/auth -> Autenticación con Firebase Auth
-/users -> Gestión de usuarios en Firestore
-/courses -> CRUD de cursos y lecciones
-/purchases -> Lógica de compras de cursos
-/mercado-pago -> Integración con Mercado Pago
-/middleware -> Middlewares globales y de autorización
-/utils -> Helpers reutilizables
-/config -> Configuración de Firebase, CORS, etc.
-index.ts -> Entry point del servidor Express
-
----
+  /modules
+    /auth       -> Autenticación con Firebase Auth
+    /users      -> Gestión de usuarios
+    /courses    -> CRUD de cursos y lecciones
+    /purchases   -> Lógica de compras
+    /mercado-pago -> Integración con Mercado Pago
+  /middleware   -> Middlewares de autenticación y validación
+  /config       -> Configuración de Firebase, CORS, etc.
+```
 
 ## 🔐 Autenticación
 
-Se utiliza **Firebase Authentication**. El frontend obtiene un `idToken` desde Firebase y lo envía en el header `Authorization` como `Bearer token`.
-
-Middleware `/middleware/authMiddleware.ts` valida este token y lo decodifica.
-
----
+El frontend envía un `idToken` de Firebase en el header `Authorization: Bearer <token>`. El middleware `authMiddleware.ts` valida y decodifica el token.
 
 ## 🔥 Firestore
 
-Todos los datos de usuarios, cursos y compras se guardan en **Firestore**. Cada módulo tiene acceso a su propia colección:
+Datos almacenados en Firestore:
+- `users` - Usuarios y roles
+- `courses` - Cursos, módulos y lecciones
+- `purchases` - Compras realizadas
 
-- `users`: datos del usuario, roles, etc.
-- `courses`: info del curso, módulos, lecciones.
-- `purchases`: compras realizadas por usuarios.
+## 💳 Mercado Pago
 
----
+Integración con Checkout Pro:
+1. Backend crea preferencia de pago
+2. Recibe webhook de confirmación
+3. Registra compra en Firestore
 
-## 💳 Pagos
+## 📦 Scripts
 
-Se usa **Mercado Pago Checkout Pro**. El backend:
+```sh
+npm run dev    # Desarrollo con hot-reload
+npm run build  # Compilar a JavaScript
+npm start      # Ejecutar versión compilada
+```
 
-1. Crea una preferencia con el curso a comprar.
-2. Recibe el webhook de confirmación de pago.
-3. Registra la compra en Firestore.
+## 🛠 Requisitos
 
-Secret de webhook validado con `MERCADO_PAGO_WEBHOOK_SECRET`.
-
----
-
-## 🔐 Variables de entorno
-
-Ver el archivo `.env.example` para configurar:
-
-- Firebase
-- Mercado Pago
-- Puerto y URL del frontend
-
----
-
-## ▶️ Scripts útiles
-
-npm run dev        # Levanta el servidor en modo desarrollo con ts-node-dev
-npm run build      # Compila el proyecto a JavaScript en /dist
-npm start          # Corre el proyecto ya compilado
-
----
-
-🛠 Requisitos
-Node.js 18+
-Cuenta en Firebase con Firestore y Auth habilitados
-Cuenta de desarrollador en Mercado Pago
-
-✍️ Autores
-Desarrollado por CapassoTech para el proyecto INEE.
+- Node.js 18+
+- Cuenta Firebase con Firestore y Auth
+- Cuenta Mercado Pago (desarrollador)
