@@ -104,7 +104,15 @@ export const basicSanitization = (
   next: NextFunction
 ) => {
   const sanitizeString = (str: string): string => {
-    const trimmed = str.trim().replace(/[\x00-\x1f\x7f-\x9f]/g, "");
+    // Preservar saltos de línea (\n = 0x0A, \r = 0x0D) pero eliminar otros caracteres de control peligrosos
+    // \x00-\x09: caracteres de control (excepto \n y \r)
+    // \x0A: \n (preservar)
+    // \x0B-\x0C: caracteres de control (excepto \r)
+    // \x0D: \r (preservar)
+    // \x0E-\x1F: caracteres de control
+    // \x7F-\x9F: caracteres de control extendidos
+    // Usar trim personalizado que solo elimina espacios y tabs, no saltos de línea
+    const trimmed = str.replace(/^[ \t]+|[ \t]+$/g, '').replace(/[\x00-\x09\x0B-\x0C\x0E-\x1F\x7F-\x9F]/g, "");
     if (trimmed.startsWith("data:image/") || trimmed.startsWith("data:application/")) {
       return trimmed;
     }

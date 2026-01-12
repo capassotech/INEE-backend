@@ -51,7 +51,10 @@ export const CourseSchema = z.object({
     sobre_curso: z.string()
         .min(1, "El sobre del curso es obligatorio")
         .max(2000, "El sobre del curso no puede exceder 2000 caracteres")
-        .trim(),
+        .transform((str) => {
+            // Preservar saltos de línea (\n, \r) pero eliminar solo espacios y tabs al inicio y final
+            return str.replace(/^[ \t]+|[ \t]+$/g, '');
+        }),
     metas: z.array(z.string())
         .min(1, "Las metas son obligatorias"),
     aprendizaje: z.array(z.string())
@@ -96,7 +99,10 @@ export const CourseSchema = z.object({
         descripcion: z.string()
             .min(1, "La descripción de la aval es obligatoria")
             .max(2000, "La descripción no puede exceder 2000 caracteres")
-            .trim(),
+            .transform((str) => {
+                // Preservar saltos de línea (\n, \r) pero eliminar solo espacios y tabs al inicio y final
+                return str.replace(/^[ \t]+|[ \t]+$/g, '');
+            }),
         precio: z.number()
             .min(0, "El precio no puede ser negativo")
             .max(999999, "El precio no puede exceder $999,999"),

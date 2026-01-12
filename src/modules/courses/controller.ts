@@ -437,9 +437,14 @@ export const updateCourse = async (
     // ✅ CACHÉ: Invalidar caché de cursos al actualizar
     cache.invalidatePattern(`${CACHE_KEYS.COURSES}:`);
 
+    // Obtener el curso actualizado para devolverlo con los saltos de línea preservados
+    const updatedDoc = await collection.doc(id).get();
+    const updatedData = updatedDoc.exists ? { id: updatedDoc.id, ...updatedDoc.data() } : null;
+
     return res.json({
       message: "Curso actualizado exitosamente",
       id: id,
+      ...(updatedData && { curso: updatedData }),
     });
   } catch (err) {
     console.error("updateCourse error:", err);
