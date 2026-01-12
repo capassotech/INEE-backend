@@ -374,7 +374,7 @@ export const createUser = async (req: Request, res: Response) => {
     // El admin envía los datos en { user: {...} }, así que extraemos user o usamos el body directamente
     const userData: UserRegistrationData = req.body.user || req.body;
     
-    const {
+    let {
       email,
       password,
       nombre,
@@ -382,6 +382,11 @@ export const createUser = async (req: Request, res: Response) => {
       dni,
       aceptaTerminos,
     } = userData;
+
+    // Normalizar email: trim y lowercase para consistencia
+    if (email) {
+      email = email.trim().toLowerCase();
+    }
 
     // Validaciones básicas
     if (!email || !password || !nombre || !apellido || !dni) {
@@ -418,11 +423,32 @@ export const createUser = async (req: Request, res: Response) => {
     }
 
     // Crear usuario en Firebase Auth
-    const userRecord = await firebaseAuth.createUser({
-      email,
-      password,
-      displayName: `${nombre} ${apellido}`,
-    });
+    let userRecord;
+    try {
+      userRecord = await firebaseAuth.createUser({
+        email,
+        password,
+        displayName: `${nombre} ${apellido}`,
+        emailVerified: false,
+        disabled: false,
+      });
+      
+      // Verificar que el usuario tiene el proveedor de password habilitado
+      const hasPasswordProvider = userRecord.providerData.some(p => p.providerId === 'password');
+      if (!hasPasswordProvider) {
+        // Intentar actualizar el usuario para asegurar que tenga el proveedor de password
+        try {
+          await firebaseAuth.updateUser(userRecord.uid, {
+            password: password,
+          });
+        } catch (updateError: any) {
+          console.error('Error actualizando usuario:', updateError);
+        }
+      }
+    } catch (authError: any) {
+      console.error('Error creando usuario en Firebase Auth:', authError.code, authError.message);
+      throw authError;
+    }
 
     // Crear perfil de usuario en Firestore
     const userProfile: Omit<UserProfile, 'uid'> = {
@@ -438,15 +464,58 @@ export const createUser = async (req: Request, res: Response) => {
       cursos_asignados: [],
     };
 
-    await firestore.collection('users').doc(userRecord.uid).set(userProfile);
+    try {
+      await firestore.collection('users').doc(userRecord.uid).set(userProfile);
+    } catch (firestoreError: any) {
+      console.error('Error creando perfil en Firestore. Intentando eliminar usuario de Auth...', firestoreError);
+      // Si falla la creación en Firestore, eliminar el usuario de Auth para mantener consistencia
+      try {
+        await firebaseAuth.deleteUser(userRecord.uid);
+      } catch (deleteError: any) {
+        console.error('Error eliminando usuario de Auth después de fallo en Firestore:', deleteError);
+      }
+      throw firestoreError;
+    }
 
-    // Enviar email al usuario creado
-    await resend.emails.send({
-      from: "INEE Oficial <contacto@ineeoficial.com>",
-      to: userRecord.email || "",
-      subject: "Bienvenido a INEE",
-      html: `<p>Bienvenido a INEE ${nombre} ${apellido}! Te informamos que has sido registrado en INEE.</p>`,
-    });
+    // Verificar que el usuario puede hacer login haciendo un login de prueba
+    // Esto asegura que las credenciales están correctamente configuradas en Firebase Auth
+    try {
+      const firebaseApiKey = "AIzaSyAZDT5DM68-9qYH23HdKAsOTaV_qCAPEiw";
+      const loginResponse = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${firebaseApiKey}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: email,
+            password: password,
+            returnSecureToken: true,
+          }),
+        }
+      );
+
+      const loginResult = await loginResponse.json();
+
+      if (!loginResponse.ok) {
+        console.error('Error verificando login:', loginResult.error?.message || loginResult.error);
+      }
+    } catch (loginTestError: any) {
+      console.error('Error al verificar login:', loginTestError.message);
+    }
+
+    // Enviar email al usuario creado (no crítico si falla)
+    try {
+      await resend.emails.send({
+        from: "INEE Oficial <contacto@ineeoficial.com>",
+        to: userRecord.email || "",
+        subject: "Bienvenido a INEE",
+        html: `<p>Bienvenido a INEE ${nombre} ${apellido}! Te informamos que has sido registrado en INEE.</p>`,
+      });
+    } catch (emailError: any) {
+      console.error('Error enviando email de bienvenida:', emailError);
+    }
 
     // Retornar el usuario creado con el formato esperado por el admin
     return res.status(201).json({
@@ -456,6 +525,7 @@ export const createUser = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Error en createUser:', error);
 
+    // Manejar errores específicos de Firebase Auth
     if (error.code === 'auth/email-already-exists') {
       return res.status(409).json({
         error: 'Ya existe un usuario registrado con este email',
@@ -474,10 +544,34 @@ export const createUser = async (req: Request, res: Response) => {
       });
     }
 
+    if (error.code === 'auth/operation-not-allowed') {
+      return res.status(500).json({
+        error: 'Operación no permitida. Verifique la configuración de Firebase Auth',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      });
+    }
+
+    if (error.code === 'auth/invalid-credential') {
+      return res.status(400).json({
+        error: 'Credenciales inválidas',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      });
+    }
+
+    // Errores de Firestore
+    if (error.code === 'permission-denied') {
+      return res.status(500).json({
+        error: 'Error de permisos en la base de datos',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      });
+    }
+
     return res.status(500).json({
       error: 'Error interno del servidor',
       details:
-        process.env.NODE_ENV === 'development' ? error.message : undefined,
+        process.env.NODE_ENV === 'development' 
+          ? { message: error.message, code: error.code, stack: error.stack }
+          : undefined,
     });
   }
 };
