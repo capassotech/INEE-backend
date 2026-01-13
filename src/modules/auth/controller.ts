@@ -120,8 +120,31 @@ export const loginUser = async (req: Request, res: Response) => {
       });
     }
 
-    const firebaseApiKey = "AIzaSyAZDT5DM68-9qYH23HdKAsOTaV_qCAPEiw";
+  
 
+    let firebaseApiKey = process.env.FIREBASE_API_KEY;
+    const projectId = process.env.FIREBASE_PROJECT_ID;
+    
+    // Si no hay API key en variables de entorno, usar la del proyecto según FIREBASE_PROJECT_ID
+    if (!firebaseApiKey) {
+      if (projectId === "inee-qa") {
+        // API key del proyecto QA
+        firebaseApiKey = "AIzaSyC0mx89rSeedrdTtpyqrlhS7FAIejCrIWM";
+        console.log(`[LOGIN DEBUG] ⚠️ FIREBASE_API_KEY no configurada, usando API key de QA (detectado por FIREBASE_PROJECT_ID=${projectId})`);
+      } else if (projectId === "inee-admin") {
+        // API key del proyecto de producción
+        firebaseApiKey = "AIzaSyAZDT5DM68-9qYH23HdKAsOTaV_qCAPEiw";
+        console.log(`[LOGIN DEBUG] ⚠️ FIREBASE_API_KEY no configurada, usando API key de producción (detectado por FIREBASE_PROJECT_ID=${projectId})`);
+      } else {
+        // Fallback a producción si no se puede detectar
+        firebaseApiKey = "AIzaSyAZDT5DM68-9qYH23HdKAsOTaV_qCAPEiw";
+        console.log(`[LOGIN DEBUG] ⚠️ FIREBASE_API_KEY no configurada y proyecto desconocido (${projectId}), usando API key de producción como fallback`);
+      }
+    } else {
+      console.log(`[LOGIN DEBUG] ✅ Usando API key de variable de entorno FIREBASE_API_KEY`);
+    }
+    
+    console.log(`[LOGIN DEBUG] Proyecto: ${projectId}, API Key: ${firebaseApiKey.substring(0, 20)}...`);
 
     try {
       const response = await fetch(

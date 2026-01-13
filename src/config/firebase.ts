@@ -66,3 +66,10 @@ export const firebaseApp = app;
 export const firebaseAuth = getAuth(app);
 export const firestore = getFirestore(app);
 export const storage = getStorage(app);
+
+// Log del proyecto que se está usando (solo en desarrollo o si hay problema)
+if (process.env.NODE_ENV === "development" || !process.env.FIREBASE_API_KEY) {
+  const projectId = process.env.FIREBASE_PROJECT_ID || "no configurado";
+  console.log(`[FIREBASE CONFIG] Proyecto configurado: ${projectId}`);
+  console.log(`[FIREBASE CONFIG] Usando variables de entorno: ${process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL ? 'SÍ' : 'NO'}`);
+}
