@@ -120,6 +120,7 @@ export const loginUser = async (req: Request, res: Response) => {
       });
     }
 
+<<<<<<< HEAD
   
 
     let firebaseApiKey = process.env.FIREBASE_API_KEY;
@@ -145,6 +146,9 @@ export const loginUser = async (req: Request, res: Response) => {
     }
     
     console.log(`[LOGIN DEBUG] Proyecto: ${projectId}, API Key: ${firebaseApiKey.substring(0, 20)}...`);
+=======
+    const firebaseApiKey = process.env.FIREBASE_API_KEY;
+>>>>>>> 5dffded (solucionando problema de headers y subiendo calidad de integracion)
 
     try {
       const response = await fetch(

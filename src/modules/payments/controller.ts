@@ -9,16 +9,23 @@ import axios from 'axios';
 
 const mpClient = new MercadoPagoConfig({
     accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN || '',
+    options: {
+        timeout: 5000
+    }
 });
-
-// Log para verificar el tipo de access token (test vs producción)
-const accessTokenType = process.env.MERCADO_PAGO_ACCESS_TOKEN?.startsWith('TEST-') ? 'TEST' : 'PRODUCCIÓN';
-console.log(`🔑 Mercado Pago configurado en modo: ${accessTokenType}`);
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 export const createPayment = async (req: Request, res: Response) => {
     try {
+        if (!process.env.MERCADO_PAGO_ACCESS_TOKEN) {
+            console.error('❌ MERCADO_PAGO_ACCESS_TOKEN no configurado');
+            return res.status(500).json({ 
+                success: false,
+                error: "Error de configuración del servidor"
+            });
+        }
+        
         const {
             items,
             metadata,
@@ -30,18 +37,10 @@ export const createPayment = async (req: Request, res: Response) => {
             identificationType,
             identificationNumber,
             deviceId,
-            device_id // OBLIGATORIO para seguridad y prevención de fraude (ambos nombres por compatibilidad)
+            device_id
         } = req.body;
 
-        // Usar device_id o deviceId (el que venga del frontend)
         const finalDeviceId = device_id || deviceId;
-
-        console.log('Payment request body:', req.body);
-        console.log('🔍 issuerId recibido del frontend:', issuerId);
-        console.log('🔍 Tipo de issuerId:', typeof issuerId);
-        console.log('🔒 device_id recibido del frontend:', device_id);
-        console.log('🔒 deviceId (camelCase) recibido del frontend:', deviceId);
-        console.log('🔒 Device ID final a usar:', finalDeviceId);
 
         if (!metadata.userId || !Array.isArray(items) || items.length === 0 || !metadata.totalAmount) {
             return res.status(400).json({ error: "Faltan datos de la orden (userId, items, totalPrice)" });
@@ -51,7 +50,6 @@ export const createPayment = async (req: Request, res: Response) => {
             return res.status(400).json({ error: "Faltan datos de pago (token, paymentMethodId)" });
         }
 
-        // VALIDACIÓN CRÍTICA: Para tarjetas de débito, el issuerId es OBLIGATORIO
         if (!issuerId || issuerId === 'undefined' || issuerId === 'null') {
             console.warn('⚠️  ADVERTENCIA: issuerId no proporcionado por el frontend');
             console.warn('⚠️  Esto causará error "not_result_by_params" con tarjetas de débito');
@@ -79,115 +77,77 @@ export const createPayment = async (req: Request, res: Response) => {
 
         const { orderId, orderNumber } = await createOrder(metadata.userId, items, transactionAmount, 'pending');
 
-        // Construir la URL del webhook
-        const baseUrl = 'https://inee-backend-qa.onrender.com';
+        const isProduction = !process.env.MERCADO_PAGO_ACCESS_TOKEN?.startsWith('TEST-');
+        const baseUrl = isProduction 
+            ? (process.env.WEBHOOK_BASE_URL || 'https://inee-backend.onrender.com')
+            : 'https://inee-backend-qa.onrender.com';
         const webhookUrl = `${baseUrl}/api/payments/mercadopago/webhook`;
 
-        // Construir el objeto de pago con todos los parámetros necesarios
+        const userData = user.data();
+        
         const paymentData: any = {
             transaction_amount: Number(transactionAmount),
             token,
             description: `Compra INEE - Orden ${orderNumber}`,
             installments: Number(installments),
             payment_method_id: paymentMethodId,
+            issuer_id: null,
             external_reference: orderNumber,
             statement_descriptor: "INEE",
             notification_url: webhookUrl,
             payer: {
-                email: user.data()?.email || '',
-                first_name: user.data()?.nombre || '',
-            },
-            metadata: {
-                userId: metadata.userId,
-                orderId,
-                orderNumber,
-            },
+                entity_type: "individual",
+                type: "customer",
+                email: userData?.email || '',
+                identification: {
+                    type: identificationType || 'DNI',
+                    number: String(identificationNumber || '')
+                }
+            }
         };
 
-        // OBLIGATORIO: Additional info con items para prevención de fraude
         if (items && items.length > 0) {
             paymentData.additional_info = {
                 items: items.map((item: any) => ({
-                    id: item.id || item.productId,
-                    title: item.nombre || item.title || 'Producto',
-                    description: item.descripcion || item.description || `Producto: ${item.nombre || item.title}`,
-                    category_id: item.categoria || item.category_id || 'education',
-                    quantity: item.quantity || 1,
-                    unit_price: Number(item.precio || item.price || item.unit_price || 0),
+                    id: String(item.id || ''),
+                    title: String(item.nombre || item.title || 'Producto'),
+                    description: String(item.description || `Producto: ${item.nombre || item.title}`),
+                    category_id: 'education',
+                    quantity: Number(item.quantity || 1),
+                    unit_price: Number(item.precio || item.price || 0),
                 })),
                 payer: {
-                    first_name: user.data()?.nombre || '',
-                    last_name: user.data()?.apellido || '',
-                    phone: {
-                        area_code: '',
-                        number: user.data()?.telefono || ''
-                    },
-                    address: {
-                        zip_code: '',
-                        street_name: '',
-                        street_number: 0
-                    }
-                }
+                    first_name: userData?.nombre || '',
+                    last_name: userData?.apellido || '',
+                },
+                ip_address: req.ip || req.headers['x-forwarded-for'] || '',
             };
-            console.log('📦 Additional info de items agregado');
         }
 
-        // CRÍTICO: Device ID NO debe ir en el body, se envía por header (X-meli-session-id)
-        if (!finalDeviceId) {
-            console.error('❌ Device ID no recibido del frontend');
+        if (issuerId && issuerId !== 'undefined' && issuerId !== 'null') {
+            paymentData.issuer_id = String(issuerId);
         }
 
-        // Agregar issuer_id si está disponible, o intentar detectarlo
-        let finalIssuerId = issuerId;
-        
-        if (!finalIssuerId || finalIssuerId === 'undefined' || finalIssuerId === 'null') {
-            // El frontend no envió issuerId, intentar obtenerlo automáticamente
-            console.log('🔍 Frontend no envió issuerId, obteniendo automáticamente...');
-            const detectedIssuers = await getIssuerIdFromPaymentMethod(paymentMethodId, token);
-            
-            if (detectedIssuers.length > 0) {
-                finalIssuerId = detectedIssuers[0]; // Usar el primero (más común)
-                console.log(`✅ Issuer ID detectado automáticamente: ${finalIssuerId}`);
-            }
-        }
-        
-        // Agregar issuer_id al pago si lo tenemos
-        if (finalIssuerId && finalIssuerId !== 'undefined' && finalIssuerId !== 'null') {
-            paymentData.issuer_id = String(finalIssuerId);
-            console.log(`📌 Usando issuer_id: ${finalIssuerId}`);
-        } else {
-            console.warn('⚠️  NO se pudo obtener issuer_id - el pago probablemente fallará con débito');
-        }
-
-        // Agregar información del tarjetahabiente si está disponible
         if (cardholderName) {
-            paymentData.payer.first_name = cardholderName.split(' ')[0] || cardholderName;
-            if (cardholderName.split(' ').length > 1) {
-                paymentData.payer.last_name = cardholderName.split(' ').slice(1).join(' ');
+            const nameParts = cardholderName.trim().split(' ');
+            paymentData.payer.first_name = nameParts[0] || cardholderName;
+            paymentData.payer.last_name = nameParts.slice(1).join(' ') || '';
+            if (paymentData.additional_info?.payer) {
+                paymentData.additional_info.payer.first_name = paymentData.payer.first_name;
+                paymentData.additional_info.payer.last_name = paymentData.payer.last_name;
             }
         }
-
-        // Agregar documento de identificación (OBLIGATORIO para tarjetas de débito en Argentina)
-        if (identificationType && identificationNumber) {
-            paymentData.payer.identification = {
-                type: identificationType,
-                number: identificationNumber
-            };
-        } else {
-            console.warn('⚠️  NO hay identification - esto puede causar problemas con débito');
-        }
-        paymentData.three_d_secure_mode = 'optional';
 
         const paymentClient = new Payment(mpClient);
         let payment;
         
         try {
-            // Construir opciones de request (idempotencia + header de seguridad con device_id)
             const requestOptions: any = {
-                idempotencyKey: `order-${orderId}-${Date.now()}`
+                idempotencyKey: `order-${orderId}-${Date.now()}`,
             };
+         
             if (finalDeviceId) {
-                requestOptions.headers = {
+                requestOptions.customHeaders = {
                     'X-meli-session-id': finalDeviceId
                 };
             }
@@ -196,26 +156,15 @@ export const createPayment = async (req: Request, res: Response) => {
                 body: paymentData,
                 requestOptions
             });
-            console.log('✅ Pago procesado exitosamente');
-        } catch (error: any) {
-            console.error('❌ Error procesando pago:', error.message);
-            console.error('📋 Detalles del error:', JSON.stringify(error, null, 2));
             
+            console.log('✅ Payment ID:', payment.id);
+        } catch (error: any) {
+            console.error('❌ Error MP:', error.message, 'Code:', error.code);
             throw error;
         }
 
         const status = payment.status || 'pending';
         const statusDetail = payment.status_detail;
-
-        console.log(`Payment ${payment.id} - Status: ${status}, Detail: ${statusDetail}`);
-        console.log('Payment response:', JSON.stringify({
-            id: payment.id,
-            status: payment.status,
-            status_detail: payment.status_detail,
-            payment_method_id: payment.payment_method_id,
-            payment_type_id: payment.payment_type_id,
-            issuer_id: payment.issuer_id
-        }, null, 2));
 
         await firestore.collection('orders').doc(orderId).update({
             status: status === 'approved' ? 'paid' : status,
@@ -230,7 +179,6 @@ export const createPayment = async (req: Request, res: Response) => {
         });
 
         if (status === 'approved') {
-            // await assignProductsToUser(metadata.userId, items);
             
             return res.json({
                 success: true,
@@ -292,7 +240,6 @@ export const createPayment = async (req: Request, res: Response) => {
         console.error('createPayment error:', err?.response?.data || err);
         console.error('Full error details:', JSON.stringify(err, null, 2));
         
-        // Error específico de Mercado Pago
         if (err?.response?.data) {
             const mpError = err.response.data;
             return res.status(400).json({ 
@@ -310,8 +257,7 @@ export const createPayment = async (req: Request, res: Response) => {
             details: err?.message 
         });
     }
-}
-
+};
 
 export const handleWebhook = async (req: Request, res: Response) => {
     try {
@@ -467,8 +413,7 @@ const calculateTotalPrice = async (items: any[]): Promise<number> => {
         totalPrice += price;
     }
     return totalPrice;
-}
-
+};
 
 const validateProds = async (items: any[]): Promise<boolean> => {
     for (const item of items) {
@@ -490,7 +435,7 @@ const validateProds = async (items: any[]): Promise<boolean> => {
         return false; 
     }
     return true;
-}
+};
 
 const assignProductsToUser = async (userId: string, items: any[]): Promise<void> => {
     try {
@@ -545,9 +490,8 @@ const assignProductsToUser = async (userId: string, items: any[]): Promise<void>
     } catch (error) {
         console.error('Error al asignar productos al usuario:', error);
     }
-}
+};
 
-// Función para enviar email de confirmación de pago
 const sendPaymentConfirmationEmail = async (userId: string, orderId: string, orderData: any) => {
     try {
         const userDoc = await firestore.collection('users').doc(userId).get();
@@ -629,37 +573,4 @@ const getPaymentErrorMessage = (statusDetail: string): string => {
     };
 
     return errorMessages[statusDetail] || 'El pago no pudo ser procesado. Intenta con otro medio de pago';
-}
-
-// Función para obtener el issuer_id automáticamente usando la API de Mercado Pago
-const getIssuerIdFromPaymentMethod = async (paymentMethodId: string, token: string): Promise<string[]> => {
-    try {
-        // Lista de issuers comunes para probar (Argentina)
-        const issuersByMethod: { [key: string]: string[] } = {
-            'visa': [
-                '310',  // Visa Argentina genérico
-                '303',  // Banco Galicia
-                '286',  // Banco Santander Río
-                '297',  // Banco BBVA
-                '268',  // Banco Provincia
-                '299',  // Banco Patagonia
-            ],
-            'master': [
-                '288',  // Mastercard Argentina genérico
-                '303',  // Banco Galicia
-                '286',  // Banco Santander Río
-                '297',  // Banco BBVA
-            ],
-        };
-        
-        if (issuersByMethod[paymentMethodId]) {
-            console.log(`📌 Issuers disponibles para ${paymentMethodId}:`, issuersByMethod[paymentMethodId]);
-            return issuersByMethod[paymentMethodId];
-        }
-        
-        return [];
-    } catch (error) {
-        console.error('Error obteniendo issuer_id:', error);
-        return [];
-    }
-}
+};
