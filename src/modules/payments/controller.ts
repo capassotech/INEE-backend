@@ -290,9 +290,11 @@ export const createPayment = async (req: Request, res: Response) => {
                         console.log(`✅ El payment_method_id "${paymentMethodToValidate}" es válido para este BIN.`);
                         
                         // Para tarjetas de débito (debvisa, debmaster), usar issuer_id SOLO si lo obtenemos automáticamente
+                        // Para tarjetas prepagas, NO enviar issuer_id en absoluto (pueden quedar pendientes)
                         // NO usar issuer_id manual para débito (puede causar pending_review_manual)
                         // Pero SÍ usar issuer_id obtenido automáticamente de installments (es confiable)
                         const isDebitCard = paymentMethodToValidate === 'debvisa' || paymentMethodToValidate === 'debmaster';
+                        const isPrepaidCard = cardType === 'prepaga';
                         
                         if (isDebitCard) {
                             console.log('💡 Para tarjetas de débito, usar issuer_id SOLO si se obtiene automáticamente de installments.');
@@ -315,6 +317,15 @@ export const createPayment = async (req: Request, res: Response) => {
                                 delete paymentData.issuer_id;
                                 issuerIdObtained = false;
                             }
+                        } else if (isPrepaidCard) {
+                            console.log('💡 Para tarjetas prepagas, NO enviar issuer_id a Mercado Pago.');
+                            console.log('💡 Las tarjetas prepagas no requieren issuer_id y puede causar que queden pendientes.');
+                            
+                            // Para tarjetas prepagas, NO establecer issuer_id en absoluto
+                            // Las tarjetas prepagas no requieren issuer_id y enviarlo puede causar que queden pendientes
+                            delete paymentData.issuer_id;
+                            issuerIdObtained = false;
+                            console.log('✅ issuer_id NO se establecerá para tarjetas prepagas. Mercado Pago procesará el pago sin issuer_id.');
                         } else {
                             // Para tarjetas de crédito, obtener issuer_id de la respuesta si está disponible
                             if (installmentsData.issuer && installmentsData.issuer.id && !hasManualSelection) {
@@ -467,13 +478,19 @@ export const createPayment = async (req: Request, res: Response) => {
                                 paymentData.payment_method_id = verifiedPaymentMethodId;
                                 
                                 // Si hay selección manual de issuer, usarla con el payment_method_id corregido
-                                if (hasManualSelection) {
-            paymentData.issuer_id = String(issuerId);
+                                // PERO NO para tarjetas prepagas (pueden quedar pendientes)
+                                const isPrepaidCardType = cardType === 'prepaga';
+                                if (hasManualSelection && !isPrepaidCardType) {
+                                    paymentData.issuer_id = String(issuerId);
                                     console.log(`✅ Usando issuer_id seleccionado manualmente: ${issuerId}`);
                                 } else {
                                     // Eliminar issuer_id para que Mercado Pago lo determine
                                     delete paymentData.issuer_id;
-                                    console.log('⚠️ No se enviará issuer_id. Mercado Pago lo determinará automáticamente.');
+                                    if (isPrepaidCardType) {
+                                        console.log('💡 Tarjeta prepaga. NO se enviará issuer_id para evitar que quede pendiente.');
+                                    } else {
+                                        console.log('⚠️ No se enviará issuer_id. Mercado Pago lo determinará automáticamente.');
+                                    }
                                 }
                             } else if (paymentMethodId && paymentMethodId !== 'undefined' && paymentMethodId !== 'null') {
                                 console.log(`⚠️ Usando payment_method_id del token/frontend: "${paymentMethodId}"`);
@@ -481,13 +498,19 @@ export const createPayment = async (req: Request, res: Response) => {
                                 paymentData.payment_method_id = paymentMethodId;
                                 
                                 // Si hay selección manual de issuer, usarla con el payment_method_id del token
-                                if (hasManualSelection) {
+                                // PERO NO para tarjetas prepagas (pueden quedar pendientes)
+                                const isPrepaidCardType = cardType === 'prepaga';
+                                if (hasManualSelection && !isPrepaidCardType) {
                                     paymentData.issuer_id = String(issuerId);
                                     console.log(`✅ Usando issuer_id seleccionado manualmente: ${issuerId}`);
                                 } else {
                                     // Eliminar issuer_id para que Mercado Pago lo determine
                                     delete paymentData.issuer_id;
-                                    console.log('⚠️ No se enviará issuer_id. Mercado Pago lo determinará automáticamente.');
+                                    if (isPrepaidCardType) {
+                                        console.log('💡 Tarjeta prepaga. NO se enviará issuer_id para evitar que quede pendiente.');
+                                    } else {
+                                        console.log('⚠️ No se enviará issuer_id. Mercado Pago lo determinará automáticamente.');
+                                    }
                                 }
                             } else {
                                 // Si no hay payment_method_id del frontend, eliminar ambos
@@ -515,30 +538,37 @@ export const createPayment = async (req: Request, res: Response) => {
         }
         
         // Solo usar issuer_id manual si tenemos un payment_method_id válido
-        // PERO NO para tarjetas de débito si ya tenemos uno automático (para evitar pending_review_manual)
+        // PERO NO para tarjetas de débito ni prepagas (para evitar pending_review_manual o que queden pendientes)
         // Si no tenemos payment_method_id, no enviar issuer_id porque puede ser incorrecto
         const isDebitCardFinal = paymentData.payment_method_id === 'debvisa' || paymentData.payment_method_id === 'debmaster';
+        const isPrepaidCardFinal = cardType === 'prepaga';
         
-        if (hasManualSelection && paymentData.payment_method_id && !isDebitCardFinal) {
+        if (hasManualSelection && paymentData.payment_method_id && !isDebitCardFinal && !isPrepaidCardFinal) {
             // Si el usuario seleccionó manualmente un issuer y tenemos payment_method_id válido, usarlo
-            // PERO NO para tarjetas de débito (para evitar pending_review_manual)
+            // PERO NO para tarjetas de débito ni prepagas (para evitar problemas)
             // El usuario sabe mejor qué banco emitió su tarjeta
             console.log(`✅ Usando issuer_id seleccionado manualmente por el usuario: ${issuerId}`);
             paymentData.issuer_id = String(issuerId);
             issuerIdObtained = true;
             console.log(`✅ issuer_id establecido en paymentData: ${paymentData.issuer_id}`);
-        } else if (hasManualSelection && paymentData.payment_method_id && isDebitCardFinal) {
-            // Para tarjetas de débito, NO usar issuer_id manual si ya tenemos uno automático
-            // Pero si NO tenemos uno automático, usar el manual como último recurso
-            if (issuerIdObtained) {
-                console.log('💡 Para tarjetas de débito, ya tenemos issuer_id automático. NO se usará el manual.');
-                console.log('💡 Esto permite que Mercado Pago apruebe automáticamente sin pending_review_manual.');
-                // Mantener el issuer_id automático, no usar el manual
+        } else if (hasManualSelection && paymentData.payment_method_id && (isDebitCardFinal || isPrepaidCardFinal)) {
+            // Para tarjetas de débito y prepagas, NO usar issuer_id en absoluto (ni manual ni automático)
+            if (isDebitCardFinal) {
+                if (issuerIdObtained) {
+                    console.log('💡 Para tarjetas de débito, ya tenemos issuer_id automático. NO se usará el manual.');
+                    console.log('💡 Esto permite que Mercado Pago apruebe automáticamente sin pending_review_manual.');
+                    // Mantener el issuer_id automático, no usar el manual
+                } else {
+                    console.log('⚠️ Para tarjetas de débito, no se pudo obtener issuer_id automático.');
+                    console.log('⚠️ Usando issuer_id manual como último recurso (puede causar pending_review_manual).');
+                    paymentData.issuer_id = String(issuerId);
+                    issuerIdObtained = true;
+                }
             } else {
-                console.log('⚠️ Para tarjetas de débito, no se pudo obtener issuer_id automático.');
-                console.log('⚠️ Usando issuer_id manual como último recurso (puede causar pending_review_manual).');
-                paymentData.issuer_id = String(issuerId);
-                issuerIdObtained = true;
+                console.log('💡 Para tarjetas prepagas, NO se usará issuer_id (ni manual ni automático).');
+                console.log('💡 Las tarjetas prepagas no requieren issuer_id y puede causar que queden pendientes.');
+                delete paymentData.issuer_id;
+                issuerIdObtained = false;
             }
         } else if (hasManualSelection && !paymentData.payment_method_id) {
             console.warn('⚠️ No se usará el issuer_id seleccionado manualmente porque no hay payment_method_id válido.');
@@ -762,39 +792,55 @@ export const createPayment = async (req: Request, res: Response) => {
             }
         } else if (issuerId && issuerId !== 'undefined' && issuerId !== 'null' && issuerId !== '') {
             // Si no hay BIN pero hay issuerId, usarlo con precaución
-            console.warn('⚠️ Usando issuer_id proporcionado sin validación de BIN:', issuerId);
-            paymentData.issuer_id = String(issuerId);
-            console.log('✅ Usando issuer_id proporcionado (sin BIN disponible):', paymentData.issuer_id);
+            // PERO NO para tarjetas prepagas (pueden quedar pendientes)
+            const isPrepaidCardWithoutBin = cardType === 'prepaga';
+            if (!isPrepaidCardWithoutBin) {
+                console.warn('⚠️ Usando issuer_id proporcionado sin validación de BIN:', issuerId);
+                paymentData.issuer_id = String(issuerId);
+                console.log('✅ Usando issuer_id proporcionado (sin BIN disponible):', paymentData.issuer_id);
+            } else {
+                console.log('💡 Tarjeta prepaga sin BIN. NO se usará issuer_id para evitar que quede pendiente.');
+                delete paymentData.issuer_id;
+            }
         } else {
             console.warn('⚠️ No hay BIN ni issuerId proporcionado.');
         }
         
         // Si después de todos los intentos no tenemos issuer_id, verificar si hay selección manual
         // PERO solo usar el issuer_id manual si tenemos un payment_method_id válido
-        // Y para tarjetas de débito, solo si NO se pudo obtener automáticamente
+        // Y NO para tarjetas de débito ni prepagas (para evitar problemas)
         // Si no hay payment_method_id, no enviar issuer_id porque puede ser incorrecto
         const isDebitCardFinalCheck = paymentData.payment_method_id === 'debvisa' || paymentData.payment_method_id === 'debmaster';
+        const isPrepaidCardFinalCheck = cardType === 'prepaga';
         
         if (!paymentData.issuer_id || paymentData.issuer_id === 'null') {
-            if (hasManualSelection && paymentData.payment_method_id && !isDebitCardFinalCheck) {
+            if (hasManualSelection && paymentData.payment_method_id && !isDebitCardFinalCheck && !isPrepaidCardFinalCheck) {
                 // Si el usuario seleccionó manualmente un issuer Y tenemos payment_method_id válido, usarlo
-                // PERO NO para tarjetas de débito (para evitar pending_review_manual)
+                // PERO NO para tarjetas de débito ni prepagas (para evitar problemas)
                 // El usuario sabe mejor qué banco emitió su tarjeta
                 console.log(`✅ Usando issuer_id seleccionado manualmente (no se pudo validar, pero confiamos en el usuario): ${issuerId}`);
                 paymentData.issuer_id = String(issuerId);
                 console.log('✅ issuer_id final que se enviará a Mercado Pago:', paymentData.issuer_id);
-            } else if (hasManualSelection && paymentData.payment_method_id && isDebitCardFinalCheck) {
-                // Para tarjetas de débito, usar issuer_id manual SOLO si no se pudo obtener automáticamente
-                // Si ya tenemos uno automático (issuerIdObtained = true), no usar el manual
-                if (issuerIdObtained) {
-                    console.log('💡 Para tarjetas de débito, ya tenemos issuer_id automático. NO se usará el manual.');
-                    console.log('💡 Esto permite que Mercado Pago apruebe automáticamente sin pending_review_manual.');
-                    // No hacer nada, mantener el issuer_id automático
+            } else if (hasManualSelection && paymentData.payment_method_id && (isDebitCardFinalCheck || isPrepaidCardFinalCheck)) {
+                // Para tarjetas de débito y prepagas, NO usar issuer_id en absoluto
+                if (isDebitCardFinalCheck) {
+                    // Para tarjetas de débito, usar issuer_id manual SOLO si no se pudo obtener automáticamente
+                    // Si ya tenemos uno automático (issuerIdObtained = true), no usar el manual
+                    if (issuerIdObtained) {
+                        console.log('💡 Para tarjetas de débito, ya tenemos issuer_id automático. NO se usará el manual.');
+                        console.log('💡 Esto permite que Mercado Pago apruebe automáticamente sin pending_review_manual.');
+                        // No hacer nada, mantener el issuer_id automático
+                    } else {
+                        console.log('⚠️ Para tarjetas de débito, no se pudo obtener issuer_id automático.');
+                        console.log('⚠️ Usando issuer_id manual como último recurso (puede causar pending_review_manual).');
+                        paymentData.issuer_id = String(issuerId);
+                        console.log('✅ issuer_id final que se enviará a Mercado Pago:', paymentData.issuer_id);
+                    }
                 } else {
-                    console.log('⚠️ Para tarjetas de débito, no se pudo obtener issuer_id automático.');
-                    console.log('⚠️ Usando issuer_id manual como último recurso (puede causar pending_review_manual).');
-                    paymentData.issuer_id = String(issuerId);
-                    console.log('✅ issuer_id final que se enviará a Mercado Pago:', paymentData.issuer_id);
+                    // Para tarjetas prepagas, NO usar issuer_id en absoluto
+                    console.log('💡 Para tarjetas prepagas, NO se usará issuer_id (ni manual ni automático).');
+                    console.log('💡 Las tarjetas prepagas no requieren issuer_id y puede causar que queden pendientes.');
+                    delete paymentData.issuer_id;
                 }
             } else if (hasManualSelection && !paymentData.payment_method_id) {
                 // Si hay selección manual pero NO hay payment_method_id, no usar el issuer_id
@@ -808,7 +854,14 @@ export const createPayment = async (req: Request, res: Response) => {
                 delete paymentData.issuer_id;
             }
         } else {
-            console.log('✅ issuer_id final que se enviará a Mercado Pago:', paymentData.issuer_id);
+            // Verificación final: si es tarjeta prepaga, eliminar issuer_id incluso si se estableció anteriormente
+            if (cardType === 'prepaga' && paymentData.issuer_id) {
+                console.log('💡 Verificación final: eliminando issuer_id para tarjeta prepaga.');
+                delete paymentData.issuer_id;
+                console.log('✅ issuer_id eliminado. Mercado Pago procesará el pago sin issuer_id.');
+            } else {
+                console.log('✅ issuer_id final que se enviará a Mercado Pago:', paymentData.issuer_id);
+            }
         }
         
         console.log('📤 Payment data final (antes de enviar a MP):', {
