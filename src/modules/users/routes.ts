@@ -1,6 +1,20 @@
 import { Router } from 'express';
 import { authMiddleware } from '../../middleware/authMiddleware';
-import { getUser, getUsers, getUserProfile, deleteUser, updateUser, /* addMembershipToUser, */ asignCourseToUser, desasignarCursoFromUser, createUser } from './controller';
+import { 
+  getUser, 
+  getUsers, 
+  getUserProfile, 
+  deleteUser, 
+  updateUser, 
+  /* addMembershipToUser, */ 
+  asignCourseToUser, 
+  desasignarCursoFromUser, 
+  createUser, 
+  asignarEventoToUser, 
+  desasignarEventoFromUser, 
+  asignarEbookToUser, 
+  desasignarEbookFromUser 
+} from './controller';
 
 const router = Router();
 
@@ -26,5 +40,11 @@ router.put('/:id', updateUser);
 
 router.post('/:id/asignar-curso', asignCourseToUser);
 router.post('/:id/desasignar-curso', desasignarCursoFromUser);
+
+router.post('/:id/asignar-evento', asignarEventoToUser);
+router.post('/:id/desasignar-evento', desasignarEventoFromUser);
+
+router.post('/:id/asignar-ebook', asignarEbookToUser);
+router.post('/:id/desasignar-ebook', desasignarEbookFromUser);
 
 export default router;

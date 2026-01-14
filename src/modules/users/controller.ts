@@ -1,9 +1,49 @@
 import { Request, Response } from 'express';
 import { firestore, firebaseAuth } from '../../config/firebase';
-import type { UserRegistrationData, UserProfile } from '../../types/user';
+import type { UserRegistrationData, UserProfile, SendAssignmentEmailParams } from '../../types/user';
 import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
+
+// Tipos para la asignación de recursos
+
+
+const sendAssignmentEmail = async ({
+  userEmail,
+  userName,
+  userLastName,
+  resourceType,
+  resourceTitles,
+}: SendAssignmentEmailParams): Promise<void> => {
+  const resourceTypeLabels = {
+    curso: { singular: 'curso', plural: 'cursos' },
+    evento: { singular: 'evento', plural: 'eventos' },
+    ebook: { singular: 'ebook', plural: 'ebooks' },
+  };
+
+  const labels = resourceTypeLabels[resourceType];
+  const isSingle = resourceTitles.length === 1;
+  const resourceLabel = isSingle ? labels.singular : labels.plural;
+  
+  const mensajeRecursos = isSingle 
+    ? `el ${labels.singular} ${resourceTitles[0]}`
+    : `los siguientes ${labels.plural}: ${resourceTitles.join(', ')}`;
+
+  const subject = isSingle 
+    ? `${labels.singular.charAt(0).toUpperCase() + labels.singular.slice(1)} asignado`
+    : `${labels.plural.charAt(0).toUpperCase() + labels.plural.slice(1)} asignados`;
+
+  const { error } = await resend.emails.send({
+    from: "INEE Oficial <contacto@ineeoficial.com>",
+    to: userEmail,
+    subject,
+    html: `<p>Hola ${userName} ${userLastName}! Te informamos que has sido asignado a ${mensajeRecursos} en INEE.</p>`,
+  });
+
+  if (error) {
+    console.error('Error al enviar email:', error);
+  }
+};
 
 export const getUserProfile = async (req: any, res: Response) => {
   const uid = req.user.uid;
@@ -166,7 +206,7 @@ export const getUsers = async (req: any, res: Response) => {
     console.error('Error fetching registered users:', error);
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
-}
+};
 
 export const deleteUser = async (req: any, res: Response) => {
   try {
@@ -307,22 +347,14 @@ export const asignCourseToUser = async (req: any, res: Response) => {
 
   await userDoc.ref.update({ cursos_asignados: cursosAsignadosActualizados });
 
-  // Enviar email con información de los cursos asignados
-  const mensajeCursos = titulosCursos.length === 1 
-    ? `el curso ${titulosCursos[0]}`
-    : `los siguientes cursos: ${titulosCursos.join(', ')}`;
-
-  const { data, error } = await resend.emails.send({
-    from: "INEE Oficial <contacto@ineeoficial.com>",
-    to: userDoc.data()?.email || '',
-    subject: titulosCursos.length === 1 ? 'Curso asignado' : 'Cursos asignados',
-    html: `<p>Hola ${userDoc.data()?.nombre || ''} ${userDoc.data()?.apellido || ''}! Te informamos que has sido asignado a ${mensajeCursos} en INEE.</p>`,
+  // Enviar email usando la función auxiliar
+  await sendAssignmentEmail({
+    userEmail: userDoc.data()?.email || '',
+    userName: userDoc.data()?.nombre || '',
+    userLastName: userDoc.data()?.apellido || '',
+    resourceType: 'curso',
+    resourceTitles: titulosCursos,
   });
-
-  if (error) {
-    console.error('Error al enviar email:', error);
-    // No retornar error aquí, ya se asignaron los cursos
-  }
 
   const mensaje = cursosNuevos.length === idsCursos.length
     ? (idsCursos.length === 1 ? 'Curso asignado al usuario' : 'Cursos asignados al usuario')
@@ -339,7 +371,6 @@ export const desasignarCursoFromUser = async (req: any, res: Response) => {
   const { id_curso } = req.body;
   const id_usuario = req.params.id;
 
-  // Normalizar id_curso a un array
   const idsCursos = Array.isArray(id_curso) ? id_curso : [id_curso];
 
   if (!idsCursos.length) {
@@ -366,6 +397,182 @@ export const desasignarCursoFromUser = async (req: any, res: Response) => {
     message: mensaje,
     cursosDesasignados,
     cursosNoAsignados: idsCursos.filter((id: string) => !cursosAsignados.includes(id))
+  });
+}
+
+export const asignarEventoToUser = async (req: any, res: Response) => {
+  const { id_evento } = req.body;
+  const id_usuario = req.params.id;
+
+  const idsEventos = Array.isArray(id_evento) ? id_evento : [id_evento];
+
+  if (!idsEventos.length) {
+    return res.status(400).json({ error: 'Debe proporcionar al menos un ID de evento' });
+  }
+
+  const userDoc = await firestore.collection('users').doc(id_usuario).get();
+
+  if (!userDoc.exists) {
+    return res.status(404).json({ error: 'Usuario no encontrado' });
+  }
+
+  const eventDocs = await Promise.all(
+    idsEventos.map((id: string) => firestore.collection('events').doc(id).get())
+  );
+
+  const eventosNoEncontrados = idsEventos.filter((id: string, index: number) => !eventDocs[index].exists);
+  if (eventosNoEncontrados.length > 0) {
+    return res.status(404).json({ 
+      error: 'Uno o más eventos no encontrados',
+      eventosNoEncontrados 
+    });
+  }
+
+  const titulosEventos = eventDocs.map(doc => doc.data()?.titulo || '').filter(Boolean);
+  
+  const eventosAsignadosActuales = userDoc.data()?.eventos_asignados || [];
+  const eventosNuevos = idsEventos.filter((id: string) => !eventosAsignadosActuales.includes(id));
+  const eventosAsignadosActualizados = [...new Set([...eventosAsignadosActuales, ...idsEventos])];
+
+  await userDoc.ref.update({ eventos_asignados: eventosAsignadosActualizados });
+
+  await sendAssignmentEmail({
+    userEmail: userDoc.data()?.email || '',
+    userName: userDoc.data()?.nombre || '',
+    userLastName: userDoc.data()?.apellido || '',
+    resourceType: 'evento',
+    resourceTitles: titulosEventos,
+  });
+
+  const mensaje = eventosNuevos.length === idsEventos.length
+    ? (idsEventos.length === 1 ? 'Evento asignado al usuario' : 'Eventos asignados al usuario')
+    : `${eventosNuevos.length} nuevo(s) evento(s) asignado(s), ${idsEventos.length - eventosNuevos.length} ya estaban asignados`;
+
+  return res.status(200).json({ 
+    message: mensaje,
+    eventosAsignados: eventosNuevos,
+    eventosYaAsignados: idsEventos.filter((id: string) => eventosAsignadosActuales.includes(id))
+  });
+}
+
+export const desasignarEventoFromUser = async (req: any, res: Response) => {
+  const { id_evento } = req.body;
+  const id_usuario = req.params.id;
+
+  const idsEventos = Array.isArray(id_evento) ? id_evento : [id_evento];
+
+  if (!idsEventos.length) {
+    return res.status(400).json({ error: 'Debe proporcionar al menos un ID de evento' });
+  }
+
+  const userDoc = await firestore.collection('users').doc(id_usuario).get();
+
+  if (!userDoc.exists) {
+    return res.status(404).json({ error: 'Usuario no encontrado' });
+  }
+
+  const eventosAsignados = userDoc.data()?.eventos_asignados || [];
+  const eventosActualizados = eventosAsignados.filter((eventoId: string) => !idsEventos.includes(eventoId));
+  const eventosDesasignados = idsEventos.filter((id: string) => eventosAsignados.includes(id));
+
+  await userDoc.ref.update({ eventos_asignados: eventosActualizados });
+  
+  const mensaje = eventosDesasignados.length === idsEventos.length
+    ? (idsEventos.length === 1 ? 'Evento desasignado del usuario' : 'Eventos desasignados del usuario')
+    : `${eventosDesasignados.length} evento(s) desasignado(s), ${idsEventos.length - eventosDesasignados.length} no estaban asignados`;
+
+  return res.status(200).json({ 
+    message: mensaje,
+    eventosDesasignados,
+    eventosNoAsignados: idsEventos.filter((id: string) => !eventosAsignados.includes(id))
+  });
+}
+
+export const asignarEbookToUser = async (req: any, res: Response) => {
+  const { id_ebook } = req.body;
+  const id_usuario = req.params.id;
+
+  const idsEbooks = Array.isArray(id_ebook) ? id_ebook : [id_ebook];
+
+  if (!idsEbooks.length) {
+    return res.status(400).json({ error: 'Debe proporcionar al menos un ID de ebook' });
+  }
+
+  const userDoc = await firestore.collection('users').doc(id_usuario).get();
+
+  if (!userDoc.exists) {
+    return res.status(404).json({ error: 'Usuario no encontrado' });
+  }
+
+  const ebookDocs = await Promise.all(
+    idsEbooks.map((id: string) => firestore.collection('ebooks').doc(id).get())
+  );
+
+  const ebooksNoEncontrados = idsEbooks.filter((id: string, index: number) => !ebookDocs[index].exists);
+  if (ebooksNoEncontrados.length > 0) {
+    return res.status(404).json({ 
+      error: 'Uno o más ebooks no encontrados',
+      ebooksNoEncontrados 
+    });
+  }
+
+  const titulosEbooks = ebookDocs.map(doc => doc.data()?.title || '').filter(Boolean);
+  
+  const ebooksAsignadosActuales = userDoc.data()?.ebooks_asignados || [];
+  const ebooksNuevos = idsEbooks.filter((id: string) => !ebooksAsignadosActuales.includes(id));
+  const ebooksAsignadosActualizados = [...new Set([...ebooksAsignadosActuales, ...idsEbooks])];
+
+  await userDoc.ref.update({ ebooks_asignados: ebooksAsignadosActualizados });
+
+  await sendAssignmentEmail({
+    userEmail: userDoc.data()?.email || '',
+    userName: userDoc.data()?.nombre || '',
+    userLastName: userDoc.data()?.apellido || '',
+    resourceType: 'ebook',
+    resourceTitles: titulosEbooks,
+  });
+
+  const mensaje = ebooksNuevos.length === idsEbooks.length
+    ? (idsEbooks.length === 1 ? 'Ebook asignado al usuario' : 'Ebooks asignados al usuario')
+    : `${ebooksNuevos.length} nuevo(s) ebook(s) asignado(s), ${idsEbooks.length - ebooksNuevos.length} ya estaban asignados`;
+
+  return res.status(200).json({ 
+    message: mensaje,
+    ebooksAsignados: ebooksNuevos,
+    ebooksYaAsignados: idsEbooks.filter((id: string) => ebooksAsignadosActuales.includes(id))
+  });
+}
+
+export const desasignarEbookFromUser = async (req: any, res: Response) => {
+  const { id_ebook } = req.body;
+  const id_usuario = req.params.id;
+
+  const idsEbooks = Array.isArray(id_ebook) ? id_ebook : [id_ebook];
+
+  if (!idsEbooks.length) {
+    return res.status(400).json({ error: 'Debe proporcionar al menos un ID de ebook' });
+  }
+
+  const userDoc = await firestore.collection('users').doc(id_usuario).get();
+
+  if (!userDoc.exists) {
+    return res.status(404).json({ error: 'Usuario no encontrado' });
+  }
+
+  const ebooksAsignados = userDoc.data()?.ebooks_asignados || [];
+  const ebooksActualizados = ebooksAsignados.filter((ebookId: string) => !idsEbooks.includes(ebookId));
+  const ebooksDesasignados = idsEbooks.filter((id: string) => ebooksAsignados.includes(id));
+
+  await userDoc.ref.update({ ebooks_asignados: ebooksActualizados });
+  
+  const mensaje = ebooksDesasignados.length === idsEbooks.length
+    ? (idsEbooks.length === 1 ? 'Ebook desasignado del usuario' : 'Ebooks desasignados del usuario')
+    : `${ebooksDesasignados.length} ebook(s) desasignado(s), ${idsEbooks.length - ebooksDesasignados.length} no estaban asignados`;
+
+  return res.status(200).json({ 
+    message: mensaje,
+    ebooksDesasignados,
+    ebooksNoAsignados: idsEbooks.filter((id: string) => !ebooksAsignados.includes(id))
   });
 }
 
@@ -462,6 +669,8 @@ export const createUser = async (req: Request, res: Response) => {
       aceptaTerminos: aceptaTerminos || false,
       activo: true,
       cursos_asignados: [],
+      eventos_asignados: [],
+      ebooks_asignados: [],
     };
 
     try {
