@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { firestore, firebaseAuth } from '../../config/firebase';
-import type { UserRegistrationData, UserProfile, SendAssignmentEmailParams } from '../../types/user';
+import type { UserRegistrationData, UserProfile, SendAssignmentEmailParams, ResourceInfo } from '../../types/user';
 import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -13,31 +13,61 @@ const sendAssignmentEmail = async ({
   userName,
   userLastName,
   resourceType,
-  resourceTitles,
+  resources,
 }: SendAssignmentEmailParams): Promise<void> => {
   const resourceTypeLabels = {
-    curso: { singular: 'curso', plural: 'cursos' },
-    evento: { singular: 'evento', plural: 'eventos' },
-    ebook: { singular: 'ebook', plural: 'ebooks' },
+    curso: { singular: 'curso', plural: 'cursos', baseUrl: 'https://estudiante.ineeoficial.com/curso' },
+    evento: { singular: 'evento', plural: 'eventos', baseUrl: 'https://estudiante.ineeoficial.com/evento' },
+    ebook: { singular: 'ebook', plural: 'ebooks', baseUrl: 'https://estudiante.ineeoficial.com/ebook' },
   };
 
-  const labels = resourceTypeLabels[resourceType];
-  const isSingle = resourceTitles.length === 1;
-  const resourceLabel = isSingle ? labels.singular : labels.plural;
+  const config = resourceTypeLabels[resourceType];
+  const isSingle = resources.length === 1;
+  const resourceLabel = isSingle ? config.singular : config.plural;
   
+  // Construir enlaces HTML para cada recurso
+  const linksHTML = resources.map(resource => {
+    const url = `${config.baseUrl}/${resource.id}`;
+    return `<li><a href="${url}" style="color: #0066cc; text-decoration: none;">${resource.title}</a></li>`;
+  }).join('');
+
   const mensajeRecursos = isSingle 
-    ? `el ${labels.singular} ${resourceTitles[0]}`
-    : `los siguientes ${labels.plural}: ${resourceTitles.join(', ')}`;
+    ? `el ${config.singular} <strong>${resources[0].title}</strong>`
+    : `los siguientes ${config.plural}`;
 
   const subject = isSingle 
-    ? `${labels.singular.charAt(0).toUpperCase() + labels.singular.slice(1)} asignado`
-    : `${labels.plural.charAt(0).toUpperCase() + labels.plural.slice(1)} asignados`;
+    ? `${config.singular.charAt(0).toUpperCase() + config.singular.slice(1)} asignado`
+    : `${config.plural.charAt(0).toUpperCase() + config.plural.slice(1)} asignados`;
+
+  const htmlContent = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #333;">Hola ${userName} ${userLastName}!</h2>
+      <p style="color: #555; font-size: 16px;">
+        Te informamos que has sido asignado a ${mensajeRecursos} en INEE.
+      </p>
+      ${!isSingle ? `
+      <ul style="list-style: none; padding: 0; margin: 20px 0;">
+        ${linksHTML}
+      </ul>
+      ` : `
+      <p style="margin: 20px 0;">
+        <a href="${config.baseUrl}/${resources[0].id}" 
+           style="display: inline-block; padding: 12px 24px; background-color: #0066cc; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">
+          Acceder al ${config.singular}
+        </a>
+      </p>
+      `}
+      <p style="color: #777; font-size: 14px; margin-top: 30px;">
+        Puedes acceder a tu contenido en cualquier momento desde tu panel de estudiante.
+      </p>
+    </div>
+  `;
 
   const { error } = await resend.emails.send({
     from: "INEE Oficial <contacto@ineeoficial.com>",
     to: userEmail,
     subject,
-    html: `<p>Hola ${userName} ${userLastName}! Te informamos que has sido asignado a ${mensajeRecursos} en INEE.</p>`,
+    html: htmlContent,
   });
 
   if (error) {
@@ -337,8 +367,11 @@ export const asignCourseToUser = async (req: any, res: Response) => {
     });
   }
 
-  // Obtener títulos de los cursos para el email
-  const titulosCursos = courseDocs.map(doc => doc.data()?.titulo || '').filter(Boolean);
+  // Obtener información de los cursos para el email (id y título)
+  const cursosInfo: ResourceInfo[] = courseDocs.map((doc, index) => ({
+    id: idsCursos[index],
+    title: doc.data()?.titulo || 'Sin título'
+  }));
   
   // Actualizar cursos asignados sin duplicados
   const cursosAsignadosActuales = userDoc.data()?.cursos_asignados || [];
@@ -353,7 +386,7 @@ export const asignCourseToUser = async (req: any, res: Response) => {
     userName: userDoc.data()?.nombre || '',
     userLastName: userDoc.data()?.apellido || '',
     resourceType: 'curso',
-    resourceTitles: titulosCursos,
+    resources: cursosInfo,
   });
 
   const mensaje = cursosNuevos.length === idsCursos.length
@@ -428,7 +461,11 @@ export const asignarEventoToUser = async (req: any, res: Response) => {
     });
   }
 
-  const titulosEventos = eventDocs.map(doc => doc.data()?.titulo || '').filter(Boolean);
+  // Obtener información de los eventos para el email (id y título)
+  const eventosInfo: ResourceInfo[] = eventDocs.map((doc, index) => ({
+    id: idsEventos[index],
+    title: doc.data()?.titulo || 'Sin título'
+  }));
   
   const eventosAsignadosActuales = userDoc.data()?.eventos_asignados || [];
   const eventosNuevos = idsEventos.filter((id: string) => !eventosAsignadosActuales.includes(id));
@@ -441,7 +478,7 @@ export const asignarEventoToUser = async (req: any, res: Response) => {
     userName: userDoc.data()?.nombre || '',
     userLastName: userDoc.data()?.apellido || '',
     resourceType: 'evento',
-    resourceTitles: titulosEventos,
+    resources: eventosInfo,
   });
 
   const mensaje = eventosNuevos.length === idsEventos.length
@@ -516,7 +553,11 @@ export const asignarEbookToUser = async (req: any, res: Response) => {
     });
   }
 
-  const titulosEbooks = ebookDocs.map(doc => doc.data()?.title || '').filter(Boolean);
+  // Obtener información de los ebooks para el email (id y título)
+  const ebooksInfo: ResourceInfo[] = ebookDocs.map((doc, index) => ({
+    id: idsEbooks[index],
+    title: doc.data()?.title || 'Sin título'
+  }));
   
   const ebooksAsignadosActuales = userDoc.data()?.ebooks_asignados || [];
   const ebooksNuevos = idsEbooks.filter((id: string) => !ebooksAsignadosActuales.includes(id));
@@ -529,7 +570,7 @@ export const asignarEbookToUser = async (req: any, res: Response) => {
     userName: userDoc.data()?.nombre || '',
     userLastName: userDoc.data()?.apellido || '',
     resourceType: 'ebook',
-    resourceTitles: titulosEbooks,
+    resources: ebooksInfo,
   });
 
   const mensaje = ebooksNuevos.length === idsEbooks.length

@@ -41,10 +41,15 @@ export interface UpdateProfileData {
 
 type ResourceType = 'curso' | 'evento' | 'ebook';
 
+export interface ResourceInfo {
+  id: string;
+  title: string;
+}
+
 export interface SendAssignmentEmailParams {
   userEmail: string;
   userName: string;
   userLastName: string;
   resourceType: ResourceType;
-  resourceTitles: string[];
+  resources: ResourceInfo[];
 }
