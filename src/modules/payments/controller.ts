@@ -20,12 +20,12 @@ export const createPayment = async (req: Request, res: Response) => {
     try {
         if (!process.env.MERCADO_PAGO_ACCESS_TOKEN) {
             console.error('❌ MERCADO_PAGO_ACCESS_TOKEN no configurado');
-            return res.status(500).json({ 
+            return res.status(500).json({
                 success: false,
                 error: "Error de configuración del servidor"
             });
         }
-        
+
         const {
             items,
             metadata,
@@ -69,7 +69,7 @@ export const createPayment = async (req: Request, res: Response) => {
         const transactionAmount = total || metadata.totalAmount;
 
         if (isNaN(transactionAmount) || transactionAmount <= 0) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 error: "El monto de la transacción es inválido",
                 details: `Monto calculado: ${total}, Monto metadata: ${metadata.totalAmount}`
             });
@@ -78,13 +78,13 @@ export const createPayment = async (req: Request, res: Response) => {
         const { orderId, orderNumber } = await createOrder(metadata.userId, items, transactionAmount, 'pending');
 
         const isProduction = !process.env.MERCADO_PAGO_ACCESS_TOKEN?.startsWith('TEST-');
-        const baseUrl = isProduction 
+        const baseUrl = isProduction
             ? (process.env.WEBHOOK_BASE_URL || 'https://inee-backend.onrender.com')
             : 'https://inee-backend-qa.onrender.com';
         const webhookUrl = `${baseUrl}/api/payments/mercadopago/webhook`;
 
         const userData = user.data();
-        
+
         const paymentData: any = {
             transaction_amount: Number(transactionAmount),
             token,
@@ -140,12 +140,12 @@ export const createPayment = async (req: Request, res: Response) => {
 
         const paymentClient = new Payment(mpClient);
         let payment;
-        
+
         try {
             const requestOptions: any = {
                 idempotencyKey: `order-${orderId}-${Date.now()}`,
             };
-         
+
             if (finalDeviceId) {
                 requestOptions.customHeaders = {
                     'X-meli-session-id': finalDeviceId
@@ -156,7 +156,7 @@ export const createPayment = async (req: Request, res: Response) => {
                 body: paymentData,
                 requestOptions
             });
-            
+
             console.log('✅ Payment ID:', payment.id);
         } catch (error: any) {
             console.error('❌ Error MP:', error.message, 'Code:', error.code);
@@ -179,7 +179,8 @@ export const createPayment = async (req: Request, res: Response) => {
         });
 
         if (status === 'approved') {
-            
+            await sendPaymentConfirmationEmail(metadata.userId, orderNumber, items);
+
             return res.json({
                 success: true,
                 message: "Pago aprobado exitosamente",
@@ -204,29 +205,6 @@ export const createPayment = async (req: Request, res: Response) => {
             });
         }
 
-        const emailMessage = `
-            <p>Hola ${user.data()?.nombre || ''}</p>
-            <p>Tu pago ha sido procesado exitosamente. Te informamos que tu orden es la siguiente:</p>
-            <p>Orden: ${orderNumber}</p>
-            <p>Estado del pago: ${status}</p>
-            <p>Fecha de pago: ${new Date().toLocaleDateString('es-ES')}</p>
-            <p>Productos:</p>
-            <ul>
-                ${items.map((item: any) => `<li>${item.nombre} - ${item.precio}</li>`).join('')}
-            </ul>
-            <p>Total: ${total}</p>
-            <p>Medio de pago: ${paymentMethodId}</p>
-            <p>Gracias por tu compra. Te esperamos en INEE.</p>
-            <p>Atentamente, INEE.</p>
-        `;
-        
-        await resend.emails.send({
-            from: "INEE Oficial <contacto@ineeoficial.com>",
-            to: user.data()?.email || '',
-            subject: "Gracias por tu compra en INEE",
-            html: emailMessage
-        });
-
         return res.json({
             success: true,
             message: "Pago en proceso",
@@ -239,22 +217,22 @@ export const createPayment = async (req: Request, res: Response) => {
     } catch (err: any) {
         console.error('createPayment error:', err?.response?.data || err);
         console.error('Full error details:', JSON.stringify(err, null, 2));
-        
+
         if (err?.response?.data) {
             const mpError = err.response.data;
-            return res.status(400).json({ 
+            return res.status(400).json({
                 success: false,
                 error: "Error al procesar el pago con Mercado Pago",
                 mpError: mpError.message || mpError.error,
                 cause: mpError.cause,
-                details: err?.message 
+                details: err?.message
             });
         }
-        
-        return res.status(500).json({ 
+
+        return res.status(500).json({
             success: false,
-            error: "Error al crear el pago", 
-            details: err?.message 
+            error: "Error al crear el pago",
+            details: err?.message
         });
     }
 };
@@ -267,7 +245,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
 
         const xSignature = req.headers['x-signature'] as string;
         const xRequestId = req.headers['x-request-id'] as string;
-        
+
         // Validar firma del webhook para seguridad
         if (!validateWebhookSignature(req.body, xSignature, xRequestId)) {
             console.warn('⚠️  Firma de webhook inválida - posible intento de fraude');
@@ -310,7 +288,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
 
             // Actualizar estado de la orden según el pago
             const newStatus = payment.status === 'approved' ? 'paid' : payment.status || 'pending';
-            
+
             await firestore.collection('orders').doc(orderId).update({
                 status: newStatus,
                 paymentStatus: payment.status,
@@ -323,13 +301,11 @@ export const handleWebhook = async (req: Request, res: Response) => {
                 webhookProcessedAt: new Date()
             });
 
-            console.log(`✅ Orden ${orderId} actualizada a estado: ${newStatus}`);
-
             // Si el pago fue aprobado, asignar productos al usuario
             if (payment.status === 'approved') {
                 console.log(`🎁 Asignando productos al usuario ${orderData.userId}`);
                 await assignProductsToUser(orderData.userId, orderData.items);
-                
+
                 // Enviar email de confirmación
                 try {
                     await sendPaymentConfirmationEmail(orderData.userId, orderId, orderData);
@@ -353,22 +329,22 @@ export const handleWebhook = async (req: Request, res: Response) => {
 
 const validateWebhookSignature = (body: any, signature: string, requestId: string): boolean => {
     const secret = process.env.MERCADO_PAGO_WEBHOOK_SECRET || '';
-    
+
     const parts = signature.split(',');
     let ts = '';
     let hash = '';
-    
+
     parts.forEach(part => {
         const [key, value] = part.split('=');
         if (key.trim() === 'ts') ts = value;
         if (key.trim() === 'v1') hash = value;
     });
-    
+
     const manifest = `id:${body.data.id};request-id:${requestId};ts:${ts};`;
     const hmac = crypto.createHmac('sha256', secret);
     hmac.update(manifest);
     const calculatedHash = hmac.digest('hex');
-    
+
     return calculatedHash === hash;
 };
 
@@ -376,7 +352,7 @@ const calculateTotalPrice = async (items: any[]): Promise<number> => {
     let totalPrice = 0;
     for (const item of items) {
         let price = Number(item.precio || item.price || 0);
-        
+
         if (isNaN(price) || price <= 0) {
             const productId = item.id || item.productId;
             if (!productId) {
@@ -419,7 +395,7 @@ const validateProds = async (items: any[]): Promise<boolean> => {
     for (const item of items) {
         const prod = await firestore.collection('courses').doc(item.id).get();
         if (prod.exists) {
-            continue; 
+            continue;
         }
 
         const course = await firestore.collection('events').doc(item.id).get();
@@ -432,7 +408,7 @@ const validateProds = async (items: any[]): Promise<boolean> => {
             continue;
         }
 
-        return false; 
+        return false;
     }
     return true;
 };
@@ -441,7 +417,7 @@ const assignProductsToUser = async (userId: string, items: any[]): Promise<void>
     try {
         const userRef = firestore.collection('users').doc(userId);
         const userDoc = await userRef.get();
-        
+
         if (!userDoc.exists) {
             console.error(`Usuario ${userId} no encontrado`);
             return;
@@ -454,7 +430,7 @@ const assignProductsToUser = async (userId: string, items: any[]): Promise<void>
 
         for (const item of items) {
             const productId = item.id || item.productId;
-            
+
             // Verificar en qué colección está el producto
             const courseDoc = await firestore.collection('courses').doc(productId).get();
             if (courseDoc.exists && !cursosAsignados.includes(productId)) {
@@ -510,9 +486,11 @@ const sendPaymentConfirmationEmail = async (userId: string, orderId: string, ord
         }
 
         // Construir lista de productos
-        const itemsList = orderData.items.map((item: any) => 
+        const itemsList = orderData.map((item: any) =>
             `<li>${item.nombre || item.title} - $${item.precio || item.price || item.unit_price}</li>`
         ).join('');
+
+        let total = orderData.reduce((acc: number, item: any) => acc + (item.unit_price * item.quantity), 0);
 
         const emailMessage = `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -524,7 +502,7 @@ const sendPaymentConfirmationEmail = async (userId: string, orderId: string, ord
                     <h3 style="margin-top: 0;">Detalles de tu compra:</h3>
                     <p><strong>Número de Orden:</strong> ${orderData.orderNumber || orderId}</p>
                     <p><strong>Estado:</strong> Pagado ✅</p>
-                    <p><strong>Total:</strong> $${orderData.totalPrice}</p>
+                    <p><strong>Total:</strong> $${total}</p>
                     <p><strong>Fecha:</strong> ${new Date().toLocaleDateString('es-ES')}</p>
                 </div>
 
