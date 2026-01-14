@@ -1,28 +1,46 @@
 import { Request, Response } from "express";
 import { firestore } from '../../config/firebase';
 import { Resend } from "resend";
-import { MercadoPagoConfig, Payment } from "mercadopago";
+import { MercadoPagoConfig, Payment, PaymentMethod } from "mercadopago";
 import { createOrder, updateOrderStatus } from "../orders/controller";
 import crypto from 'crypto';
+import axios from 'axios';
 
 
 const mpClient = new MercadoPagoConfig({
     accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN || '',
+    options: {
+        timeout: 5000
+    }
 });
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 export const createPayment = async (req: Request, res: Response) => {
     try {
+        if (!process.env.MERCADO_PAGO_ACCESS_TOKEN) {
+            console.error('❌ MERCADO_PAGO_ACCESS_TOKEN no configurado');
+            return res.status(500).json({
+                success: false,
+                error: "Error de configuración del servidor"
+            });
+        }
+
         const {
             items,
             metadata,
             token,
             installments = 1,
-            paymentMethodId
+            paymentMethodId,
+            issuerId,
+            cardholderName,
+            identificationType,
+            identificationNumber,
+            deviceId,
+            device_id
         } = req.body;
 
-        console.log(req.body);
+        const finalDeviceId = device_id || deviceId;
 
         if (!metadata.userId || !Array.isArray(items) || items.length === 0 || !metadata.totalAmount) {
             return res.status(400).json({ error: "Faltan datos de la orden (userId, items, totalPrice)" });
@@ -30,6 +48,12 @@ export const createPayment = async (req: Request, res: Response) => {
 
         if (!token || !paymentMethodId) {
             return res.status(400).json({ error: "Faltan datos de pago (token, paymentMethodId)" });
+        }
+
+        if (!issuerId || issuerId === 'undefined' || issuerId === 'null') {
+            console.warn('⚠️  ADVERTENCIA: issuerId no proporcionado por el frontend');
+            console.warn('⚠️  Esto causará error "not_result_by_params" con tarjetas de débito');
+            console.warn('⚠️  El frontend DEBE obtener el issuerId usando el SDK de MP');
         }
 
         const user = await firestore.collection('users').doc(metadata.userId).get();
@@ -45,40 +69,102 @@ export const createPayment = async (req: Request, res: Response) => {
         const transactionAmount = total || metadata.totalAmount;
 
         if (isNaN(transactionAmount) || transactionAmount <= 0) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 error: "El monto de la transacción es inválido",
                 details: `Monto calculado: ${total}, Monto metadata: ${metadata.totalAmount}`
             });
         }
 
-        const orderId = await createOrder(metadata.userId, items, transactionAmount, 'pending');
+        const { orderId, orderNumber } = await createOrder(metadata.userId, items, transactionAmount, 'pending');
+
+        const isProduction = !process.env.MERCADO_PAGO_ACCESS_TOKEN?.startsWith('TEST-');
+        const baseUrl = isProduction
+            ? (process.env.WEBHOOK_BASE_URL || 'https://inee-backend.onrender.com')
+            : 'https://inee-backend-qa.onrender.com';
+        const webhookUrl = `${baseUrl}/api/payments/mercadopago/webhook`;
+
+        const userData = user.data();
+
+        const paymentData: any = {
+            transaction_amount: Number(transactionAmount),
+            token,
+            description: `Compra INEE - Orden ${orderNumber}`,
+            installments: Number(installments),
+            payment_method_id: paymentMethodId,
+            issuer_id: null,
+            external_reference: orderNumber,
+            statement_descriptor: "INEE",
+            notification_url: webhookUrl,
+            payer: {
+                entity_type: "individual",
+                type: "customer",
+                email: userData?.email || '',
+                identification: {
+                    type: identificationType || 'DNI',
+                    number: String(identificationNumber || '')
+                }
+            }
+        };
+
+        if (items && items.length > 0) {
+            paymentData.additional_info = {
+                items: items.map((item: any) => ({
+                    id: String(item.id || ''),
+                    title: String(item.nombre || item.title || 'Producto'),
+                    description: String(item.description || `Producto: ${item.nombre || item.title}`),
+                    category_id: 'education',
+                    quantity: Number(item.quantity || 1),
+                    unit_price: Number(item.precio || item.price || 0),
+                })),
+                payer: {
+                    first_name: userData?.nombre || '',
+                    last_name: userData?.apellido || '',
+                },
+                ip_address: req.ip || req.headers['x-forwarded-for'] || '',
+            };
+        }
+
+        if (issuerId && issuerId !== 'undefined' && issuerId !== 'null') {
+            paymentData.issuer_id = String(issuerId);
+        }
+
+        if (cardholderName) {
+            const nameParts = cardholderName.trim().split(' ');
+            paymentData.payer.first_name = nameParts[0] || cardholderName;
+            paymentData.payer.last_name = nameParts.slice(1).join(' ') || '';
+            if (paymentData.additional_info?.payer) {
+                paymentData.additional_info.payer.first_name = paymentData.payer.first_name;
+                paymentData.additional_info.payer.last_name = paymentData.payer.last_name;
+            }
+        }
 
         const paymentClient = new Payment(mpClient);
-        const payment = await paymentClient.create({
-            body: {
-                transaction_amount: Number(transactionAmount),
-                token,
-                description: "Compra INEE",
-                installments,
-                payment_method_id: paymentMethodId,
-                payer: {
-                    email: user.data()?.email || '',
-                    first_name: user.data()?.nombre || '',
-                },
-                metadata: {
-                    userId: metadata.userId,
-                    orderId,
-                },
-            },
-            requestOptions: {
-                idempotencyKey: `order-${orderId}-${Date.now()}` 
+        let payment;
+
+        try {
+            const requestOptions: any = {
+                idempotencyKey: `order-${orderId}-${Date.now()}`,
+            };
+
+            if (finalDeviceId) {
+                requestOptions.customHeaders = {
+                    'X-meli-session-id': finalDeviceId
+                };
             }
-        });
+
+            payment = await paymentClient.create({
+                body: paymentData,
+                requestOptions
+            });
+
+            console.log('✅ Payment ID:', payment.id);
+        } catch (error: any) {
+            console.error('❌ Error MP:', error.message, 'Code:', error.code);
+            throw error;
+        }
 
         const status = payment.status || 'pending';
         const statusDetail = payment.status_detail;
-
-        console.log(`Payment ${payment.id} - Status: ${status}, Detail: ${statusDetail}`);
 
         await firestore.collection('orders').doc(orderId).update({
             status: status === 'approved' ? 'paid' : status,
@@ -93,12 +179,13 @@ export const createPayment = async (req: Request, res: Response) => {
         });
 
         if (status === 'approved') {
-            // await assignProductsToUser(metadata.userId, items);
-            
+            await sendPaymentConfirmationEmail(metadata.userId, orderNumber, items);
+
             return res.json({
                 success: true,
                 message: "Pago aprobado exitosamente",
                 orderId,
+                orderNumber,
                 paymentId: payment.id,
                 status,
                 statusDetail
@@ -110,6 +197,7 @@ export const createPayment = async (req: Request, res: Response) => {
                 success: false,
                 message: "Pago rechazado",
                 orderId,
+                orderNumber,
                 paymentId: payment.id,
                 status,
                 statusDetail,
@@ -121,56 +209,142 @@ export const createPayment = async (req: Request, res: Response) => {
             success: true,
             message: "Pago en proceso",
             orderId,
+            orderNumber,
             paymentId: payment.id,
             status,
             statusDetail
         });
     } catch (err: any) {
         console.error('createPayment error:', err?.response?.data || err);
-        return res.status(500).json({ 
+        console.error('Full error details:', JSON.stringify(err, null, 2));
+
+        if (err?.response?.data) {
+            const mpError = err.response.data;
+            return res.status(400).json({
+                success: false,
+                error: "Error al procesar el pago con Mercado Pago",
+                mpError: mpError.message || mpError.error,
+                cause: mpError.cause,
+                details: err?.message
+            });
+        }
+
+        return res.status(500).json({
             success: false,
-            error: "Error al crear el pago", 
-            details: err?.message 
+            error: "Error al crear el pago",
+            details: err?.message
         });
     }
-}
-
+};
 
 export const handleWebhook = async (req: Request, res: Response) => {
     try {
+        console.log('🔔 Webhook recibido de Mercado Pago');
+        console.log('Headers:', req.headers);
+        console.log('Body:', JSON.stringify(req.body, null, 2));
+
         const xSignature = req.headers['x-signature'] as string;
         const xRequestId = req.headers['x-request-id'] as string;
-        
+
+        // Validar firma del webhook para seguridad
         if (!validateWebhookSignature(req.body, xSignature, xRequestId)) {
-            console.warn('Firma de webhook inválida');
+            console.warn('⚠️  Firma de webhook inválida - posible intento de fraude');
             return res.sendStatus(401);
         }
 
+        console.log('✅ Firma de webhook válida');
+
+        // Extraer información del webhook
+        const { type, data } = req.body;
+
+        // Solo procesar notificaciones de pagos
+        if (type === 'payment') {
+            const paymentId = data.id;
+            console.log(`📦 Procesando notificación de pago: ${paymentId}`);
+
+            // Obtener información completa del pago desde MP
+            const paymentClient = new Payment(mpClient);
+            const payment = await paymentClient.get({ id: paymentId });
+
+            console.log(`💳 Pago ${paymentId} - Status: ${payment.status}`);
+
+            // Buscar la orden asociada a este pago
+            const ordersSnapshot = await firestore
+                .collection('orders')
+                .where('paymentId', '==', paymentId)
+                .limit(1)
+                .get();
+
+            if (ordersSnapshot.empty) {
+                console.warn(`⚠️  No se encontró orden para el pago ${paymentId}`);
+                return res.sendStatus(200); // Responder OK para que MP no reintente
+            }
+
+            const orderDoc = ordersSnapshot.docs[0];
+            const orderId = orderDoc.id;
+            const orderData = orderDoc.data();
+
+            console.log(`📋 Orden encontrada: ${orderId}`);
+
+            // Actualizar estado de la orden según el pago
+            const newStatus = payment.status === 'approved' ? 'paid' : payment.status || 'pending';
+
+            await firestore.collection('orders').doc(orderId).update({
+                status: newStatus,
+                paymentStatus: payment.status,
+                paymentDetails: {
+                    status_detail: payment.status_detail,
+                    payment_method_id: payment.payment_method_id,
+                    payment_type_id: payment.payment_type_id,
+                },
+                updatedAt: new Date(),
+                webhookProcessedAt: new Date()
+            });
+
+            // Si el pago fue aprobado, asignar productos al usuario
+            if (payment.status === 'approved') {
+                console.log(`🎁 Asignando productos al usuario ${orderData.userId}`);
+                await assignProductsToUser(orderData.userId, orderData.items);
+
+                // Enviar email de confirmación
+                try {
+                    await sendPaymentConfirmationEmail(orderData.userId, orderId, orderData);
+                    console.log(`📧 Email de confirmación enviado a ${orderData.userId}`);
+                } catch (emailError) {
+                    console.error('Error enviando email:', emailError);
+                }
+            }
+
+            return res.sendStatus(200);
+        }
+
+        // Responder OK para otros tipos de notificaciones
+        return res.sendStatus(200);
 
     } catch (err) {
-        console.error('handleWebhook error:', err);
+        console.error('❌ handleWebhook error:', err);
         return res.sendStatus(500);
     }
 };
 
 const validateWebhookSignature = (body: any, signature: string, requestId: string): boolean => {
     const secret = process.env.MERCADO_PAGO_WEBHOOK_SECRET || '';
-    
+
     const parts = signature.split(',');
     let ts = '';
     let hash = '';
-    
+
     parts.forEach(part => {
         const [key, value] = part.split('=');
         if (key.trim() === 'ts') ts = value;
         if (key.trim() === 'v1') hash = value;
     });
-    
+
     const manifest = `id:${body.data.id};request-id:${requestId};ts:${ts};`;
     const hmac = crypto.createHmac('sha256', secret);
     hmac.update(manifest);
     const calculatedHash = hmac.digest('hex');
-    
+
     return calculatedHash === hash;
 };
 
@@ -178,7 +352,7 @@ const calculateTotalPrice = async (items: any[]): Promise<number> => {
     let totalPrice = 0;
     for (const item of items) {
         let price = Number(item.precio || item.price || 0);
-        
+
         if (isNaN(price) || price <= 0) {
             const productId = item.id || item.productId;
             if (!productId) {
@@ -215,14 +389,13 @@ const calculateTotalPrice = async (items: any[]): Promise<number> => {
         totalPrice += price;
     }
     return totalPrice;
-}
-
+};
 
 const validateProds = async (items: any[]): Promise<boolean> => {
     for (const item of items) {
         const prod = await firestore.collection('courses').doc(item.id).get();
         if (prod.exists) {
-            continue; 
+            continue;
         }
 
         const course = await firestore.collection('events').doc(item.id).get();
@@ -235,16 +408,16 @@ const validateProds = async (items: any[]): Promise<boolean> => {
             continue;
         }
 
-        return false; 
+        return false;
     }
     return true;
-}
+};
 
 const assignProductsToUser = async (userId: string, items: any[]): Promise<void> => {
     try {
         const userRef = firestore.collection('users').doc(userId);
         const userDoc = await userRef.get();
-        
+
         if (!userDoc.exists) {
             console.error(`Usuario ${userId} no encontrado`);
             return;
@@ -257,7 +430,7 @@ const assignProductsToUser = async (userId: string, items: any[]): Promise<void>
 
         for (const item of items) {
             const productId = item.id || item.productId;
-            
+
             // Verificar en qué colección está el producto
             const courseDoc = await firestore.collection('courses').doc(productId).get();
             if (courseDoc.exists && !cursosAsignados.includes(productId)) {
@@ -293,7 +466,68 @@ const assignProductsToUser = async (userId: string, items: any[]): Promise<void>
     } catch (error) {
         console.error('Error al asignar productos al usuario:', error);
     }
-}
+};
+
+const sendPaymentConfirmationEmail = async (userId: string, orderId: string, orderData: any) => {
+    try {
+        const userDoc = await firestore.collection('users').doc(userId).get();
+        if (!userDoc.exists) {
+            console.error('Usuario no encontrado para enviar email');
+            return;
+        }
+
+        const user = userDoc.data();
+        const userEmail = user?.email;
+        const userName = user?.nombre || 'Cliente';
+
+        if (!userEmail) {
+            console.error('Email de usuario no disponible');
+            return;
+        }
+
+        // Construir lista de productos
+        const itemsList = orderData.map((item: any) =>
+            `<li>${item.nombre || item.title} - $${item.precio || item.price || item.unit_price}</li>`
+        ).join('');
+
+        let total = orderData.reduce((acc: number, item: any) => acc + (item.unit_price * item.quantity), 0);
+
+        const emailMessage = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #00a650;">¡Pago Confirmado!</h2>
+                <p>Hola <strong>${userName}</strong>,</p>
+                <p>Tu pago ha sido procesado exitosamente.</p>
+                
+                <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                    <h3 style="margin-top: 0;">Detalles de tu compra:</h3>
+                    <p><strong>Número de Orden:</strong> ${orderData.orderNumber || orderId}</p>
+                    <p><strong>Estado:</strong> Pagado ✅</p>
+                    <p><strong>Total:</strong> $${total}</p>
+                    <p><strong>Fecha:</strong> ${new Date().toLocaleDateString('es-ES')}</p>
+                </div>
+
+                <h3>Productos adquiridos:</h3>
+                <ul>${itemsList}</ul>
+
+                <p>Ya puedes acceder a tus productos en tu cuenta de INEE.</p>
+                
+                <p style="margin-top: 30px;">Gracias por tu compra,<br><strong>Equipo INEE</strong></p>
+            </div>
+        `;
+
+        await resend.emails.send({
+            from: "INEE Oficial <contacto@ineeoficial.com>",
+            to: userEmail,
+            subject: `✅ Confirmación de Pago - Orden ${orderData.orderNumber || orderId}`,
+            html: emailMessage
+        });
+
+        console.log(`✅ Email de confirmación enviado a ${userEmail}`);
+    } catch (error) {
+        console.error('Error enviando email de confirmación:', error);
+        throw error;
+    }
+};
 
 const getPaymentErrorMessage = (statusDetail: string): string => {
     const errorMessages: { [key: string]: string } = {
@@ -307,11 +541,14 @@ const getPaymentErrorMessage = (statusDetail: string): string => {
         'cc_rejected_card_error': 'No pudimos procesar tu tarjeta',
         'cc_rejected_duplicated_payment': 'Ya procesaste un pago similar recientemente',
         'cc_rejected_high_risk': 'Tu pago fue rechazado. Elige otro medio de pago',
-        'cc_rejected_insufficient_amount': 'Fondos insuficientes',
+        'cc_rejected_insufficient_amount': 'Saldo insuficiente en tu tarjeta',
         'cc_rejected_invalid_installments': 'La tarjeta no acepta el número de cuotas seleccionado',
         'cc_rejected_max_attempts': 'Has alcanzado el límite de intentos. Elige otra tarjeta',
         'cc_rejected_other_reason': 'Tu banco rechazó el pago. Intenta con otra tarjeta o contacta a tu banco',
+        'cc_rejected_by_bank': 'Tu banco rechazó la transacción. Contacta a tu banco',
+        'cc_rejected_3ds_mandatory': 'Tu tarjeta requiere autenticación 3DS',
+        'cc_rejected_3ds_challenge': 'Fallo en la autenticación 3DS',
     };
 
     return errorMessages[statusDetail] || 'El pago no pudo ser procesado. Intenta con otro medio de pago';
-}
+};
