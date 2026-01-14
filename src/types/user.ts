@@ -24,6 +24,8 @@ export interface UserProfile {
   // MEMBRESÍAS DESACTIVADAS - Comentado para posible reactivación futura
   // membresia_id?: string;
   cursos_asignados?: string[];
+  eventos_asignados?: string[];
+  ebooks_asignados?: string[];
   resumen_progreso?: ResumenProgreso;
 }
 
@@ -35,4 +37,14 @@ export interface LoginData {
 export interface UpdateProfileData {
   nombre?: string;
   apellido?: string;
+}
+
+type ResourceType = 'curso' | 'evento' | 'ebook';
+
+export interface SendAssignmentEmailParams {
+  userEmail: string;
+  userName: string;
+  userLastName: string;
+  resourceType: ResourceType;
+  resourceTitles: string[];
 }
