@@ -111,6 +111,7 @@ export const getEbookById = async (req: Request, res: Response) => {
     console.error("getEbookById error:", err);
     return res.status(500).json({ error: "Error al obtener ebook" });
   }
+  
 };
 
 // ✅ Obtener ebooks de un usuario
