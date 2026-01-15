@@ -113,6 +113,135 @@ export const getEbookById = async (req: Request, res: Response) => {
   }
 };
 
+// ✅ Obtener ebooks de un usuario
+export const getUserEbooks = async (req: Request, res: Response) => {
+  try { 
+    const { id } = req.params;
+    const limit = Math.min(parseInt(req.query.limit as string || '10'), 100); // Máximo 100, default 10
+    const lastId = req.query.lastId as string | undefined;
+    const search = req.query.search as string | undefined; // Búsqueda de texto
+    
+    // Para búsquedas, necesitamos un límite mayor para tener más resultados después del filtrado
+    const queryLimit = search && search.trim() ? limit * 3 : limit; // 3x para búsquedas
+    
+    const doc = await firestore.collection('users').doc(id).get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    const ebookIds = doc.data()?.ebooks_asignados || [];
+    
+    if (ebookIds.length === 0) {
+      return res.json({
+        ebooks: [],
+        pagination: {
+          hasMore: false,
+          lastId: null,
+          limit,
+          count: 0
+        }
+      });
+    }
+    
+    // Eliminar IDs duplicados antes de procesar
+    const uniqueEbookIds = [...new Set(ebookIds)];
+    
+    // Si hay lastId, encontrar su índice y empezar desde ahí
+    let startIndex = 0;
+    if (lastId) {
+      const lastIndex = uniqueEbookIds.indexOf(lastId);
+      if (lastIndex !== -1) {
+        startIndex = lastIndex + 1;
+      }
+    }
+    
+    // Obtener los IDs para la página actual (usar queryLimit si hay búsqueda)
+    const pageEbookIds = uniqueEbookIds.slice(startIndex, startIndex + queryLimit + 1);
+    const hasMore = pageEbookIds.length > queryLimit;
+    const currentPageIds = hasMore ? pageEbookIds.slice(0, queryLimit) : pageEbookIds;
+    
+    if (currentPageIds.length === 0) {
+      return res.json({
+        ebooks: [],
+        pagination: {
+          hasMore: false,
+          lastId: null,
+          limit,
+          count: 0
+        }
+      });
+    }
+    
+    // ✅ OPTIMIZACIÓN: Batch read con getAll() para evitar N+1 queries
+    // Firestore Admin SDK permite leer múltiples documentos en una sola operación
+    const BATCH_SIZE = 10; // Firestore getAll() tiene límite de 10 documentos
+    const batches = [];
+    
+    for (let i = 0; i < currentPageIds.length; i += BATCH_SIZE) {
+      const batch = currentPageIds.slice(i, i + BATCH_SIZE);
+      const refs = batch.map((ebookId) => collection.doc(ebookId as string));
+      batches.push(firestore.getAll(...refs));
+    }
+    
+    const allDocs = await Promise.all(batches);
+    const ebooksData = allDocs
+      .flat()
+      .filter(doc => doc.exists) // Filtrar documentos que no existen
+      .map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+    
+    // Eliminar duplicados por ID (por si acaso)
+    let uniqueEbooks = ebooksData.filter((ebook, index, self) =>
+      index === self.findIndex((e) => e.id === ebook.id)
+    );
+
+    // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
+    if (search && search.trim()) {
+      const searchLower = search.toLowerCase().trim();
+      uniqueEbooks = uniqueEbooks.filter((ebook: any) => {
+        const title = (ebook.title || ebook.titulo || '').toLowerCase();
+        const description = (ebook.description || ebook.descripcion || '').toLowerCase();
+        const author = (ebook.author || ebook.autor || '').toLowerCase();
+        return title.includes(searchLower) || 
+               description.includes(searchLower) || 
+               author.includes(searchLower);
+      });
+      // Limitar después del filtrado
+      uniqueEbooks = uniqueEbooks.slice(0, limit);
+    }
+
+    // Calcular lastId basado en los ebooks filtrados
+    const lastEbookId = uniqueEbooks.length > 0 
+      ? uniqueEbooks[uniqueEbooks.length - 1].id 
+      : (currentPageIds[currentPageIds.length - 1] || null);
+    
+    // Ajustar hasMore: si hay búsqueda, verificar si hay más resultados después del filtrado
+    let finalHasMore = hasMore;
+    if (search && search.trim()) {
+      // Si hay búsqueda, hasMore se determina si obtuvimos queryLimit resultados
+      finalHasMore = pageEbookIds.length > queryLimit;
+    }
+
+    const responseData = {
+      ebooks: uniqueEbooks,
+      pagination: {
+        hasMore: finalHasMore,
+        lastId: lastEbookId || null,
+        limit,
+        count: uniqueEbooks.length
+      }
+    };
+
+    return res.json(responseData);
+  } catch (err) {
+    console.error("getUserEbooks error:", err);
+    return res.status(500).json({ error: "Error al obtener ebooks del usuario" });
+  }
+};
+
 export const createEbook = async (req: AuthenticatedRequest, res: Response) => {
   const isAuthorized = await validateUser(req);
   if (!isAuthorized) {

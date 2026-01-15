@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createEbook, updateEbook, deleteEbook, getAllEbooks, getEbookById } from "./controller";
+import { createEbook, updateEbook, deleteEbook, getAllEbooks, getEbookById, getUserEbooks } from "./controller";
 import { AuthenticatedRequest, authMiddleware } from "../../middleware/authMiddleware";
 import { Request, Response } from "express";
 import { basicSanitization, validateBody } from "../../middleware/zodValidation";
@@ -8,6 +8,7 @@ import { EbookCreateSchema, EbookUpdateSchema } from "../../types/ebooks";
 const router = Router();
 
 router.get("/", getAllEbooks);
+router.get("/user/:id", getUserEbooks);
 router.get("/:id", getEbookById);
 
 router.post(
