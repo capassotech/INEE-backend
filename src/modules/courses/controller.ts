@@ -83,10 +83,21 @@ export const getAllCourses = async (req: Request, res: Response) => {
 
     // Tomar solo los primeros 'limit' documentos
     const docs = snapshot.docs.slice(0, limit);
-    let courses = docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    let courses = docs.map((doc) => {
+      const data = doc.data();
+      // ✅ MIGRACIÓN: Si hay sobre_curso y no hay descripcion, migrar a descripcion
+      if (data.sobre_curso && !data.descripcion) {
+        data.descripcion = data.sobre_curso;
+        // Actualizar en Firestore (asíncrono, no bloquea la respuesta)
+        collection.doc(doc.id).update({ descripcion: data.sobre_curso }).catch(err => 
+          console.error(`Error migrando sobre_curso a descripcion para curso ${doc.id}:`, err)
+        );
+      }
+      return {
+        id: doc.id,
+        ...data,
+      };
+    });
     
     // Aplicar filtros adicionales en memoria (ya que Firestore tiene limitaciones con múltiples where())
     // Aplicar todos los filtros que no se aplicaron en la query de Firestore
@@ -132,8 +143,9 @@ export const getAllCourses = async (req: Request, res: Response) => {
       const searchLower = search.toLowerCase().trim();
       courses = courses.filter((course: any) => {
         const titulo = (course.titulo || '').toLowerCase();
-        const descripcion = (course.descripcion || '').toLowerCase();
-        return titulo.includes(searchLower) || descripcion.includes(searchLower);
+        const descripcion = (course.descripcion || course.sobre_curso || '').toLowerCase();
+        const descripcionCorta = (course.descripcion_corta || '').toLowerCase();
+        return titulo.includes(searchLower) || descripcion.includes(searchLower) || descripcionCorta.includes(searchLower);
       });
     }
     
@@ -246,10 +258,21 @@ export const getUserCourses = async (req: Request, res: Response) => {
     const coursesData = allDocs
       .flat()
       .filter(doc => doc.exists) // Filtrar documentos que no existen
-      .map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      .map(doc => {
+        const data = doc.data();
+        // ✅ MIGRACIÓN: Si hay sobre_curso y no hay descripcion, migrar a descripcion
+        if (data.sobre_curso && !data.descripcion) {
+          data.descripcion = data.sobre_curso;
+          // Actualizar en Firestore (asíncrono, no bloquea la respuesta)
+          collection.doc(doc.id).update({ descripcion: data.sobre_curso }).catch(err => 
+            console.error(`Error migrando sobre_curso a descripcion para curso ${doc.id}:`, err)
+          );
+        }
+        return {
+          id: doc.id,
+          ...data
+        };
+      });
     
     // Eliminar duplicados por ID (por si acaso)
     let uniqueCourses = coursesData.filter((course, index, self) =>
@@ -261,8 +284,9 @@ export const getUserCourses = async (req: Request, res: Response) => {
       const searchLower = search.toLowerCase().trim();
       uniqueCourses = uniqueCourses.filter((course: any) => {
         const titulo = (course.titulo || '').toLowerCase();
-        const descripcion = (course.descripcion || '').toLowerCase();
-        return titulo.includes(searchLower) || descripcion.includes(searchLower);
+        const descripcion = (course.descripcion || course.sobre_curso || '').toLowerCase();
+        const descripcionCorta = (course.descripcion_corta || '').toLowerCase();
+        return titulo.includes(searchLower) || descripcion.includes(searchLower) || descripcionCorta.includes(searchLower);
       });
       // Limitar después del filtrado
       uniqueCourses = uniqueCourses.slice(0, limit);
@@ -307,7 +331,17 @@ export const getCourseById = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Curso no encontrado" });
     }
 
-    return res.json({ id: doc.id, ...doc.data() });
+    const data = doc.data();
+    // ✅ MIGRACIÓN: Si hay sobre_curso y no hay descripcion, migrar a descripcion
+    if (data?.sobre_curso && !data?.descripcion) {
+      data.descripcion = data.sobre_curso;
+      // Actualizar en Firestore (asíncrono, no bloquea la respuesta)
+      collection.doc(id).update({ descripcion: data.sobre_curso }).catch(err => 
+        console.error(`Error migrando sobre_curso a descripcion para curso ${id}:`, err)
+      );
+    }
+
+    return res.json({ id: doc.id, ...data });
   } catch (err) {
     console.error("getCourseById error:", err);
     return res.status(500).json({ error: "Error al obtener curso" });
@@ -327,6 +361,12 @@ export const createCourse = async (
 
   try {
     const courseData: ValidatedCourse = req.body;
+
+    // ✅ MIGRACIÓN: Si hay sobre_curso y no hay descripcion, migrar a descripcion
+    const bodyData: any = req.body;
+    if (bodyData.sobre_curso && !bodyData.descripcion) {
+      courseData.descripcion = bodyData.sobre_curso;
+    }
 
     // Normalizar id_profesor a array para facilitar la validación
     const profesorIds = Array.isArray(courseData.id_profesor) 
@@ -392,10 +432,17 @@ export const updateCourse = async (
     const { id } = req.params;
     const updateData: ValidatedUpdateCourse = req.body;
     
-
-    const courseExists = await collection.doc(id).get();
-    if (!courseExists.exists) {
+    // ✅ MIGRACIÓN: Si hay sobre_curso y no hay descripcion, migrar a descripcion
+    const bodyData: any = req.body;
+    const existingCourse = await collection.doc(id).get();
+    if (!existingCourse.exists) {
       return res.status(404).json({ error: "Curso no encontrado" });
+    }
+    
+    const existingData = existingCourse.data();
+    // Si hay sobre_curso en el body y no hay descripcion (ni en body ni en existente), migrar
+    if (bodyData.sobre_curso && !bodyData.descripcion && !existingData?.descripcion) {
+      updateData.descripcion = bodyData.sobre_curso;
     }
 
     if (updateData.id_profesor) {

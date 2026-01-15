@@ -48,9 +48,9 @@ export const CourseSchema = z.object({
         .min(1, "La descripción corta del curso es obligatoria")
         .max(200, "La descripción corta no puede exceder 200 caracteres")
         .trim(),
-    sobre_curso: z.string()
-        .min(1, "El sobre del curso es obligatorio")
-        .max(2000, "El sobre del curso no puede exceder 2000 caracteres")
+    descripcion: z.string()
+        .min(1, "La descripción del curso es obligatoria")
+        .max(2000, "La descripción no puede exceder 2000 caracteres")
         .transform((str) => {
             // Preservar saltos de línea (\n, \r) pero eliminar solo espacios y tabs al inicio y final
             return str.replace(/^[ \t]+|[ \t]+$/g, '');
