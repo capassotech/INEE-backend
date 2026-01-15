@@ -261,6 +261,7 @@ export const getUserCourses = async (req: Request, res: Response) => {
       .map(doc => {
         const data = doc.data();
         // ✅ MIGRACIÓN: Si hay sobre_curso y no hay descripcion, migrar a descripcion
+        if (!data) return null;
         if (data.sobre_curso && !data.descripcion) {
           data.descripcion = data.sobre_curso;
           // Actualizar en Firestore (asíncrono, no bloquea la respuesta)
@@ -276,7 +277,7 @@ export const getUserCourses = async (req: Request, res: Response) => {
     
     // Eliminar duplicados por ID (por si acaso)
     let uniqueCourses = coursesData.filter((course, index, self) =>
-      index === self.findIndex((c) => c.id === course.id)
+      index === self.findIndex((c) => c?.id === course?.id)
     );
 
     // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
@@ -294,7 +295,7 @@ export const getUserCourses = async (req: Request, res: Response) => {
 
     // Calcular lastId basado en los cursos filtrados
     const lastCourseId = uniqueCourses.length > 0 
-      ? uniqueCourses[uniqueCourses.length - 1].id 
+      ? uniqueCourses[uniqueCourses.length - 1]?.id 
       : (currentPageIds[currentPageIds.length - 1] || null);
     
     // Ajustar hasMore: si hay búsqueda, verificar si hay más resultados después del filtrado
