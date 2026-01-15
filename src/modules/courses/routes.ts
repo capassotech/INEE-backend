@@ -19,7 +19,6 @@ const router = Router();
 
 router.get('/', getAllCourses);
 router.get('/check/:id', checkCourseExists);
-router.get('/:id', getCourseById);
 router.get('/user/:id', getUserCourses);
 router.get('/:id', getCourseById);
 
