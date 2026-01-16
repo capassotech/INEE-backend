@@ -260,6 +260,9 @@ export const getUserCourses = async (req: Request, res: Response) => {
       .filter(doc => doc.exists) // Filtrar documentos que no existen
       .map(doc => {
         const data = doc.data();
+        if (!data) {
+          return { id: doc.id };
+        }
         // ✅ MIGRACIÓN: Si hay sobre_curso y no hay descripcion, migrar a descripcion
         if (data.sobre_curso && !data.descripcion) {
           data.descripcion = data.sobre_curso;
