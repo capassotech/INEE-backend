@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import { firestore } from "../../config/firebase";
-import { FieldValue } from "firebase-admin/firestore";
 import { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { ValidatedCourse, ValidatedUpdateCourse } from "../../types/courses";
 import { validateUser } from "../../utils/utils";
@@ -40,26 +39,10 @@ export const getAllCourses = async (req: Request, res: Response) => {
     // Construir query base
     // Nota: Firestore requiere índices compuestos cuando se usan where() con orderBy()
     // Los índices están definidos en firestore.indexes.json para:
-    // - pilar + createdAt
-    // - type + createdAt
-    // - nivel + createdAt
-    // Por defecto, ordenar por createdAt descendente (más recientes primero)
-    // Si no hay filtros, ordenar por createdAt. Si hay filtros, usar __name__ como fallback si no hay índice
-    let query: any;
-    const hasFilters = (pilar && pilar !== 'all') || (type && type !== 'all') || (nivel && nivel !== 'all');
-    
-    if (!hasFilters) {
-      // Sin filtros: ordenar por createdAt descendente (más recientes primero)
-      try {
-        query = collection.orderBy('createdAt', 'desc');
-      } catch (err) {
-        // Si falla (por ejemplo, si no hay índice), usar __name__ como fallback
-        query = collection.orderBy('__name__');
-      }
-    } else {
-      // Con filtros: usar __name__ para mantener compatibilidad con índices existentes
-      query = collection.orderBy('__name__');
-    }
+    // - pilar + __name__
+    // - type + __name__
+    // - nivel + __name__
+    let query = collection.orderBy('__name__');
     
     // Aplicar filtros con where() - priorizar pilar, luego type, luego nivel
     // Solo aplicamos un filtro en Firestore para usar los índices compuestos
@@ -100,34 +83,12 @@ export const getAllCourses = async (req: Request, res: Response) => {
 
     // Tomar solo los primeros 'limit' documentos
     const docs = snapshot.docs.slice(0, limit);
-    let courses = docs.map((doc: any) => {
+    let courses = docs.map((doc) => {
       const data = doc.data();
       return {
         id: doc.id,
         ...data,
       };
-    });
-    
-    // Ordenar siempre en memoria por fecha de creación/actualización (más recientes primero)
-    // Esto asegura un ordenamiento consistente incluso si Firestore no ordenó correctamente
-    courses.sort((a: any, b: any) => {
-      // Priorizar createdAt, luego updatedAt, luego ID (más reciente primero)
-      const dateA = a.createdAt?.toDate?.() || a.updatedAt?.toDate?.() || a.createdAt || a.updatedAt || null;
-      const dateB = b.createdAt?.toDate?.() || b.updatedAt?.toDate?.() || b.createdAt || b.updatedAt || null;
-      
-      if (dateA && dateB) {
-        const timeA = dateA instanceof Date ? dateA.getTime() : (typeof dateA === 'string' ? new Date(dateA).getTime() : 0);
-        const timeB = dateB instanceof Date ? dateB.getTime() : (typeof dateB === 'string' ? new Date(dateB).getTime() : 0);
-        if (timeA && timeB) {
-          return timeB - timeA; // Descendente (más reciente primero)
-        }
-      } else if (dateA) {
-        return -1; // A tiene fecha, B no
-      } else if (dateB) {
-        return 1; // B tiene fecha, A no
-      }
-      // Si ninguno tiene fecha, ordenar por ID (más reciente primero, asumiendo IDs secuenciales)
-      return b.id.localeCompare(a.id);
     });
     
     // Aplicar filtros adicionales en memoria (ya que Firestore tiene limitaciones con múltiples where())
@@ -413,11 +374,7 @@ export const createCourse = async (
       }
     }
 
-    const docRef = await collection.add({ 
-      ...courseData,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
+    const docRef = await collection.add({ ...courseData });
 
     // ✅ CACHÉ: Invalidar caché de cursos al crear uno nuevo
     cache.invalidatePattern(`${CACHE_KEYS.COURSES}:`);
@@ -487,28 +444,7 @@ export const updateCourse = async (
       }
     }
 
-    // Preparar datos para actualizar, preservando createdAt si existe
-    const existingData = existingCourse.data();
-    
-    // Eliminar createdAt de updateData si viene, para no sobrescribirlo
-    const { createdAt, ...updateDataWithoutCreatedAt } = updateData as any;
-    
-    const updatePayload: any = {
-      ...updateDataWithoutCreatedAt,
-      updatedAt: FieldValue.serverTimestamp(),
-    };
-    
-    // Si el documento no tiene createdAt, agregarlo usando la fecha de creación del documento
-    // Si ya tiene createdAt, no sobrescribirlo (preservarlo)
-    if (!existingData?.createdAt) {
-      // Si no existe createdAt, usar la fecha de creación del documento de Firestore (createTime)
-      // o la fecha actual como fallback
-      const createTime = existingCourse.createTime;
-      updatePayload.createdAt = createTime || FieldValue.serverTimestamp();
-    }
-    // Si ya existe createdAt, no lo incluimos en el update (se preserva automáticamente en Firestore)
-    
-    await collection.doc(id).update(updatePayload);
+    await collection.doc(id).update({ ...updateData });
 
     // ✅ CACHÉ: Invalidar caché de cursos al actualizar
     cache.invalidatePattern(`${CACHE_KEYS.COURSES}:`);
