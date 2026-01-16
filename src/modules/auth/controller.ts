@@ -597,6 +597,79 @@ export const refreshToken = async (
   }
 };
 
+// Validar token de otra aplicación (tienda) y devolver customToken para plataforma
+export const validateToken = async (req: Request, res: Response) => {
+  try {
+    const { idToken } = req.body;
+
+    if (!idToken) {
+      return res.status(400).json({
+        error: "Token es requerido",
+      });
+    }
+
+    // Validar el token con Firebase Admin
+    const decodedToken = await firebaseAuth.verifyIdToken(idToken);
+    const uid = decodedToken.uid;
+
+    // Verificar que el usuario existe en Firestore
+    const userDoc = await firestore.collection("users").doc(uid).get();
+
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        error: "Usuario no encontrado",
+      });
+    }
+
+    const userData = userDoc.data();
+
+    // Verificar que el usuario esté activo
+    if (!userData?.activo) {
+      return res.status(403).json({
+        error: "Usuario desactivado. Contacte al administrador",
+      });
+    }
+
+    // Generar customToken para la plataforma
+    const customToken = await firebaseAuth.createCustomToken(uid, {
+      role: userData.role,
+      email: userData.email,
+    });
+
+    return res.json({
+      message: "Token validado exitosamente",
+      customToken,
+      user: {
+        uid,
+        email: userData.email,
+        nombre: userData.nombre,
+        apellido: userData.apellido,
+        role: userData.role,
+      },
+    });
+  } catch (error: any) {
+    console.error("Error validando token:", error);
+
+    if (error.code === "auth/id-token-expired") {
+      return res.status(401).json({
+        error: "Token expirado",
+      });
+    }
+
+    if (error.code === "auth/invalid-id-token") {
+      return res.status(401).json({
+        error: "Token inválido",
+      });
+    }
+
+    return res.status(500).json({
+      error: "Error interno del servidor",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+};
+
 export const checkEmailExists = async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
