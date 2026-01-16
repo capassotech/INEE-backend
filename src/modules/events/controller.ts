@@ -54,12 +54,22 @@ export const getAllEvents = async (req: Request, res: Response) => {
             ...doc.data() 
         }));
         
+        // ✅ FILTRAR EVENTOS INACTIVOS: Solo mostrar eventos activos en la tienda
+        events = events.filter((event: any) => {
+            // Si el evento tiene estado "inactivo", excluirlo
+            if (event.estado === "inactivo") return false;
+            // Si el evento tiene isActive como false, excluirlo
+            if (event.isActive === false) return false;
+            // Si no tiene estado definido, asumir activo (compatibilidad con eventos antiguos)
+            return true;
+        });
+        
         // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
         if (search && search.trim()) {
             const searchLower = search.toLowerCase().trim();
             events = events.filter((event: any) => {
-                const title = (event.title || '').toLowerCase();
-                const description = (event.description || '').toLowerCase();
+                const title = (event.title || event.titulo || '').toLowerCase();
+                const description = (event.description || event.descripcion || '').toLowerCase();
                 return title.includes(searchLower) || description.includes(searchLower);
             });
             // Limitar después del filtrado
@@ -401,7 +411,16 @@ export const getUserEvents = async (req: Request, res: Response) => {
             .map(doc => ({
                 id: doc.id,
                 ...doc.data()
-            }));
+            }))
+            // ✅ FILTRAR EVENTOS INACTIVOS: Solo mostrar eventos activos
+            .filter((event: any) => {
+                // Si el evento tiene estado "inactivo", excluirlo
+                if (event.estado === "inactivo") return false;
+                // Si el evento tiene isActive como false, excluirlo
+                if (event.isActive === false) return false;
+                // Si no tiene estado definido, asumir activo (compatibilidad con eventos antiguos)
+                return true;
+            });
         // Eliminar duplicados por ID (por si acaso)
         let uniqueEvents = eventsData.filter((event, index, self) =>
             index === self.findIndex((e) => e.id === event.id)
