@@ -75,7 +75,14 @@ export const generarCertificado = async (req: AuthenticatedRequest, res: Respons
       if (progresoModuloDoc.exists) {
         const progresoData = progresoModuloDoc.data();
         const completados = progresoData?.contenidos_completados || [];
-        contenidosCompletados += completados.length;
+        // Filtrar solo los contenidos completados que no son contenido_extra
+        const contenidosCompletadosValidos = completados.filter((id: string) => {
+          const index = parseInt(id, 10);
+          if (isNaN(index) || index < 0 || index >= contenidosModulo.length) return false;
+          const contenido = contenidosModulo[index];
+          return contenido && contenido.tipo_contenido !== "contenido_extra";
+        });
+        contenidosCompletados += contenidosCompletadosValidos.length;
       }
     }
 
