@@ -158,7 +158,7 @@ export const createPayment = async (req: Request, res: Response) => {
                     description: String(item.description || `Producto: ${item.nombre || item.title}`),
                     category_id: 'education',
                     quantity: Number(item.quantity || 1),
-                    unit_price: Number(item.precio || item.price || 0),
+                    unit_price: Number(item.precio_actual || item.precio || item.price || 0),
                 })),
                 payer: {
                     first_name: userData?.nombre || '',
@@ -1231,7 +1231,7 @@ const validateWebhookSignature = (body: any, signature: string, requestId: strin
 const calculateTotalPrice = async (items: any[]): Promise<number> => {
     let totalPrice = 0;
     for (const item of items) {
-        let price = Number(item.precio || item.price || 0);
+        let price = Number(item.precio_actual || item.precio || item.price || 0);
 
         if (isNaN(price) || price <= 0) {
             const productId = item.id || item.productId;
@@ -1243,19 +1243,19 @@ const calculateTotalPrice = async (items: any[]): Promise<number> => {
             let productDoc = await firestore.collection('courses').doc(productId).get();
             if (productDoc.exists) {
                 const data = productDoc.data();
-                price = Number(data?.precio || data?.price || 0);
+                price = Number(data?.precio_actual || data?.precio || data?.price || 0);
             } else {
                 // Buscar en events
                 productDoc = await firestore.collection('events').doc(productId).get();
                 if (productDoc.exists) {
                     const data = productDoc.data();
-                    price = Number(data?.precio || data?.price || 0);
+                    price = Number(data?.precio_actual || data?.precio || data?.price || 0);
                 } else {
                     // Buscar en ebooks
                     productDoc = await firestore.collection('ebooks').doc(productId).get();
                     if (productDoc.exists) {
                         const data = productDoc.data();
-                        price = Number(data?.precio || data?.price || 0);
+                        price = Number(data?.precio_actual || data?.precio || data?.price || 0);
                     }
                 }
             }
@@ -1367,7 +1367,7 @@ const sendPaymentConfirmationEmail = async (userId: string, orderId: string, ord
 
         // Construir lista de productos
         const itemsList = orderData.map((item: any) =>
-            `<li>${item.nombre || item.title} - $${item.precio || item.price || item.unit_price}</li>`
+            `<li>${item.nombre || item.title} - $${item.precio_actual || item.precio || item.price || item.unit_price}</li>`
         ).join('');
 
         let total = orderData.reduce((acc: number, item: any) => acc + (item.unit_price * item.quantity), 0);

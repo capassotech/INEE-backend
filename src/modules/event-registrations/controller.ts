@@ -26,7 +26,7 @@ export const verificarDisponibilidad = async (req: AuthenticatedRequest, res: Re
     }
 
     const eventoData = eventoDoc.data();
-    const precio = eventoData?.precio || 0;
+    const precio = eventoData?.precio_actual || eventoData?.precio || 0;
     // MEMBRESÍAS DESACTIVADAS
     // const membresiaIdEvento = eventoData?.membresiaId || null;
     const esGratuito = precio === 0;
@@ -133,7 +133,7 @@ export const inscribirseEvento = async (req: AuthenticatedRequest, res: Response
     }
 
     const eventoData = eventoDoc.data();
-    const precio = eventoData?.precio || 0;
+    const precio = eventoData?.precio_actual || eventoData?.precio || 0;
     // MEMBRESÍAS DESACTIVADAS
     // const membresiaIdEvento = eventoData?.membresiaId || null;
     const esGratuito = precio === 0;
