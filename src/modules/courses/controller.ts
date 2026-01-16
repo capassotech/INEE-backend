@@ -436,7 +436,7 @@ export const updateCourse = async (
     const { id } = req.params;
     const updateData: ValidatedUpdateCourse = req.body;
     
-    // ✅ MIGRACIÓN: Si hay sobre_curso y no hay descripcion, migrar a descripcion
+    // ✅ MIGRACIÓN: Si hay sobre_curso, siempre actualizar descripcion con ese valor
     const bodyData: any = req.body;
     const existingCourse = await collection.doc(id).get();
     if (!existingCourse.exists) {
@@ -444,8 +444,9 @@ export const updateCourse = async (
     }
     
     const existingData = existingCourse.data();
-    // Si hay sobre_curso en el body y no hay descripcion (ni en body ni en existente), migrar
-    if (bodyData.sobre_curso && !bodyData.descripcion && !existingData?.descripcion) {
+    // Si hay sobre_curso en el body, actualizar descripcion con ese valor
+    // Esto asegura que la descripción larga se actualice correctamente
+    if (bodyData.sobre_curso !== undefined) {
       updateData.descripcion = bodyData.sobre_curso;
     }
 

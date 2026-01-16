@@ -110,7 +110,16 @@ export const CourseSchema = z.object({
             .min(1, "La URL del archivo es obligatoria")
             .max(2000, "La URL no puede exceder 2000 caracteres")
             .trim(),
-    })
+    }),
+    // Campo opcional para compatibilidad con el frontend que envía sobre_curso
+    sobre_curso: z.string()
+        .max(2000, "La descripción no puede exceder 2000 caracteres")
+        .transform((str) => {
+            // Preservar saltos de línea (\n, \r) pero eliminar solo espacios y tabs al inicio y final
+            if (!str) return str;
+            return str.replace(/^[ \t]+|[ \t]+$/g, '');
+        })
+        .optional()
 });
 
 export const UpdateCourseSchema = CourseSchema.partial();
