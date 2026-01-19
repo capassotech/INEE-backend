@@ -267,7 +267,9 @@ export const obtenerProgresoCurso = async (req: AuthenticatedRequest, res: Respo
       const moduloData = moduloDoc.data();
       const moduloId = moduloDoc.id;
       const contenidosModulo = moduloData?.contenido || [];
-      const totalContenidosModulo = contenidosModulo.length;
+      // Excluir contenido_extra del cálculo
+      const contenidosValidos = contenidosModulo.filter((c: any) => c.tipo_contenido !== "contenido_extra");
+      const totalContenidosModulo = contenidosValidos.length;
       totalContenidos += totalContenidosModulo;
 
       // Obtener progreso del módulo
@@ -283,7 +285,16 @@ export const obtenerProgresoCurso = async (req: AuthenticatedRequest, res: Respo
 
       if (progresoModuloDoc.exists) {
         const progresoData = progresoModuloDoc.data() as ProgresoModulo;
-        contenidosCompletadosModulo = progresoData.contenidos_completados?.length || 0;
+        const contenidosCompletadosIds = progresoData.contenidos_completados || [];
+        
+        // Filtrar solo los contenidos completados que no son contenido_extra
+        contenidosCompletadosModulo = contenidosCompletadosIds.filter((id: string) => {
+          const index = parseInt(id, 10);
+          if (isNaN(index) || index < 0 || index >= contenidosModulo.length) return false;
+          const contenido = contenidosModulo[index];
+          return contenido && contenido.tipo_contenido !== "contenido_extra";
+        }).length;
+        
         completado = progresoData.completado || false;
       }
 
@@ -497,7 +508,9 @@ export async function calcularProgresoGeneral(userId: string, cursoId: string): 
       const moduloData = moduloDoc.data();
       const moduloId = moduloDoc.id;
       const contenidosModulo = moduloData?.contenido || [];
-      totalContenidos += contenidosModulo.length;
+      // Excluir contenido_extra del cálculo
+      const contenidosValidos = contenidosModulo.filter((c: any) => c.tipo_contenido !== "contenido_extra");
+      totalContenidos += contenidosValidos.length;
 
       // Obtener progreso del módulo
       const progresoModuloRef = firestore
@@ -510,7 +523,17 @@ export async function calcularProgresoGeneral(userId: string, cursoId: string): 
 
       if (progresoModuloDoc.exists) {
         const progresoData = progresoModuloDoc.data() as ProgresoModulo;
-        contenidosCompletados += progresoData.contenidos_completados?.length || 0;
+        const contenidosCompletadosIds = progresoData.contenidos_completados || [];
+        
+        // Filtrar solo los contenidos completados que no son contenido_extra
+        const contenidosCompletadosValidos = contenidosCompletadosIds.filter((id: string) => {
+          const index = parseInt(id, 10);
+          if (isNaN(index) || index < 0 || index >= contenidosModulo.length) return false;
+          const contenido = contenidosModulo[index];
+          return contenido && contenido.tipo_contenido !== "contenido_extra";
+        });
+        
+        contenidosCompletados += contenidosCompletadosValidos.length;
 
         // Actualizar última actividad si es más reciente
         const fechaActualizacion = progresoData.fecha_actualizacion;
@@ -588,7 +611,9 @@ async function obtenerProgresoModulo(
 
   const moduloData = moduloDoc.data();
   const contenidosModulo = moduloData?.contenido || [];
-  const totalContenidosModulo = contenidosModulo.length;
+  // Excluir contenido_extra del cálculo
+  const contenidosValidos = contenidosModulo.filter((c: any) => c.tipo_contenido !== "contenido_extra");
+  const totalContenidosModulo = contenidosValidos.length;
 
   const progresoModuloRef = firestore
     .collection('users')
@@ -602,7 +627,16 @@ async function obtenerProgresoModulo(
 
   if (progresoModuloDoc.exists) {
     const progresoData = progresoModuloDoc.data() as ProgresoModulo;
-    contenidosCompletadosModulo = progresoData.contenidos_completados?.length || 0;
+    const contenidosCompletadosIds = progresoData.contenidos_completados || [];
+    
+    // Filtrar solo los contenidos completados que no son contenido_extra
+    contenidosCompletadosModulo = contenidosCompletadosIds.filter((id: string) => {
+      const index = parseInt(id, 10);
+      if (isNaN(index) || index < 0 || index >= contenidosModulo.length) return false;
+      const contenido = contenidosModulo[index];
+      return contenido && contenido.tipo_contenido !== "contenido_extra";
+    }).length;
+    
     completado = progresoData.completado || false;
   }
 

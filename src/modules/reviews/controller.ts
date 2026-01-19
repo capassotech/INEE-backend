@@ -5,7 +5,7 @@ import { Request, Response } from "express";
 import { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { ValidatedCreateReview } from "../../types/reviews";
 
-const frontendUrl = "https://inee-plataforma.web.app";
+const frontendUrl = "https://estudiante.ineeoficial.com";
 
 export const createReview = async (
   req: AuthenticatedRequest,

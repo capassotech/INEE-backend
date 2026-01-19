@@ -15,6 +15,7 @@ import {
   googleRegister,
   getUserById,
   getUserByEmail,
+  validateToken,
 } from "./controller";
 import {
   validateRegistration,
@@ -39,6 +40,8 @@ router.post(
 );
 
 router.post("/google-register", googleRegister);
+
+router.post("/validate-token", sanitizeInput, validateToken);
 
 router.get("/user/:uid", getUserById);
 

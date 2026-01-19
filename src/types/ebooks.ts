@@ -5,13 +5,32 @@ export const EbookCreateSchema = z.object({
   title: z.string().min(1, "El título es obligatorio"),
   description: z.string().min(1, "La descripción es obligatoria"),
   author: z.string().min(1, "El autor es obligatorio"),
-  price: z.number().min(0.01, "El precio debe ser mayor que 0"),
-  estado: z.enum(["activo", "inactivo"]),
+  precio: z.number()
+    .min(0, "El precio no puede ser negativo")
+    .max(999999, "El precio no puede exceder $999,999"),
+  precio_anterior: z.number()
+    .min(0, "El precio anterior no puede ser negativo")
+    .max(999999, "El precio anterior no puede exceder $999,999")
+    .optional(),
+  cuotas: z.object({
+    cantidad_cuotas: z.number()
+      .int("La cantidad de cuotas debe ser un número entero")
+      .min(1, "La cantidad de cuotas debe ser al menos 1")
+      .max(12, "La cantidad de cuotas no puede exceder 12"),
+    monto_cuota: z.number()
+      .min(0, "El monto por cuota no puede ser negativo")
+      .max(999999, "El monto por cuota no puede exceder $999,999"),
+  }).optional(),
+  archivoUrl: z.string().min(1, "El archivo es obligatorio"),
   pilares: z.string().min(1, "Los pilares son obligatorios"),
-  archivoUrl: z.string().min(1, "El archivo es obligatorio"), 
-  temas: z.array(z.string()).min(1, "Los temas son obligatorios"), 
-  tags: z.array(z.string()).optional(), 
-  imagen: z.string().optional(), 
+  temas: z.array(z.string()).optional().default([]),
+  tags: z.array(z.string()).optional().default([]),
+  estado: z.enum(["activo", "inactivo"], {
+    message: "El estado debe ser 'activo' o 'inactivo'",
+  }),
+  imagen: z.string().optional(),
+  // Campo legacy para compatibilidad
+  price: z.number().optional(),
 });
 
 export const EbookUpdateSchema = EbookCreateSchema.partial();
