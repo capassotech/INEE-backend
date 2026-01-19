@@ -51,7 +51,14 @@ export const createPayment = async (req: Request, res: Response) => {
             issuerId: issuerId || 'NO PROPORCIONADO',
             bin: bin || 'NO PROPORCIONADO',
             hasItems: !!items && items.length > 0,
-            transactionAmount: metadata.totalAmount
+            transactionAmount: metadata.totalAmount,
+            itemsCount: items?.length || 0,
+            itemsDetails: items?.map((item: any) => ({
+                id: item.id || item.productId || 'NO ID',
+                nombre: item.nombre || item.title || item.name || 'NO NOMBRE',
+                precio: item.precio || item.price || item.unit_price || 'NO PRECIO',
+                quantity: item.quantity || 1
+            })) || []
         });
 
         if (!metadata.userId || !Array.isArray(items) || items.length === 0 || !metadata.totalAmount) {
@@ -1004,6 +1011,20 @@ export const createPayment = async (req: Request, res: Response) => {
         });
 
         if (status === 'approved') {
+            // Asignar productos al usuario (incluye crear inscripciones para eventos)
+            try {
+                await assignProductsToUser(
+                    metadata.userId, 
+                    items, 
+                    payment.id?.toString(), 
+                    status
+                );
+                console.log(`✅ Productos asignados al usuario ${metadata.userId} después de pago aprobado`);
+            } catch (assignError) {
+                console.error('❌ Error al asignar productos después de pago aprobado:', assignError);
+                // No fallar la respuesta, pero registrar el error
+            }
+
             await sendPaymentConfirmationEmail(metadata.userId, orderNumber, items);
 
             return res.json({
@@ -1184,7 +1205,12 @@ export const handleWebhook = async (req: Request, res: Response) => {
             // Si el pago fue aprobado, asignar productos al usuario
             if (payment.status === 'approved') {
                 console.log(`🎁 Asignando productos al usuario ${orderData.userId}`);
-                await assignProductsToUser(orderData.userId, orderData.items);
+                await assignProductsToUser(
+                    orderData.userId, 
+                    orderData.items, 
+                    payment.id?.toString(), 
+                    payment.status
+                );
 
                 // Enviar email de confirmación
                 try {
@@ -1293,7 +1319,12 @@ const validateProds = async (items: any[]): Promise<boolean> => {
     return true;
 };
 
-const assignProductsToUser = async (userId: string, items: any[]): Promise<void> => {
+const assignProductsToUser = async (
+    userId: string, 
+    items: any[], 
+    paymentId?: string, 
+    paymentStatus?: string
+): Promise<void> => {
     try {
         const userRef = firestore.collection('users').doc(userId);
         const userDoc = await userRef.get();
@@ -1304,12 +1335,35 @@ const assignProductsToUser = async (userId: string, items: any[]): Promise<void>
         }
 
         const userData = userDoc.data();
-        const cursosAsignados = userData?.cursos_asignados || [];
-        const eventosAsignados = userData?.eventos_asignados || [];
-        const ebooksAsignados = userData?.ebooks_asignados || [];
+        // Inicializar arrays vacíos si no existen
+        const cursosAsignados = Array.isArray(userData?.cursos_asignados) ? userData.cursos_asignados : [];
+        const eventosAsignados = Array.isArray(userData?.eventos_asignados) ? userData.eventos_asignados : [];
+        const ebooksAsignados = Array.isArray(userData?.ebooks_asignados) ? userData.ebooks_asignados : [];
+        const inscripcionesCollection = firestore.collection('inscripciones_eventos');
+        
+        console.log(`📊 [USER DATA] Estado inicial del usuario:`, {
+            tieneCursosAsignados: cursosAsignados.length > 0,
+            tieneEventosAsignados: eventosAsignados.length > 0,
+            tieneEbooksAsignados: ebooksAsignados.length > 0,
+            cursosCount: cursosAsignados.length,
+            eventosCount: eventosAsignados.length,
+            ebooksCount: ebooksAsignados.length
+        });
 
         for (const item of items) {
             const productId = item.id || item.productId;
+            const precio = Number(item.precio || item.price || item.unit_price || 0);
+            
+            console.log(`🔍 [ITEM] Procesando item:`, {
+                productId: productId || 'NO ID',
+                precio: precio || 0,
+                itemCompleto: JSON.stringify(item, null, 2)
+            });
+            
+            if (!productId) {
+                console.error(`❌ [ITEM] Item sin ID válido:`, item);
+                continue; // Saltar este item si no tiene ID
+            }
 
             // Verificar en qué colección está el producto
             const courseDoc = await firestore.collection('courses').doc(productId).get();
@@ -1319,8 +1373,58 @@ const assignProductsToUser = async (userId: string, items: any[]): Promise<void>
             }
 
             const eventDoc = await firestore.collection('events').doc(productId).get();
-            if (eventDoc.exists && !eventosAsignados.includes(productId)) {
-                eventosAsignados.push(productId);
+            if (eventDoc.exists) {
+                console.log(`🎯 [EVENTO DETECTADO] Evento ${productId} encontrado para usuario ${userId} - precio: ${precio}`);
+                
+                // Agregar evento a eventos_asignados si no está ya incluido
+                if (!eventosAsignados.includes(productId)) {
+                    eventosAsignados.push(productId);
+                    console.log(`✅ [EVENTO] Evento agregado a eventos_asignados`);
+                }
+                
+                // CREAR INSCRIPCIÓN SIEMPRE después de un pago exitoso
+                // No verificar si existe, simplemente crear (Firestore permite múltiples documentos)
+                console.log(`📝 [INSCRIPCIÓN] === INICIANDO CREACIÓN DE INSCRIPCIÓN ===`);
+                console.log(`📝 [INSCRIPCIÓN] Evento: ${productId}`);
+                console.log(`📝 [INSCRIPCIÓN] Usuario: ${userId}`);
+                console.log(`📝 [INSCRIPCIÓN] PaymentId: ${paymentId || 'N/A'}`);
+                console.log(`📝 [INSCRIPCIÓN] PaymentStatus: ${paymentStatus || 'N/A'}`);
+                
+                // Datos de la inscripción
+                const nuevaInscripcion: any = {
+                    userId: userId,
+                    eventoId: productId,
+                    fechaInscripcion: new Date(),
+                    estado: 'activa',
+                    metodoPago: 'pago',
+                    precioPagado: precio || 0,
+                };
+                
+                if (paymentId) {
+                    nuevaInscripcion.paymentId = paymentId;
+                }
+                
+                if (paymentStatus) {
+                    nuevaInscripcion.paymentStatus = paymentStatus;
+                }
+
+                console.log(`📋 [INSCRIPCIÓN] Datos completos:`, JSON.stringify(nuevaInscripcion, null, 2));
+
+                // CREAR EN inscripciones_eventos
+                try {
+                    console.log(`🔄 [INSCRIPCIÓN] Creando en inscripciones_eventos...`);
+                    const inscripcionRef = await inscripcionesCollection.add(nuevaInscripcion);
+                    console.log(`✅✅✅ [INSCRIPCIÓN] EXITOSO en inscripciones_eventos - ID: ${inscripcionRef.id}`);
+                } catch (error: any) {
+                    console.error(`❌❌❌ [INSCRIPCIÓN] FALLO en inscripciones_eventos:`, {
+                        message: error?.message,
+                        code: error?.code,
+                        name: error?.name,
+                        stack: error?.stack
+                    });
+                }
+
+                console.log(`✅ [INSCRIPCIÓN] === PROCESO COMPLETADO ===`);
                 continue;
             }
 
@@ -1331,12 +1435,22 @@ const assignProductsToUser = async (userId: string, items: any[]): Promise<void>
         }
 
         // Actualizar el usuario con los nuevos productos asignados
-        await userRef.update({
-            cursos_asignados: cursosAsignados,
-            eventos_asignados: eventosAsignados,
-            ebooks_asignados: ebooksAsignados,
+        // Asegurarse de que siempre sean arrays, incluso si estaban vacíos
+        const updateData: any = {
+            cursos_asignados: Array.isArray(cursosAsignados) ? cursosAsignados : [],
+            eventos_asignados: Array.isArray(eventosAsignados) ? eventosAsignados : [],
+            ebooks_asignados: Array.isArray(ebooksAsignados) ? ebooksAsignados : [],
             updatedAt: new Date()
+        };
+        
+        console.log(`💾 [UPDATE USER] Actualizando usuario ${userId} con:`, {
+            cursos: updateData.cursos_asignados.length,
+            eventos: updateData.eventos_asignados.length,
+            ebooks: updateData.ebooks_asignados.length
         });
+        
+        await userRef.update(updateData);
+        console.log(`✅ [UPDATE USER] Usuario actualizado exitosamente`);
 
         console.log(`Productos asignados al usuario ${userId}:`, {
             cursos: cursosAsignados.length,
@@ -1345,6 +1459,7 @@ const assignProductsToUser = async (userId: string, items: any[]): Promise<void>
         });
     } catch (error) {
         console.error('Error al asignar productos al usuario:', error);
+        throw error; // Re-lanzar para que el webhook pueda manejarlo
     }
 };
 

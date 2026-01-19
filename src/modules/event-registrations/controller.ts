@@ -375,15 +375,7 @@ export const comprarEInscribirse = async (req: AuthenticatedRequest, res: Respon
     const eventoData = eventoDoc.data();
     const precio = eventoData?.precio || 0;
 
-    // Verificar que el pago fue aprobado
-    if (paymentStatus !== 'approved') {
-      return res.status(400).json({
-        error: 'El pago no fue aprobado',
-        paymentStatus,
-      });
-    }
-
-    // Verificar si ya está inscrito
+    // Verificar si ya está inscrito (puede que ya se haya creado automáticamente al procesar el pago)
     const inscripcionExistente = await collection
       .where('userId', '==', userId)
       .where('eventoId', '==', eventoId)
@@ -392,9 +384,31 @@ export const comprarEInscribirse = async (req: AuthenticatedRequest, res: Respon
       .get();
 
     if (!inscripcionExistente.empty) {
-      return res.status(400).json({
-        error: 'Ya estás inscrito a este evento',
+      // Ya está inscrito, retornar éxito
+      const inscripcionData = inscripcionExistente.docs[0].data();
+      const mensajeAlerta = '✅ Ya estás inscrito a este evento.';
+      return res.status(200).json({
+        success: true,
+        message: mensajeAlerta,
+        alerta: {
+          mensaje: mensajeAlerta,
+          tipo: 'success',
+          mostrar: true,
+        },
         inscripcionId: inscripcionExistente.docs[0].id,
+        requierePago: false,
+      } as RespuestaInscripcion);
+    }
+
+    // Si no está inscrito, crear la inscripción
+    // Si viene paymentStatus, verificar que sea 'approved'
+    // Si no viene, asumir que el pago fue aprobado (ya que se está llamando después del pago)
+    const finalPaymentStatus = paymentStatus || 'approved';
+    
+    if (paymentStatus && paymentStatus !== 'approved') {
+      return res.status(400).json({
+        error: 'El pago no fue aprobado',
+        paymentStatus,
       });
     }
 
@@ -406,8 +420,8 @@ export const comprarEInscribirse = async (req: AuthenticatedRequest, res: Respon
       estado: 'activa',
       metodoPago: 'pago',
       precioPagado: precio,
-      paymentId,
-      paymentStatus: paymentStatus as 'approved' | 'pending' | 'cancelled',
+      ...(paymentId && { paymentId }),
+      paymentStatus: finalPaymentStatus as 'approved' | 'pending' | 'cancelled',
     };
 
     const inscripcionRef = await collection.add(nuevaInscripcion);
