@@ -120,8 +120,31 @@ export const loginUser = async (req: Request, res: Response) => {
       });
     }
 
-    const firebaseApiKey = "AIzaSyAZDT5DM68-9qYH23HdKAsOTaV_qCAPEiw";
+  
 
+    let firebaseApiKey = process.env.FIREBASE_API_KEY;
+    const projectId = process.env.FIREBASE_PROJECT_ID;
+    
+    // Si no hay API key en variables de entorno, usar la del proyecto según FIREBASE_PROJECT_ID
+    if (!firebaseApiKey) {
+      if (projectId === "inee-qa") {
+        // API key del proyecto QA
+        firebaseApiKey = "AIzaSyC0mx89rSeedrdTtpyqrlhS7FAIejCrIWM";
+        console.log(`[LOGIN DEBUG] ⚠️ FIREBASE_API_KEY no configurada, usando API key de QA (detectado por FIREBASE_PROJECT_ID=${projectId})`);
+      } else if (projectId === "inee-admin") {
+        // API key del proyecto de producción
+        firebaseApiKey = "AIzaSyAZDT5DM68-9qYH23HdKAsOTaV_qCAPEiw";
+        console.log(`[LOGIN DEBUG] ⚠️ FIREBASE_API_KEY no configurada, usando API key de producción (detectado por FIREBASE_PROJECT_ID=${projectId})`);
+      } else {
+        // Fallback a producción si no se puede detectar
+        firebaseApiKey = "AIzaSyAZDT5DM68-9qYH23HdKAsOTaV_qCAPEiw";
+        console.log(`[LOGIN DEBUG] ⚠️ FIREBASE_API_KEY no configurada y proyecto desconocido (${projectId}), usando API key de producción como fallback`);
+      }
+    } else {
+      console.log(`[LOGIN DEBUG] ✅ Usando API key de variable de entorno FIREBASE_API_KEY`);
+    }
+    
+    console.log(`[LOGIN DEBUG] Proyecto: ${projectId}, API Key: ${firebaseApiKey.substring(0, 20)}...`);
 
     try {
       const response = await fetch(
@@ -570,6 +593,79 @@ export const refreshToken = async (
     console.error("Error renovando token:", error);
     return res.status(500).json({
       error: "Error interno del servidor",
+    });
+  }
+};
+
+// Validar token de otra aplicación (tienda) y devolver customToken para plataforma
+export const validateToken = async (req: Request, res: Response) => {
+  try {
+    const { idToken } = req.body;
+
+    if (!idToken) {
+      return res.status(400).json({
+        error: "Token es requerido",
+      });
+    }
+
+    // Validar el token con Firebase Admin
+    const decodedToken = await firebaseAuth.verifyIdToken(idToken);
+    const uid = decodedToken.uid;
+
+    // Verificar que el usuario existe en Firestore
+    const userDoc = await firestore.collection("users").doc(uid).get();
+
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        error: "Usuario no encontrado",
+      });
+    }
+
+    const userData = userDoc.data();
+
+    // Verificar que el usuario esté activo
+    if (!userData?.activo) {
+      return res.status(403).json({
+        error: "Usuario desactivado. Contacte al administrador",
+      });
+    }
+
+    // Generar customToken para la plataforma
+    const customToken = await firebaseAuth.createCustomToken(uid, {
+      role: userData.role,
+      email: userData.email,
+    });
+
+    return res.json({
+      message: "Token validado exitosamente",
+      customToken,
+      user: {
+        uid,
+        email: userData.email,
+        nombre: userData.nombre,
+        apellido: userData.apellido,
+        role: userData.role,
+      },
+    });
+  } catch (error: any) {
+    console.error("Error validando token:", error);
+
+    if (error.code === "auth/id-token-expired") {
+      return res.status(401).json({
+        error: "Token expirado",
+      });
+    }
+
+    if (error.code === "auth/invalid-id-token") {
+      return res.status(401).json({
+        error: "Token inválido",
+      });
+    }
+
+    return res.status(500).json({
+      error: "Error interno del servidor",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };

@@ -54,12 +54,22 @@ export const getAllEvents = async (req: Request, res: Response) => {
             ...doc.data() 
         }));
         
+        // ✅ FILTRAR EVENTOS INACTIVOS: Solo mostrar eventos activos en la tienda
+        events = events.filter((event: any) => {
+            // Si el evento tiene estado "inactivo", excluirlo
+            if (event.estado === "inactivo") return false;
+            // Si el evento tiene isActive como false, excluirlo
+            if (event.isActive === false) return false;
+            // Si no tiene estado definido, asumir activo (compatibilidad con eventos antiguos)
+            return true;
+        });
+        
         // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
         if (search && search.trim()) {
             const searchLower = search.toLowerCase().trim();
             events = events.filter((event: any) => {
-                const title = (event.title || '').toLowerCase();
-                const description = (event.description || '').toLowerCase();
+                const title = (event.title || event.titulo || '').toLowerCase();
+                const description = (event.description || event.descripcion || '').toLowerCase();
                 return title.includes(searchLower) || description.includes(searchLower);
             });
             // Limitar después del filtrado
@@ -333,5 +343,121 @@ export const getEventInscripciones = async (req: AuthenticatedRequest, res: Resp
             error: 'Error interno del servidor al obtener inscripciones',
             details: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
+    }
+};
+
+export const getUserEvents = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const limit = Math.min(parseInt(req.query.limit as string || '10'), 100); // Máximo 100, default 10
+        const lastId = req.query.lastId as string | undefined;
+        const search = req.query.search as string | undefined; // Búsqueda de texto
+        // Para búsquedas, necesitamos un límite mayor para tener más resultados después del filtrado
+        const queryLimit = search && search.trim() ? limit * 3 : limit; // 3x para búsquedas
+        const doc = await firestore.collection('users').doc(id).get();
+        if (!doc.exists) {
+            return res.status(404).json({ error: "Usuario no encontrado" });
+        }
+        const eventIds = doc.data()?.eventos_asignados || [];
+        if (eventIds.length === 0) {
+            return res.json({
+                events: [],
+                pagination: {
+                    hasMore: false,
+                    lastId: null,
+                    limit,
+                    count: 0
+                }
+            });
+        }
+        // Eliminar IDs duplicados antes de procesar
+        const uniqueEventIds = [...new Set(eventIds)];
+        // Si hay lastId, encontrar su índice y empezar desde ahí
+        let startIndex = 0;
+        if (lastId) {
+            const lastIndex = uniqueEventIds.indexOf(lastId);
+            if (lastIndex !== -1) {
+                startIndex = lastIndex + 1;
+            }
+        }
+        // Obtener los IDs para la página actual (usar queryLimit si hay búsqueda)
+        const pageEventIds = uniqueEventIds.slice(startIndex, startIndex + queryLimit + 1);
+        const hasMore = pageEventIds.length > queryLimit;
+        const currentPageIds = hasMore ? pageEventIds.slice(0, queryLimit) : pageEventIds;
+        if (currentPageIds.length === 0) {
+            return res.json({
+                events: [],
+                pagination: {
+                    hasMore: false,
+                    lastId: null,
+                    limit,
+                    count: 0
+                }
+            });
+        }
+        // :marca_de_verificación_blanca: OPTIMIZACIÓN: Batch read con getAll() para evitar N+1 queries
+        // Firestore Admin SDK permite leer múltiples documentos en una sola operación
+        const BATCH_SIZE = 10; // Firestore getAll() tiene límite de 10 documentos
+        const batches = [];
+        for (let i = 0; i < currentPageIds.length; i += BATCH_SIZE) {
+            const batch = currentPageIds.slice(i, i + BATCH_SIZE);
+            const refs = batch.map((eventId) => collection.doc(eventId as string));
+            batches.push(firestore.getAll(...refs));
+        }
+        const allDocs = await Promise.all(batches);
+        const eventsData = allDocs
+            .flat()
+            .filter(doc => doc.exists) // Filtrar documentos que no existen
+            .map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }))
+            // ✅ FILTRAR EVENTOS INACTIVOS: Solo mostrar eventos activos
+            .filter((event: any) => {
+                // Si el evento tiene estado "inactivo", excluirlo
+                if (event.estado === "inactivo") return false;
+                // Si el evento tiene isActive como false, excluirlo
+                if (event.isActive === false) return false;
+                // Si no tiene estado definido, asumir activo (compatibilidad con eventos antiguos)
+                return true;
+            });
+        // Eliminar duplicados por ID (por si acaso)
+        let uniqueEvents = eventsData.filter((event, index, self) =>
+            index === self.findIndex((e) => e.id === event.id)
+        );
+        // :marca_de_verificación_blanca: BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
+        if (search && search.trim()) {
+            const searchLower = search.toLowerCase().trim();
+            uniqueEvents = uniqueEvents.filter((event: any) => {
+                const title = (event.title || event.titulo || '').toLowerCase();
+                const description = (event.description || event.descripcion || '').toLowerCase();
+                return title.includes(searchLower) || description.includes(searchLower);
+            });
+            // Limitar después del filtrado
+            uniqueEvents = uniqueEvents.slice(0, limit);
+        }
+        // Calcular lastId basado en los eventos filtrados
+        const lastEventId = uniqueEvents.length > 0
+            ? uniqueEvents[uniqueEvents.length - 1].id
+            : (currentPageIds[currentPageIds.length - 1] || null);
+        // Ajustar hasMore: si hay búsqueda, verificar si hay más resultados después del filtrado
+        let finalHasMore = hasMore;
+        if (search && search.trim()) {
+            // Si hay búsqueda, hasMore se determina si obtuvimos queryLimit resultados
+            finalHasMore = pageEventIds.length > queryLimit;
+        }
+        const responseData = {
+            events: uniqueEvents,
+            pagination: {
+                hasMore: finalHasMore,
+                lastId: lastEventId || null,
+                limit,
+                count: uniqueEvents.length
+            }
+        };
+        return res.json(responseData);
+    } catch (err) {
+        console.error("getUserEvents error:", err);
+        return res.status(500).json({ error: "Error al obtener eventos del usuario" });
     }
 };

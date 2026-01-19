@@ -27,6 +27,9 @@ import progressRoutes from "./modules/progress/routes";
 import ordersRoutes from "./modules/orders/routes";
 import emailsRoutes from "./modules/emails/routes";
 import eventRegistrationsRoutes from "./modules/event-registrations/routes";
+import certificatesRoutes from "./modules/certificates/routes";
+import discountCodesRoutes from "./modules/discount-codes/routes";
+import examenesRoutes from "./modules/examenes/routes";
 
 
 const app = express();
@@ -58,6 +61,9 @@ app.use("/api/progreso", progressRoutes);
 app.use("/api/orders", ordersRoutes);
 app.use("/api/emails", emailsRoutes);
 app.use("/api/inscripciones-eventos", eventRegistrationsRoutes);
+app.use("/api/certificados", certificatesRoutes);
+app.use("/api/discount-codes", discountCodesRoutes);
+app.use("/api/examenes", examenesRoutes);
 
 app.get("/", (_, res) => {
   res.json({

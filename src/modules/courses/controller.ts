@@ -83,10 +83,13 @@ export const getAllCourses = async (req: Request, res: Response) => {
 
     // Tomar solo los primeros 'limit' documentos
     const docs = snapshot.docs.slice(0, limit);
-    let courses = docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    let courses = docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data,
+      };
+    });
     
     // Aplicar filtros adicionales en memoria (ya que Firestore tiene limitaciones con múltiples where())
     // Aplicar todos los filtros que no se aplicaron en la query de Firestore
@@ -133,7 +136,8 @@ export const getAllCourses = async (req: Request, res: Response) => {
       courses = courses.filter((course: any) => {
         const titulo = (course.titulo || '').toLowerCase();
         const descripcion = (course.descripcion || '').toLowerCase();
-        return titulo.includes(searchLower) || descripcion.includes(searchLower);
+        const descripcionCorta = (course.descripcion_corta || '').toLowerCase();
+        return titulo.includes(searchLower) || descripcion.includes(searchLower) || descripcionCorta.includes(searchLower);
       });
     }
     
@@ -246,14 +250,20 @@ export const getUserCourses = async (req: Request, res: Response) => {
     const coursesData = allDocs
       .flat()
       .filter(doc => doc.exists) // Filtrar documentos que no existen
-      .map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      .map(doc => {
+        const data = doc.data();
+        if (!data) {
+          return { id: doc.id };
+        }
+        return {
+          id: doc.id,
+          ...data
+        };
+      });
     
     // Eliminar duplicados por ID (por si acaso)
     let uniqueCourses = coursesData.filter((course, index, self) =>
-      index === self.findIndex((c) => c.id === course.id)
+      index === self.findIndex((c) => c?.id === course?.id)
     );
 
     // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
@@ -262,7 +272,8 @@ export const getUserCourses = async (req: Request, res: Response) => {
       uniqueCourses = uniqueCourses.filter((course: any) => {
         const titulo = (course.titulo || '').toLowerCase();
         const descripcion = (course.descripcion || '').toLowerCase();
-        return titulo.includes(searchLower) || descripcion.includes(searchLower);
+        const descripcionCorta = (course.descripcion_corta || '').toLowerCase();
+        return titulo.includes(searchLower) || descripcion.includes(searchLower) || descripcionCorta.includes(searchLower);
       });
       // Limitar después del filtrado
       uniqueCourses = uniqueCourses.slice(0, limit);
@@ -270,7 +281,7 @@ export const getUserCourses = async (req: Request, res: Response) => {
 
     // Calcular lastId basado en los cursos filtrados
     const lastCourseId = uniqueCourses.length > 0 
-      ? uniqueCourses[uniqueCourses.length - 1].id 
+      ? uniqueCourses[uniqueCourses.length - 1]?.id 
       : (currentPageIds[currentPageIds.length - 1] || null);
     
     // Ajustar hasMore: si hay búsqueda, verificar si hay más resultados después del filtrado
@@ -307,7 +318,9 @@ export const getCourseById = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Curso no encontrado" });
     }
 
-    return res.json({ id: doc.id, ...doc.data() });
+    const data = doc.data();
+
+    return res.json({ id: doc.id, ...data });
   } catch (err) {
     console.error("getCourseById error:", err);
     return res.status(500).json({ error: "Error al obtener curso" });
@@ -392,9 +405,8 @@ export const updateCourse = async (
     const { id } = req.params;
     const updateData: ValidatedUpdateCourse = req.body;
     
-
-    const courseExists = await collection.doc(id).get();
-    if (!courseExists.exists) {
+    const existingCourse = await collection.doc(id).get();
+    if (!existingCourse.exists) {
       return res.status(404).json({ error: "Curso no encontrado" });
     }
 
