@@ -8,7 +8,7 @@ export interface Course {
     nivel: NivelCurso;
     modalidad: ModalidadCurso;
     pilar: TipoPilar;
-    precio_actual: number;
+    precio: number;
     precio_anterior?: number;
     cuotas?: {
         monto_cuota: number;
@@ -78,9 +78,9 @@ export const CourseSchema = z.object({
     estado: z.enum(["activo", "inactivo"], {
         message: "Selecciona un estado válido",
     }),
-    precio_actual: z.number()
-        .min(0, "El precio actual no puede ser negativo")
-        .max(999999, "El precio actual no puede exceder $999,999"),
+    precio: z.number()
+        .min(0, "El precio no puede ser negativo")
+        .max(999999, "El precio no puede exceder $999,999"),
     precio_anterior: z.number()
         .min(0, "El precio anterior no puede ser negativo")
         .max(999999, "El precio anterior no puede exceder $999,999")

@@ -5,9 +5,9 @@ export const EbookCreateSchema = z.object({
   title: z.string().min(1, "El título es obligatorio"),
   description: z.string().min(1, "La descripción es obligatoria"),
   author: z.string().min(1, "El autor es obligatorio"),
-  precio_actual: z.number()
-    .min(0, "El precio actual no puede ser negativo")
-    .max(999999, "El precio actual no puede exceder $999,999"),
+  precio: z.number()
+    .min(0, "El precio no puede ser negativo")
+    .max(999999, "El precio no puede exceder $999,999"),
   precio_anterior: z.number()
     .min(0, "El precio anterior no puede ser negativo")
     .max(999999, "El precio anterior no puede exceder $999,999")

@@ -6,7 +6,7 @@ export interface Event {
   fecha: Date | string;
   hora?: string;
   modalidad: "presencial" | "virtual" | "hibrida";
-  precio_actual: number;
+  precio: number;
   precio_anterior?: number;
   cuotas?: {
     monto_cuota: number;
@@ -31,9 +31,9 @@ export const EventCreateSchema = z.object({
   modalidad: z.enum(["presencial", "virtual", "hibrida"], {
     message: "La modalidad debe ser 'presencial', 'virtual' o 'hibrida'",
   }),
-  precio_actual: z.number()
-    .min(0, "El precio actual no puede ser negativo")
-    .max(999999, "El precio actual no puede exceder $999,999"),
+  precio: z.number()
+    .min(0, "El precio no puede ser negativo")
+    .max(999999, "El precio no puede exceder $999,999"),
   precio_anterior: z.number()
     .min(0, "El precio anterior no puede ser negativo")
     .max(999999, "El precio anterior no puede exceder $999,999")
@@ -55,7 +55,6 @@ export const EventCreateSchema = z.object({
   imagen: z.union([z.string(), z.null()]).optional(),
   // Campos legacy para compatibilidad
   price: z.number().optional(),
-  precio: z.number().optional(),
   title: z.string().optional(),
   description: z.string().optional(),
   date: z.string().optional(),
