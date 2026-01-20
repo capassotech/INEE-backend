@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { firestore } from "../../config/firebase";
 import { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { ValidatedCourse, ValidatedUpdateCourse } from "../../types/courses";
-import { validateUser } from "../../utils/utils";
+import { validateUser, normalizeText } from "../../utils/utils";
 import { cache, CACHE_KEYS } from "../../utils/cache";
 
 const collection = firestore.collection("courses");
@@ -132,12 +132,12 @@ export const getAllCourses = async (req: Request, res: Response) => {
     // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
     // Esto es mucho más eficiente que cargar todos los documentos en el frontend
     if (search && search.trim()) {
-      const searchLower = search.toLowerCase().trim();
+      const searchNormalized = normalizeText(search);
       courses = courses.filter((course: any) => {
-        const titulo = (course.titulo || '').toLowerCase();
-        const descripcion = (course.descripcion || '').toLowerCase();
-        const descripcionCorta = (course.descripcion_corta || '').toLowerCase();
-        return titulo.includes(searchLower) || descripcion.includes(searchLower) || descripcionCorta.includes(searchLower);
+        const titulo = normalizeText(course.titulo || '');
+        const descripcion = normalizeText(course.descripcion || course.sobre_curso || '');
+        const descripcionCorta = normalizeText(course.descripcion_corta || '');
+        return titulo.includes(searchNormalized) || descripcion.includes(searchNormalized) || descripcionCorta.includes(searchNormalized);
       });
     }
     
@@ -268,12 +268,12 @@ export const getUserCourses = async (req: Request, res: Response) => {
 
     // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
     if (search && search.trim()) {
-      const searchLower = search.toLowerCase().trim();
+      const searchNormalized = normalizeText(search);
       uniqueCourses = uniqueCourses.filter((course: any) => {
-        const titulo = (course.titulo || '').toLowerCase();
-        const descripcion = (course.descripcion || '').toLowerCase();
-        const descripcionCorta = (course.descripcion_corta || '').toLowerCase();
-        return titulo.includes(searchLower) || descripcion.includes(searchLower) || descripcionCorta.includes(searchLower);
+        const titulo = normalizeText(course.titulo || '');
+        const descripcion = normalizeText(course.descripcion || course.sobre_curso || '');
+        const descripcionCorta = normalizeText(course.descripcion_corta || '');
+        return titulo.includes(searchNormalized) || descripcion.includes(searchNormalized) || descripcionCorta.includes(searchNormalized);
       });
       // Limitar después del filtrado
       uniqueCourses = uniqueCourses.slice(0, limit);
