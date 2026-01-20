@@ -79,7 +79,7 @@ export const createPreference = async (req: Request, res: Response) => {
     const baseUrl = isProduction
       ? process.env.WEBHOOK_BASE_URL || "https://inee-backend.onrender.com"
       : "https://inee-backend-qa.onrender.com";
-    const webhookUrl = `${baseUrl}/api/payments/mercadopago/webhook`;
+    const webhookUrl = `http://localhost:3000/api/payments/mercadopago/webhook`;
 
     const frontendUrl =
       process.env.FRONTEND_URL ||
