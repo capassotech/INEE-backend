@@ -1,20 +1,184 @@
 import { Request, Response } from "express";
-import { firestore } from '../../config/firebase';
+import { firestore } from "../../config/firebase";
 import { Resend } from "resend";
-import { MercadoPagoConfig, Payment, PaymentMethod } from "mercadopago";
-import { createOrder, updateOrderStatus } from "../orders/controller";
+import { MercadoPagoConfig, Payment, Preference } from "mercadopago";
+import { createOrder, updatePreferenceId } from "../orders/controller";
 import crypto from 'crypto';
 import axios from 'axios';
 
 
 const mpClient = new MercadoPagoConfig({
-    accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN || '',
-    options: {
-        timeout: 5000
-    }
+  accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN || "",
+  options: {
+    timeout: 5000,
+  },
 });
 
+const preferenceClient = new Preference(mpClient);
+
 const resend = new Resend(process.env.RESEND_API_KEY);
+
+export const createPreference = async (req: Request, res: Response) => {
+  try {
+    if (!process.env.MERCADO_PAGO_ACCESS_TOKEN) {
+      console.error("❌ MERCADO_PAGO_ACCESS_TOKEN no configurado");
+      return res.status(500).json({
+        success: false,
+        error: "Error de configuración del servidor",
+      });
+    }
+
+    const { items, metadata } = req.body;
+
+    if (
+      !metadata?.userId ||
+      !Array.isArray(items) ||
+      items.length === 0 ||
+      !metadata.totalAmount
+    ) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "Faltan datos de la orden (userId, items, totalAmount) para crear la preferencia",
+      });
+    }
+
+    const userRef = firestore.collection("users").doc(metadata.userId);
+    const userSnap = await userRef.get();
+
+    if (!userSnap.exists) {
+      return res.status(400).json({ success: false, error: "Usuario no encontrado" });
+    }
+
+    if (!(await validateProds(items))) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Productos no encontrados" });
+    }
+
+    const total = await calculateTotalPrice(items);
+    const transactionAmount = total || metadata.totalAmount;
+
+    if (isNaN(transactionAmount) || transactionAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: "El monto de la transacción es inválido",
+        details: `Monto calculado: ${total}, Monto metadata: ${metadata.totalAmount}`,
+      });
+    }
+
+    const { orderId, orderNumber } = await createOrder(
+      metadata.userId,
+      items,
+      transactionAmount,
+      "pending"
+    );
+
+    const isProduction = !process.env.MERCADO_PAGO_ACCESS_TOKEN?.startsWith(
+      "TEST-"
+    );
+    const baseUrl = isProduction
+      ? process.env.WEBHOOK_BASE_URL || "https://inee-backend.onrender.com"
+      : "https://inee-backend-qa.onrender.com";
+    const webhookUrl = `${baseUrl}/api/payments/mercadopago/webhook`;
+
+    const frontendUrl =
+      process.env.FRONTEND_URL ||
+      (isProduction
+        ? "https://ineeoficial.com"
+        : "https://qa.ineeoficial.com");
+
+    const mpItems = items.map((item: any) => {
+      // Priorizar unit_price si viene desde el frontend, si no usar precio/price
+      const rawUnitPrice =
+        item.unit_price !== undefined && item.unit_price !== null
+          ? item.unit_price
+          : item.precio ?? item.price ?? 0;
+
+      const unitPrice = Number(rawUnitPrice);
+
+      if (isNaN(unitPrice) || unitPrice <= 0) {
+        console.warn("⚠️ unit_price inválido en item, será 0 (MP lo rechazará):", {
+          item,
+          rawUnitPrice,
+        });
+      }
+
+      return {
+        id: String(item.id || ""),
+        title: String(item.nombre || item.title || "Producto"),
+        description: String(
+          item.description || `Producto: ${item.nombre || item.title}`
+        ),
+        category_id: "education",
+        quantity: Number(item.quantity || 1),
+        unit_price: unitPrice,
+        currency_id: "ARS",
+      };
+    });
+
+    const successUrl = `${frontendUrl}/checkout/success?order=${orderNumber}`;
+    const pendingUrl = `${frontendUrl}/checkout/pending?order=${orderNumber}`;
+    const failureUrl = `${frontendUrl}/checkout/failure?order=${orderNumber}`;
+
+    console.log("🔗 URLs de retorno Checkout PRO:", {
+      frontendUrl,
+      successUrl,
+      pendingUrl,
+      failureUrl,
+    });
+
+    const preferenceBody: any = {
+      items: mpItems,
+      external_reference: orderNumber,
+      statement_descriptor: "INEE",
+      notification_url: webhookUrl,
+      back_urls: {
+        success: successUrl,
+        pending: pendingUrl,
+        failure: failureUrl,
+      },
+      // auto_return eliminado para evitar validación estricta cuando MP considera inválida la back_url.success
+      metadata: {
+        ...metadata,
+        userId: metadata.userId,
+        orderId,
+        orderNumber,
+        items,
+      },
+    };
+
+    console.log("🧾 Creando preferencia de Mercado Pago Checkout PRO:", {
+      orderId,
+      orderNumber,
+      transactionAmount,
+      items: mpItems.length,
+      frontendUrl,
+      webhookUrl,
+    });
+
+    const preference = await preferenceClient.create({ body: preferenceBody });
+
+    if (preference.id) await updatePreferenceId(orderId, preference.id)
+
+    return res.json({
+      success: true,
+      message: "Preferencia creada correctamente",
+      preferenceId: preference.id,
+      initPoint: (preference as any).init_point,
+      sandboxInitPoint: (preference as any).sandbox_init_point,
+      orderId,
+      orderNumber,
+    });
+  } catch (err: any) {
+    console.error("❌ Error al crear preferencia de Mercado Pago:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Error al crear la preferencia de pago",
+      details: err?.message || "Error inesperado",
+    });
+  }
+};
 
 export const createPayment = async (req: Request, res: Response) => {
     try {
@@ -34,7 +198,7 @@ export const createPayment = async (req: Request, res: Response) => {
             paymentMethodId,
             issuerId,
             bin,
-            cardType, // "debito", "credito", "prepaga"
+            cardType, 
             cardholderName,
             identificationType,
             identificationNumber,
@@ -1126,7 +1290,6 @@ export const handleWebhook = async (req: Request, res: Response) => {
         const xSignature = req.headers['x-signature'] as string;
         const xRequestId = req.headers['x-request-id'] as string;
 
-        // Validar firma del webhook para seguridad
         if (!validateWebhookSignature(req.body, xSignature, xRequestId)) {
             console.warn('⚠️  Firma de webhook inválida - posible intento de fraude');
             return res.sendStatus(401);
@@ -1134,30 +1297,44 @@ export const handleWebhook = async (req: Request, res: Response) => {
 
         console.log('✅ Firma de webhook válida');
 
-        // Extraer información del webhook
         const { type, data } = req.body;
 
-        // Solo procesar notificaciones de pagos
         if (type === 'payment') {
             const paymentId = data.id;
             console.log(`📦 Procesando notificación de pago: ${paymentId}`);
 
-            // Obtener información completa del pago desde MP
             const paymentClient = new Payment(mpClient);
             const payment = await paymentClient.get({ id: paymentId });
 
             console.log(`💳 Pago ${paymentId} - Status: ${payment.status}`);
 
-            // Buscar la orden asociada a este pago
-            const ordersSnapshot = await firestore
-                .collection('orders')
-                .where('paymentId', '==', paymentId)
+            let ordersSnapshot = await firestore
+                .collection("orders")
+                .where("paymentId", "==", paymentId)
                 .limit(1)
                 .get();
 
+            // 2) Si no hay resultados, intentar por external_reference (Checkout PRO)
             if (ordersSnapshot.empty) {
-                console.warn(`⚠️  No se encontró orden para el pago ${paymentId}`);
-                return res.sendStatus(200); // Responder OK para que MP no reintente
+                const externalReference = payment.external_reference;
+                console.log(
+                    `⚠️  No se encontró orden por paymentId=${paymentId}. Probando con external_reference=${externalReference}`
+                );
+
+                if (externalReference) {
+                    ordersSnapshot = await firestore
+                        .collection("orders")
+                        .where("orderNumber", "==", externalReference)
+                        .limit(1)
+                        .get();
+                }
+            }
+
+            if (ordersSnapshot.empty) {
+                console.warn(
+                    `⚠️  No se encontró orden para el pago ${paymentId} (ni por paymentId ni por external_reference)`
+                );
+                return res.sendStatus(200); 
             }
 
             const orderDoc = ordersSnapshot.docs[0];
@@ -1166,12 +1343,12 @@ export const handleWebhook = async (req: Request, res: Response) => {
 
             console.log(`📋 Orden encontrada: ${orderId}`);
 
-            // Actualizar estado de la orden según el pago
             const newStatus = payment.status === 'approved' ? 'paid' : payment.status || 'pending';
 
             await firestore.collection('orders').doc(orderId).update({
                 status: newStatus,
                 paymentStatus: payment.status,
+                paymentId,
                 paymentDetails: {
                     status_detail: payment.status_detail,
                     payment_method_id: payment.payment_method_id,
@@ -1181,12 +1358,10 @@ export const handleWebhook = async (req: Request, res: Response) => {
                 webhookProcessedAt: new Date()
             });
 
-            // Si el pago fue aprobado, asignar productos al usuario
             if (payment.status === 'approved') {
                 console.log(`🎁 Asignando productos al usuario ${orderData.userId}`);
                 await assignProductsToUser(orderData.userId, orderData.items);
 
-                // Enviar email de confirmación
                 try {
                     await sendPaymentConfirmationEmail(orderData.userId, orderId, orderData);
                     console.log(`📧 Email de confirmación enviado a ${orderData.userId}`);
@@ -1198,7 +1373,6 @@ export const handleWebhook = async (req: Request, res: Response) => {
             return res.sendStatus(200);
         }
 
-        // Responder OK para otros tipos de notificaciones
         return res.sendStatus(200);
 
     } catch (err) {
