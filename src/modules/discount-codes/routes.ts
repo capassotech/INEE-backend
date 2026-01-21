@@ -5,6 +5,7 @@ import {
   createDiscountCode,
   updateDiscountCode,
   deleteDiscountCode,
+  validateDiscountCode,
 } from "./controller";
 import {
   authMiddleware,
@@ -22,6 +23,7 @@ import {
 const router = Router();
 
 router.get("/", getAllDiscountCodes);
+router.get("/validate", validateDiscountCode);
 
 router.post(
   "/",
