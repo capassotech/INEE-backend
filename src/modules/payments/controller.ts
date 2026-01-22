@@ -269,7 +269,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
 
             try {
                 console.log("orderData", orderData)
-                await sendPaymentConfirmationEmail(orderData.userId, orderId, orderData.items);
+                await sendPaymentConfirmationEmail(orderData.userId, orderId, orderData);
                 console.log(`📧 Email de confirmación enviado a ${orderData.userId}`);
             } catch (emailError) {
                 console.error('Error enviando email:', emailError);
@@ -460,12 +460,15 @@ const sendPaymentConfirmationEmail = async (userId: string, orderId: string, ord
             return;
         }
 
+        // Extraer items del orderData (puede ser un array directo o estar en orderData.items)
+        const items = Array.isArray(orderData) ? orderData : (orderData.items || []);
+        
         // Construir lista de productos
-        const itemsList = orderData.map((item: any) =>
+        const itemsList = items.map((item: any) =>
             `<li>${item.nombre || item.title} - $${item.precio || item.price || item.unit_price}</li>`
         ).join('');
 
-        let total = orderData.reduce((acc: number, item: any) => acc + (item.unit_price * item.quantity), 0);
+        let total = items.reduce((acc: number, item: any) => acc + ((item.unit_price || item.precio || item.price || 0) * (item.quantity || 1)), 0);
 
         const emailMessage = `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
