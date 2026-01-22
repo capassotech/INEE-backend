@@ -268,7 +268,8 @@ export const handleWebhook = async (req: Request, res: Response) => {
             // await assignProductsToUser(orderData.userId, orderData.items);
 
             try {
-                await sendPaymentConfirmationEmail(orderData.userId, orderId, orderData);
+                console.log("orderData", orderData)
+                await sendPaymentConfirmationEmail(orderData.userId, orderId, orderData.items);
                 console.log(`📧 Email de confirmación enviado a ${orderData.userId}`);
             } catch (emailError) {
                 console.error('Error enviando email:', emailError);
