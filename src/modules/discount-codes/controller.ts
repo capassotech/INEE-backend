@@ -138,3 +138,49 @@ export const deleteDiscountCode = async (
   }
 };
 
+export const validateDiscountCode = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const { codigo } = req.query;
+
+    if (!codigo || typeof codigo !== "string") {
+      return res.status(400).json({ 
+        error: "Código de descuento requerido",
+        valid: false 
+      });
+    }
+
+    // Buscar el código de descuento (case-insensitive)
+    const snapshot = await collection
+      .where("codigo", "==", codigo.toUpperCase().trim())
+      .limit(1)
+      .get();
+
+    if (snapshot.empty) {
+      return res.status(404).json({ 
+        error: "Código de descuento no encontrado",
+        valid: false 
+      });
+    }
+
+    const doc = snapshot.docs[0];
+    const data = doc.data();
+
+    return res.json({
+      id: doc.id,
+      codigo: data.codigo,
+      porcentaje: data.porcentaje,
+      valid: true,
+    });
+  } catch (error) {
+    console.error("validateDiscountCode error:", error);
+    return res
+      .status(500)
+      .json({ 
+        error: "Error al validar el código de descuento",
+        valid: false 
+      });
+  }
+};

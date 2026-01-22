@@ -19,6 +19,7 @@ export interface Course {
     estado: EstadoCurso;
     tags: string[];
     id_modulos: string[];
+    id_avales?: string[];  // Array de IDs de avales
 }
 
 export enum NivelCurso {
@@ -53,9 +54,10 @@ export const CourseSchema = z.object({
         .min(1, "La descripción corta del curso es obligatoria")
         .max(200, "La descripción corta no puede exceder 200 caracteres")
         .trim(),
-    sobre_curso: z.string()
-        .min(1, "El sobre del curso es obligatorio")
-        .max(2000, "El sobre del curso no puede exceder 2000 caracteres"),
+    // descripcion_larga: z.string()
+    //     .min(1, "El sobre del curso es obligatorio")
+    //     .max(2000, "El sobre del curso no puede exceder 2000 caracteres")
+    //     .trim(),
     metas: z.array(z.string())
         .min(1, "Las metas son obligatorias"),
     aprendizaje: z.array(z.string())
@@ -115,6 +117,14 @@ export const CourseSchema = z.object({
         .min(1, "Los tags no pueden estar vacíos"))
         .max(20, "No puede tener más de 20 tags")
         .default([]),
+    id_avales: z.array(z.string()
+        .min(1, "Los IDs de avales no pueden estar vacíos"))
+        .max(50, "No puede tener más de 50 avales")
+        .default([])
+        .optional(),
+    // Campo legacy para compatibilidad
+    descripcion: z.string().optional(),
+    // Campo legacy para compatibilidad con el antiguo formato de aval
     aval: z.object({
         titulo: z.string()
             .min(1, "El título de la aval es obligatorio")
@@ -130,9 +140,7 @@ export const CourseSchema = z.object({
             .min(1, "La URL del archivo es obligatoria")
             .max(2000, "La URL no puede exceder 2000 caracteres")
             .trim(),
-    }),
-    // Campo legacy para compatibilidad
-    descripcion: z.string().optional(),
+    }).optional(),
 });
 
 export const UpdateCourseSchema = CourseSchema.partial();

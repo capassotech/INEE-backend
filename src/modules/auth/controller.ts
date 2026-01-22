@@ -608,16 +608,47 @@ export const validateToken = async (req: Request, res: Response) => {
       });
     }
 
+    console.log("[AUTH] Validando token de la tienda...");
+    console.log("[AUTH] Proyecto Firebase configurado en backend:", process.env.FIREBASE_PROJECT_ID);
+
     // Validar el token con Firebase Admin
-    const decodedToken = await firebaseAuth.verifyIdToken(idToken);
+    let decodedToken;
+    try {
+      decodedToken = await firebaseAuth.verifyIdToken(idToken);
+      console.log("[AUTH] Token validado exitosamente. UID:", decodedToken.uid);
+    } catch (verifyError: any) {
+      console.error("[AUTH] Error al verificar token:", verifyError.code, verifyError.message);
+      
+      // Si el error es porque el token es de otro proyecto, dar un mensaje más claro
+      if (verifyError.code === "auth/invalid-id-token" || verifyError.code === "auth/argument-error") {
+        console.error("[AUTH] El token puede ser de un proyecto de Firebase diferente");
+        return res.status(401).json({
+          error: "Token inválido",
+          details: "El token no pertenece al proyecto de Firebase configurado en el backend. Verifica que el backend esté configurado con el mismo proyecto que la tienda.",
+          code: verifyError.code,
+        });
+      }
+
+      if (verifyError.code === "auth/id-token-expired") {
+        return res.status(401).json({
+          error: "Token expirado",
+          details: "El token de autenticación ha expirado. Por favor, vuelve a iniciar sesión en la tienda.",
+        });
+      }
+
+      throw verifyError;
+    }
+
     const uid = decodedToken.uid;
 
     // Verificar que el usuario existe en Firestore
     const userDoc = await firestore.collection("users").doc(uid).get();
 
     if (!userDoc.exists) {
+      console.error("[AUTH] Usuario no encontrado en Firestore:", uid);
       return res.status(404).json({
         error: "Usuario no encontrado",
+        details: `No se encontró el usuario con UID ${uid} en la base de datos.`,
       });
     }
 
@@ -625,16 +656,20 @@ export const validateToken = async (req: Request, res: Response) => {
 
     // Verificar que el usuario esté activo
     if (!userData?.activo) {
+      console.error("[AUTH] Usuario desactivado:", uid);
       return res.status(403).json({
         error: "Usuario desactivado. Contacte al administrador",
       });
     }
 
     // Generar customToken para la plataforma
+    console.log("[AUTH] Generando customToken para la plataforma del estudiante...");
     const customToken = await firebaseAuth.createCustomToken(uid, {
       role: userData.role,
       email: userData.email,
     });
+
+    console.log("[AUTH] Token validado y customToken generado exitosamente");
 
     return res.json({
       message: "Token validado exitosamente",
@@ -648,17 +683,21 @@ export const validateToken = async (req: Request, res: Response) => {
       },
     });
   } catch (error: any) {
-    console.error("Error validando token:", error);
+    console.error("[AUTH] Error validando token:", error);
+    console.error("[AUTH] Error code:", error.code);
+    console.error("[AUTH] Error message:", error.message);
 
     if (error.code === "auth/id-token-expired") {
       return res.status(401).json({
         error: "Token expirado",
+        details: "El token de autenticación ha expirado. Por favor, vuelve a iniciar sesión en la tienda.",
       });
     }
 
     if (error.code === "auth/invalid-id-token") {
       return res.status(401).json({
         error: "Token inválido",
+        details: "El token no es válido. Puede ser que el token sea de un proyecto de Firebase diferente al configurado en el backend.",
       });
     }
 
@@ -666,6 +705,7 @@ export const validateToken = async (req: Request, res: Response) => {
       error: "Error interno del servidor",
       details:
         process.env.NODE_ENV === "development" ? error.message : undefined,
+      code: error.code,
     });
   }
 };
