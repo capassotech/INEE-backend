@@ -106,9 +106,10 @@ export const createPreference = async (req: Request, res: Response) => {
       };
     });
 
-    const successUrl = `${frontendUrl}/checkout/success?order=${orderNumber}`;
-    const pendingUrl = `${frontendUrl}/checkout/pending?order=${orderNumber}`;
-    const failureUrl = `${frontendUrl}/checkout/failure?order=${orderNumber}`;
+    const cleanFrontendUrl = frontendUrl.endsWith('/') ? frontendUrl.slice(0, -1) : frontendUrl;
+    const successUrl = `${cleanFrontendUrl}/checkout/success?order=${orderNumber}`;
+    const pendingUrl = `${cleanFrontendUrl}/checkout/pending?order=${orderNumber}`;
+    const failureUrl = `${cleanFrontendUrl}/checkout/failure?order=${orderNumber}`;
 
     console.log("🔗 URLs de retorno Checkout PRO:", {
       frontendUrl,
@@ -127,6 +128,7 @@ export const createPreference = async (req: Request, res: Response) => {
         pending: pendingUrl,
         failure: failureUrl,
       },
+      auto_return: "approved", 
       metadata: {
         ...metadata,
         userId: metadata.userId,
@@ -460,13 +462,31 @@ const sendPaymentConfirmationEmail = async (userId: string, orderId: string, ord
             return;
         }
 
-        // Extraer items del orderData (puede ser un array directo o estar en orderData.items)
         const items = Array.isArray(orderData) ? orderData : (orderData.items || []);
         
-        // Construir lista de productos
-        const itemsList = items.map((item: any) =>
-            `<li>${item.nombre || item.title} - $${item.precio || item.price || item.unit_price}</li>`
-        ).join('');
+        const generateProductLink = (item: any): string => {
+            const baseUrl = 'https://estudiante.ineeoficial.com';
+            const itemId = item.id || item.productId;
+            const pictureUrl = item.picture_url || item.imagen || item.image || '';
+            
+            if (!itemId) return baseUrl; 
+            
+            const pictureUrlLower = String(pictureUrl).toLowerCase();
+            
+            if (pictureUrlLower.includes('formaciones')) return `${baseUrl}/curso/${itemId}`;
+            else if (pictureUrlLower.includes('ebooks')) return `${baseUrl}/ebook/${itemId}`;
+            else if (pictureUrlLower.includes('eventos')) return `${baseUrl}/evento/${itemId}`;
+            
+            return baseUrl;
+        };
+        
+        const itemsList = items.map((item: any) => {
+            const productName = item.nombre || item.title || 'Producto';
+            const productPrice = item.precio || item.price || item.unit_price || 0;
+            const productLink = generateProductLink(item);
+            
+            return `<li><a href="${productLink}" style="color: #00a650; text-decoration: none;">${productName}</a> - $${productPrice}</li>`;
+        }).join('');
 
         let total = items.reduce((acc: number, item: any) => acc + ((item.unit_price || item.precio || item.price || 0) * (item.quantity || 1)), 0);
 
@@ -485,9 +505,10 @@ const sendPaymentConfirmationEmail = async (userId: string, orderId: string, ord
                 </div>
 
                 <h3>Productos adquiridos:</h3>
-                <ul>${itemsList}</ul>
+                <ul style="list-style: none; padding-left: 0;">${itemsList}</ul>
 
-                <p>Ya puedes acceder a tus productos en tu cuenta de INEE.</p>
+                <p>Haz clic en cada producto para acceder directamente a tu contenido.</p>
+                <p>También puedes acceder a todos tus productos desde tu <a href="https://estudiante.ineeoficial.com" style="color: #00a650; text-decoration: none;">cuenta de estudiante</a>.</p>
                 
                 <p style="margin-top: 30px;">Gracias por tu compra,<br><strong>Equipo INEE</strong></p>
             </div>
