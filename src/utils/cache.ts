@@ -156,5 +156,6 @@ export const CACHE_KEYS = {
   EVENTS: 'events',
   EBOOKS: 'ebooks',
   PROFESSORS: 'professors',
+  ORDERS: 'orders',
 } as const;
 
