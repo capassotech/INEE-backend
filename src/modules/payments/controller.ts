@@ -178,87 +178,101 @@ export const handleWebhook = async (req: Request, res: Response) => {
         const xSignature = req.headers['x-signature'] as string;
         const xRequestId = req.headers['x-request-id'] as string;
 
-        if (!validateWebhookSignature(req.body, xSignature, xRequestId)) {
-            console.warn('⚠️  Firma de webhook inválida - posible intento de fraude');
-            return res.sendStatus(401);
+        if (xSignature && xRequestId) {
+            if (!validateWebhookSignature(req.body, xSignature, xRequestId)) {
+                console.warn('⚠️  Firma de webhook inválida - posible intento de fraude');
+                return res.sendStatus(401);
+            }
+            console.log('✅ Firma de webhook válida');
+        } else {
+            console.log('⚠️  Webhook sin firma (puede ser formato antiguo o merchant_order)');
+        }
+        
+        let paymentId: string | null = null;
+        const body = req.body;
+
+        if (body.type === 'payment' && body.data?.id) paymentId = String(body.data.id);
+        else if (body.topic === 'payment' && body.resource) paymentId = String(body.resource);
+        else if (body.topic === 'merchant_order') {
+            console.log('📦 Webhook de merchant_order recibido, ignorando (solo procesamos payments)');
+            return res.sendStatus(200);
+        } else {
+            console.warn('⚠️  Formato de webhook desconocido:', body);
+            return res.sendStatus(200);
         }
 
-        console.log('✅ Firma de webhook válida');
-
-        const { type, data } = req.body;
-
-        if (type === 'payment') {
-            const paymentId = data.id;
-            console.log(`📦 Procesando notificación de pago: ${paymentId}`);
-
-            const paymentClient = new Payment(mpClient);
-            const payment = await paymentClient.get({ id: paymentId });
-
-            console.log(`💳 Pago ${paymentId} - Status: ${payment.status}`);
-
-            let ordersSnapshot = await firestore
-                .collection("orders")
-                .where("paymentId", "==", paymentId)
-                .limit(1)
-                .get();
-
-            if (ordersSnapshot.empty) {
-                const externalReference = payment.external_reference;
-                console.log(
-                    `⚠️  No se encontró orden por paymentId=${paymentId}. Probando con external_reference=${externalReference}`
-                );
-
-                if (externalReference) {
-                    ordersSnapshot = await firestore
-                        .collection("orders")
-                        .where("orderNumber", "==", externalReference)
-                        .limit(1)
-                        .get();
-                }
-            }
-
-            if (ordersSnapshot.empty) {
-                console.warn(
-                    `⚠️  No se encontró orden para el pago ${paymentId} (ni por paymentId ni por external_reference)`
-                );
-                return res.sendStatus(200); 
-            }
-
-            const orderDoc = ordersSnapshot.docs[0];
-            const orderId = orderDoc.id;
-            const orderData = orderDoc.data();
-
-            console.log(`📋 Orden encontrada: ${orderId}`);
-
-            const newStatus = payment.status === 'approved' ? 'paid' : payment.status || 'pending';
-
-            await firestore.collection('orders').doc(orderId).update({
-                status: newStatus,
-                paymentStatus: payment.status,
-                paymentId,
-                paymentDetails: {
-                    status_detail: payment.status_detail,
-                    payment_method_id: payment.payment_method_id,
-                    payment_type_id: payment.payment_type_id,
-                },
-                updatedAt: new Date(),
-                webhookProcessedAt: new Date()
-            });
-
-            if (payment.status === 'approved') {
-                console.log("pago aprobado, enviando mail de confirmacion");
-                // console.log(`🎁 Asignando productos al usuario ${orderData.userId}`);
-                // await assignProductsToUser(orderData.userId, orderData.items);
-
-                try {
-                    await sendPaymentConfirmationEmail(orderData.userId, orderId, orderData);
-                    console.log(`📧 Email de confirmación enviado a ${orderData.userId}`);
-                } catch (emailError) {
-                    console.error('Error enviando email:', emailError);
-                }
-            }
-
+        if (!paymentId) {
+            console.warn('⚠️  No se pudo extraer el payment ID del webhook');
             return res.sendStatus(200);
+        }
+
+        console.log(`📦 Procesando notificación de pago: ${paymentId}`);
+
+        const paymentClient = new Payment(mpClient);
+        const payment = await paymentClient.get({ id: paymentId });
+
+        console.log(`💳 Pago ${paymentId} - Status: ${payment.status}`);
+
+        let ordersSnapshot = await firestore
+            .collection("orders")
+            .where("paymentId", "==", paymentId)
+            .limit(1)
+            .get();
+
+        if (ordersSnapshot.empty) {
+            const externalReference = payment.external_reference;
+            console.log(
+                `⚠️  No se encontró orden por paymentId=${paymentId}. Probando con external_reference=${externalReference}`
+            );
+
+            if (externalReference) {
+                ordersSnapshot = await firestore
+                    .collection("orders")
+                    .where("orderNumber", "==", externalReference)
+                    .limit(1)
+                    .get();
+            }
+        }
+
+        if (ordersSnapshot.empty) {
+            console.warn(
+                `⚠️  No se encontró orden para el pago ${paymentId} (ni por paymentId ni por external_reference)`
+            );
+            return res.sendStatus(200); 
+        }
+
+        const orderDoc = ordersSnapshot.docs[0];
+        const orderId = orderDoc.id;
+        const orderData = orderDoc.data();
+
+        console.log(`📋 Orden encontrada: ${orderId}`);
+
+        const newStatus = payment.status === 'approved' ? 'paid' : payment.status || 'pending';
+
+        await firestore.collection('orders').doc(orderId).update({
+            status: newStatus,
+            paymentStatus: payment.status,
+            paymentId,
+            paymentDetails: {
+                status_detail: payment.status_detail,
+                payment_method_id: payment.payment_method_id,
+                payment_type_id: payment.payment_type_id,
+            },
+            updatedAt: new Date(),
+            webhookProcessedAt: new Date()
+        });
+
+        if (payment.status === 'approved') {
+            console.log("pago aprobado, enviando mail de confirmacion");
+            // console.log(`🎁 Asignando productos al usuario ${orderData.userId}`);
+            // await assignProductsToUser(orderData.userId, orderData.items);
+
+            try {
+                await sendPaymentConfirmationEmail(orderData.userId, orderId, orderData);
+                console.log(`📧 Email de confirmación enviado a ${orderData.userId}`);
+            } catch (emailError) {
+                console.error('Error enviando email:', emailError);
+            }
         }
 
         return res.sendStatus(200);
@@ -272,6 +286,11 @@ export const handleWebhook = async (req: Request, res: Response) => {
 const validateWebhookSignature = (body: any, signature: string, requestId: string): boolean => {
     const secret = process.env.MERCADO_PAGO_WEBHOOK_SECRET || '';
 
+    if (!secret) {
+        console.warn('⚠️  MERCADO_PAGO_WEBHOOK_SECRET no configurado, saltando validación');
+        return true; // Si no hay secret configurado, permitir (solo en desarrollo)
+    }
+
     const parts = signature.split(',');
     let ts = '';
     let hash = '';
@@ -282,7 +301,20 @@ const validateWebhookSignature = (body: any, signature: string, requestId: strin
         if (key.trim() === 'v1') hash = value;
     });
 
-    const manifest = `id:${body.data.id};request-id:${requestId};ts:${ts};`;
+    let resourceId: string | null = null;
+    
+    if (body.type === 'payment' && body.data?.id) {
+        resourceId = String(body.data.id);
+    } else if (body.topic === 'payment' && body.resource) {
+        resourceId = String(body.resource);
+    }
+
+    if (!resourceId) {
+        console.warn('⚠️  No se pudo extraer el ID del webhook para validar la firma');
+        return false;
+    }
+
+    const manifest = `id:${resourceId};request-id:${requestId};ts:${ts};`;
     const hmac = crypto.createHmac('sha256', secret);
     hmac.update(manifest);
     const calculatedHash = hmac.digest('hex');
