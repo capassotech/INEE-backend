@@ -110,21 +110,31 @@ export const getExamenesRealizadosByUsuarioYFormacion = async (req: Request, res
   }
 };
 
-// Obtener examen realizado por ID
+// Obtener todos los exámenes realizados por id_examen
 export const getExamenRealizadoById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    const doc = await collection.doc(id).get();
+    const snapshot = await collection
+      .where('id_examen', '==', id)
+      .get();
 
-    if (!doc.exists) {
-      return res.status(404).json({ message: "Examen realizado no encontrado" });
+    if (snapshot.empty) {
+      return res.json({ examenes: [] });
     }
 
-    return res.json({
+    const examenes = snapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data()
+    }));
+
+    examenes.sort((a: any, b: any) => {
+      const dateA = new Date(a.fecha_realizado || a.createdAt || 0).getTime();
+      const dateB = new Date(b.fecha_realizado || b.createdAt || 0).getTime();
+      return dateB - dateA;
     });
+
+    return res.json({ examenes });
   } catch (error: any) {
     console.error("Error al obtener examen realizado:", error);
     return res.status(500).json({ 
