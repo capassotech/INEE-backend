@@ -374,6 +374,21 @@ export const createCourse = async (
       }
     }
 
+    // Verificar que todos los avales existen (solo si hay avales)
+    if (courseData.id_avales && courseData.id_avales.length > 0) {
+      for (const avalId of courseData.id_avales) {
+        const avalExists = await firestore
+          .collection("avales")
+          .doc(avalId)
+          .get();
+        if (!avalExists.exists) {
+          return res.status(404).json({
+            error: `El aval con ID "${avalId}" no existe`,
+          });
+        }
+      }
+    }
+
     const docRef = await collection.add({ ...courseData });
 
     // ✅ CACHÉ: Invalidar caché de cursos al crear uno nuevo
@@ -439,6 +454,21 @@ export const updateCourse = async (
         if (!moduloExists.exists) {
           return res.status(404).json({
             error: `El módulo con ID "${moduloId}" no existe`,
+          });
+        }
+      }
+    }
+
+    // Verificar que todos los avales existen (solo si se están actualizando avales)
+    if (updateData.id_avales && updateData.id_avales.length > 0) {
+      for (const avalId of updateData.id_avales) {
+        const avalExists = await firestore
+          .collection("avales")
+          .doc(avalId)
+          .get();
+        if (!avalExists.exists) {
+          return res.status(404).json({
+            error: `El aval con ID "${avalId}" no existe`,
           });
         }
       }

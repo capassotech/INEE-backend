@@ -98,6 +98,30 @@ export const generarCertificado = async (req: AuthenticatedRequest, res: Respons
       });
     }
 
+    // Verificar si el curso tiene examen asociado
+    const examenesSnapshot = await firestore
+      .collection('examenes')
+      .where('id_formacion', '==', cursoId)
+      .where('estado', '==', 'activo')
+      .get();
+
+    if (!examenesSnapshot.empty) {
+      // El curso tiene examen, verificar que el usuario lo haya aprobado
+      const examenesRealizadosSnapshot = await firestore
+        .collection('examenes_realizados')
+        .where('id_usuario', '==', userId)
+        .where('id_formacion', '==', cursoId)
+        .where('aprobado', '==', true)
+        .get();
+
+      if (examenesRealizadosSnapshot.empty) {
+        return res.status(400).json({
+          error: 'Debes aprobar el examen final para obtener el certificado',
+          requiereExamen: true,
+        });
+      }
+    }
+
     // Generar ID único para el certificado
     const certificadoId = randomUUID();
 
