@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { firestore } from '../../config/firebase';
 import { Resend } from "resend";
-import { MercadoPagoConfig, Payment, PaymentMethod } from "mercadopago";
+import { MercadoPagoConfig, Payment, PaymentMethod, Preference } from "mercadopago";
 import { createOrder, updateOrderStatus } from "../orders/controller";
 import crypto from 'crypto';
 import axios from 'axios';
@@ -93,7 +93,11 @@ export const createPayment = async (req: Request, res: Response) => {
         }
 
         const total = await calculateTotalPrice(items);
-        const transactionAmount = total || metadata.totalAmount;
+        // Si hay un descuento aplicado (discountAmount en metadata), usar el totalAmount que ya tiene el descuento aplicado
+        // De lo contrario, usar el total calculado desde los items
+        const transactionAmount = (metadata.discountAmount && metadata.discountAmount > 0) 
+            ? metadata.totalAmount 
+            : (total || metadata.totalAmount);
 
         if (isNaN(transactionAmount) || transactionAmount <= 0) {
             return res.status(400).json({
@@ -1431,4 +1435,116 @@ const getPaymentErrorMessage = (statusDetail: string): string => {
     };
 
     return errorMessages[statusDetail] || 'El pago no pudo ser procesado. Intenta con otro medio de pago';
+};
+
+export const createPreference = async (req: Request, res: Response) => {
+    try {
+        if (!process.env.MERCADO_PAGO_ACCESS_TOKEN) {
+            console.error('❌ MERCADO_PAGO_ACCESS_TOKEN no configurado');
+            return res.status(500).json({
+                success: false,
+                error: "Error de configuración del servidor"
+            });
+        }
+
+        const {
+            userId,
+            totalPrice,
+            items,
+            payer,
+            metadata,
+            description,
+            external_reference
+        } = req.body;
+
+        if (!userId || !totalPrice || !items || !Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Faltan datos requeridos (userId, totalPrice, items)"
+            });
+        }
+
+        // Usar el totalPrice que ya tiene el descuento aplicado si existe en metadata
+        const finalAmount = (metadata?.discountAmount && metadata.discountAmount > 0)
+            ? metadata.totalAmount
+            : totalPrice;
+
+        if (isNaN(finalAmount) || finalAmount <= 0) {
+            return res.status(400).json({
+                success: false,
+                error: "El monto total es inválido"
+            });
+        }
+
+        const preference = new Preference(mpClient);
+
+        // Calcular el total de los items para ajustar si hay descuento
+        const itemsTotal = items.reduce((sum, item) => sum + (Number(item.unit_price) * Number(item.quantity || 1)), 0);
+        
+        // Si hay descuento y el total de items no coincide con el total final, ajustar los items
+        let adjustedItems = items;
+        if (metadata?.discountAmount && metadata.discountAmount > 0 && Math.abs(itemsTotal - finalAmount) > 0.01) {
+            // Agregar un item de descuento negativo o ajustar proporcionalmente
+            const discountRatio = finalAmount / itemsTotal;
+            adjustedItems = items.map((item: any) => ({
+                ...item,
+                unit_price: Number((Number(item.unit_price) * discountRatio).toFixed(2))
+            }));
+        }
+
+        const preferenceData = {
+            items: adjustedItems.map((item: any) => ({
+                id: String(item.id),
+                title: String(item.title),
+                description: String(item.description || `Producto: ${item.title}`),
+                quantity: Number(item.quantity || 1),
+                unit_price: Number(item.unit_price),
+                picture_url: item.picture_url,
+                category_id: 'education'
+            })),
+            payer: payer ? {
+                name: payer.first_name,
+                surname: payer.last_name,
+                email: payer.email,
+                phone: payer.phone ? {
+                    area_code: payer.phone.area_code,
+                    number: payer.phone.number
+                } : undefined
+            } : undefined,
+            external_reference: external_reference || `pref_${Date.now()}_${userId}`,
+            notification_url: undefined, // Se puede agregar si se necesita webhook para preferencias
+            statement_descriptor: "INEE",
+            metadata: metadata || {},
+            back_urls: {
+                success: `${req.headers.origin || 'https://ineeoficial.com'}/checkout?status=approved`,
+                failure: `${req.headers.origin || 'https://ineeoficial.com'}/checkout?status=rejected`,
+                pending: `${req.headers.origin || 'https://ineeoficial.com'}/checkout?status=pending`
+            },
+            auto_return: "approved" as const
+        };
+
+        const response = await preference.create({ body: preferenceData });
+
+        if (!response || !response.init_point) {
+            return res.status(500).json({
+                success: false,
+                error: "No se pudo crear la preferencia de pago"
+            });
+        }
+
+        return res.json({
+            success: true,
+            init_point: response.init_point,
+            sandbox_init_point: response.sandbox_init_point,
+            id: response.id
+        });
+    } catch (error: any) {
+        console.error("Error creando preferencia de Mercado Pago:", error);
+        return res.status(500).json({
+            success: false,
+            error: "Error al crear la preferencia de pago",
+            errorMessage: error.message || "Error desconocido",
+            details: error.cause || undefined
+        });
+    }
 };
