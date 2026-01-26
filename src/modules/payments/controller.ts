@@ -1396,9 +1396,8 @@ export const handleWebhook = async (req: Request, res: Response) => {
         });
 
         if (payment.status === 'approved') {
-            console.log("pago aprobado, enviando mail de confirmacion");
-            // console.log(`🎁 Asignando productos al usuario ${orderData.userId}`);
-            // await assignProductsToUser(orderData.userId, orderData.items);
+            console.log(`🎁 Asignando productos al usuario ${orderData.userId}`);
+            await assignProductsToUser(orderData.userId, orderData.items);
 
             try {
                 console.log("orderData", orderData)
