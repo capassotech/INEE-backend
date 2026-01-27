@@ -1,10 +1,12 @@
 import { Request, Response } from 'express';
 import { AuthenticatedRequest } from '../../middleware/authMiddleware';
 import { firestore } from '../../config/firebase';
-import PDFDocument from 'pdfkit';
+import puppeteer from 'puppeteer';
 import QRCode from 'qrcode';
 import { randomUUID } from 'crypto';
 import { CertificadoData, CertificadoValidationResponse } from '../../types/certificates';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 /**
  * Generar certificado PDF
@@ -164,140 +166,76 @@ export const generarCertificado = async (req: AuthenticatedRequest, res: Respons
         fechaEmision: fechaEmision,
       });
 
-    // Generar PDF - A4 estándar en horizontal
-    const doc = new PDFDocument({
-      size: 'A4',
-      layout: 'landscape', // Horizontal
-      margin: 50,
-    });
+    // Formatear fecha de finalización para el texto principal: "9 / Septiembre / 2026"
+    const dia = fechaFinalizacion.getDate();
+    const mes = fechaFinalizacion.toLocaleDateString('es-AR', { month: 'long' });
+    const año = fechaFinalizacion.getFullYear();
+    const mesCapitalizado = mes.charAt(0).toUpperCase() + mes.slice(1);
+    const fechaFormateada = `${dia} / ${mesCapitalizado} / ${año}`;
+
+    // Formatear fecha para el QR: "22/09/2026"
+    const diaQR = fechaFinalizacion.getDate().toString().padStart(2, '0');
+    const mesQR = (fechaFinalizacion.getMonth() + 1).toString().padStart(2, '0');
+    const añoQR = fechaFinalizacion.getFullYear();
+    const fechaQR = `${diaQR}/${mesQR}/${añoQR}`;
+
+    // Leer plantilla HTML
+    // En desarrollo: __dirname = src/modules/certificates
+    // En producción: __dirname = dist/modules/certificates
+    const templatePath = join(__dirname, 'templates', 'certificado.html');
+    let htmlTemplate: string;
+    
+    try {
+      htmlTemplate = readFileSync(templatePath, 'utf-8');
+    } catch (error) {
+      // Si no se encuentra en dist, intentar en src (desarrollo)
+      const srcPath = templatePath.replace(/dist\//, 'src/');
+      htmlTemplate = readFileSync(srcPath, 'utf-8');
+    }
+
+    // Reemplazar placeholders en la plantilla
+    htmlTemplate = htmlTemplate
+      .replace(/\{\{qrCodeUrl\}\}/g, qrCodeDataUrl)
+      .replace(/\{\{nombreCompleto\}\}/g, nombreCompleto)
+      .replace(/\{\{dni\}\}/g, dni)
+      .replace(/\{\{nombreCurso\}\}/g, nombreCurso)
+      .replace(/\{\{fechaFinalizacion\}\}/g, fechaFormateada)
+      .replace(/\{\{fechaQR\}\}/g, fechaQR);
 
     // Configurar headers para descargar el PDF
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="certificado-${nombreCurso.replace(/\s+/g, '-')}.pdf"`);
 
-    // Pipe del PDF a la respuesta
-    doc.pipe(res);
-
-    const margin = 50;
-    const pageWidth = doc.page.width;
-    const pageHeight = doc.page.height;
-    const contentWidth = pageWidth - (margin * 2);
-
-    // QR Code en la esquina superior izquierda
-    const qrCodeBuffer = Buffer.from(qrCodeDataUrl.split(',')[1], 'base64');
-    const qrSize = 90;
-    const qrX = margin;
-    const qrY = margin;
-    doc.image(qrCodeBuffer, qrX, qrY, { width: qrSize, height: qrSize });
-
-    // Calcular posición inicial después del QR
-    let currentY = qrY + qrSize + 30;
-
-    // TÍTULO DEL CERTIFICADO - dividido en tres líneas
-    doc.fontSize(42)
-       .font('Helvetica-Bold')
-       .fillColor('#000000');
-    doc.text('CERTIFICADO', margin, currentY, { 
-      align: 'center', 
-      width: contentWidth 
-    });
-    currentY += 50;
-    
-    doc.fontSize(22)
-       .font('Helvetica-Bold')
-       .fillColor('#000000');
-    doc.text('DE', margin, currentY, { 
-      align: 'center', 
-      width: contentWidth 
-    });
-    currentY += 40;
-    
-    doc.fontSize(42)
-       .font('Helvetica-Bold')
-       .fillColor('#000000');
-    doc.text('FINALIZACIÓN', margin, currentY, { 
-      align: 'center', 
-      width: contentWidth 
-    });
-    currentY += 60;
-    
-    // TEXTO "INEE certifica que"
-    doc.fontSize(15)
-       .font('Helvetica')
-       .fillColor('#000000');
-    doc.text('INEE certifica que', margin, currentY, { 
-      align: 'center', 
-      width: contentWidth 
-    });
-    currentY += 35;
-
-    // NOMBRE DEL ESTUDIANTE
-    doc.fontSize(26)
-       .font('Helvetica-Bold')
-       .fillColor('#000000');
-    doc.text(nombreCompleto.toUpperCase(), margin, currentY, { 
-      align: 'center',
-      width: contentWidth
-    });
-    currentY += 35;
-
-    // DNI
-    doc.fontSize(13)
-       .font('Helvetica')
-       .fillColor('#000000');
-    doc.text(`DNI: ${dni}`, margin, currentY, { 
-      align: 'center', 
-      width: contentWidth 
-    });
-    currentY += 30;
-
-    // TEXTO SOBRE FINALIZACIÓN
-    doc.fontSize(15)
-       .font('Helvetica')
-       .fillColor('#000000');
-    doc.text('ha finalizado satisfactoriamente el programa de', margin, currentY, { 
-      align: 'center', 
-      width: contentWidth 
-    });
-    currentY += 35;
-
-    // NOMBRE DEL CURSO
-    doc.fontSize(18)
-       .font('Helvetica-Bold')
-       .fillColor('#000000');
-    doc.text(nombreCurso.toUpperCase(), margin, currentY, {
-      align: 'center',
-      width: contentWidth,
-      lineGap: 6
-    });
-    currentY += 50;
-
-    // Fecha de finalización
-    const fechaFormateada = fechaFinalizacion.toLocaleDateString('es-AR', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-    doc.fontSize(13)
-       .font('Helvetica')
-       .fillColor('#000000');
-    doc.text(`Fecha de finalización: ${fechaFormateada}`, margin, currentY, { 
-      align: 'center', 
-      width: contentWidth 
+    // Generar PDF usando Puppeteer
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
 
-    // Nota sobre validación - al final de la página
-    const validationNoteY = pageHeight - margin - 20;
-    doc.fontSize(9)
-       .font('Helvetica')
-       .fillColor('#000000');
-    doc.text('Este certificado puede ser validado escaneando el código QR', margin, validationNoteY, { 
-      align: 'center',
-      width: contentWidth
-    });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(htmlTemplate, { waitUntil: 'networkidle0' });
+      
+      const pdfBuffer = await page.pdf({
+        format: 'A4',
+        landscape: false,
+        printBackground: true,
+        margin: {
+          top: '0',
+          right: '0',
+          bottom: '0',
+          left: '0'
+        }
+      });
 
-    // Finalizar el PDF
-    doc.end();
+      await browser.close();
+
+      // Enviar PDF al cliente
+      res.send(pdfBuffer);
+    } catch (pdfError) {
+      await browser.close();
+      throw pdfError;
+    }
   } catch (error: any) {
     console.error('Error al generar certificado:', error);
     return res.status(500).json({
