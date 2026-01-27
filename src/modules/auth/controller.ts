@@ -288,7 +288,90 @@ export const googleRegister = async (req: Request, res: Response) => {
     }
 
     const decodedToken = await firebaseAuth.verifyIdToken(idToken);
-    const { uid, picture } = decodedToken;
+    const { uid, picture, email: googleEmail } = decodedToken;
+
+    const finalEmail = googleEmail || email;
+
+    if (!finalEmail) {
+      return res.status(400).json({
+        error: "No se pudo determinar el email del usuario de Google",
+      });
+    }
+
+    // 0) Verificar en Firebase Auth si ya hay una cuenta con este email
+    try {
+      const existingAuthUser = await firebaseAuth.getUserByEmail(finalEmail);
+
+      if (existingAuthUser) {
+        const providers = existingAuthUser.providerData.map(
+          (p) => p.providerId
+        );
+
+        const hasPasswordProvider = providers.includes("password");
+        const hasGoogleProvider = providers.includes("google.com");
+
+        // Si tiene password (con o sin Google), forzamos a que use el login clásico
+        if (hasPasswordProvider && !hasGoogleProvider) {
+          return res.status(409).json({
+            error:
+              "Ya existe una cuenta registrada con este email. Iniciá sesión con tu correo y contraseña.",
+            code: "EMAIL_ALREADY_REGISTERED",
+          });
+        }
+
+        // Si tiene password y Google linkeados, también pedimos que use el flujo normal
+        if (hasPasswordProvider && hasGoogleProvider) {
+          return res.status(409).json({
+            error:
+              "Este email ya tiene una cuenta con contraseña. Iniciá sesión con tu correo y contraseña.",
+            code: "EMAIL_ALREADY_REGISTERED_WITH_PASSWORD",
+          });
+        }
+      }
+    } catch (authError: any) {
+      // Si el error es user-not-found, seguimos con el flujo normal; otros errores se loguean y continuamos.
+      if (authError.code !== "auth/user-not-found") {
+        console.error("Error verificando usuario en Firebase Auth:", authError);
+      }
+    }
+
+    // 1) Verificar si ya existe un usuario con ese email (cualquier tipo de registro)
+    const existingByEmailSnapshot = await firestore
+      .collection("users")
+      .where("email", "==", finalEmail)
+      .limit(1)
+      .get();
+
+    if (!existingByEmailSnapshot.empty) {
+      const existingDoc = existingByEmailSnapshot.docs[0];
+      const existingData = existingDoc.data() as any;
+
+      // Si ya existe un usuario registrado con ese email pero NO es de Google,
+      // devolvemos un mensaje claro para que el frontend muestre que debe usar el login normal.
+      if (existingData.provider !== "google") {
+        return res.status(409).json({
+          error:
+            "Ya existe una cuenta registrada con este email. Iniciá sesión con tu correo y contraseña.",
+          code: "EMAIL_ALREADY_REGISTERED",
+        });
+      }
+
+      // Si es un usuario de Google ya registrado, tratamos esto como un login,
+      // NO como un error de "Usuario ya registrado".
+      const existingUid = existingDoc.id;
+      const customToken = await firebaseAuth.createCustomToken(existingUid);
+
+      return res.json({
+        message: "Login exitoso con Google",
+        user: {
+          uid: existingUid,
+          email: existingData.email,
+          nombre: existingData.nombre,
+          apellido: existingData.apellido,
+        },
+        token: customToken,
+      });
+    }
 
     const existingUser = await firestore.collection("users").doc(uid).get();
 
@@ -299,7 +382,7 @@ export const googleRegister = async (req: Request, res: Response) => {
     }
 
     const userProfile = {
-      email,
+      email: finalEmail,
       nombre,
       apellido,
       dni,
