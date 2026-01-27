@@ -1,15 +1,12 @@
 import { Request, Response } from 'express';
 import { AuthenticatedRequest } from '../../middleware/authMiddleware';
 import { firestore } from '../../config/firebase';
-import puppeteer from 'puppeteer';
 import QRCode from 'qrcode';
 import { randomUUID } from 'crypto';
 import { CertificadoData, CertificadoValidationResponse } from '../../types/certificates';
-import { readFileSync } from 'fs';
-import { join } from 'path';
 
 /**
- * Generar certificado PDF
+ * Generar certificado (devuelve datos para que el frontend genere el PDF)
  * POST /api/certificados/generar/:cursoId
  */
 export const generarCertificado = async (req: AuthenticatedRequest, res: Response) => {
@@ -179,63 +176,15 @@ export const generarCertificado = async (req: AuthenticatedRequest, res: Respons
     const añoQR = fechaFinalizacion.getFullYear();
     const fechaQR = `${diaQR}/${mesQR}/${añoQR}`;
 
-    // Leer plantilla HTML
-    // En desarrollo: __dirname = src/modules/certificates
-    // En producción: __dirname = dist/modules/certificates
-    const templatePath = join(__dirname, 'templates', 'certificado.html');
-    let htmlTemplate: string;
-    
-    try {
-      htmlTemplate = readFileSync(templatePath, 'utf-8');
-    } catch (error) {
-      // Si no se encuentra en dist, intentar en src (desarrollo)
-      const srcPath = templatePath.replace(/dist\//, 'src/');
-      htmlTemplate = readFileSync(srcPath, 'utf-8');
-    }
-
-    // Reemplazar placeholders en la plantilla
-    htmlTemplate = htmlTemplate
-      .replace(/\{\{qrCodeUrl\}\}/g, qrCodeDataUrl)
-      .replace(/\{\{nombreCompleto\}\}/g, nombreCompleto)
-      .replace(/\{\{dni\}\}/g, dni)
-      .replace(/\{\{nombreCurso\}\}/g, nombreCurso)
-      .replace(/\{\{fechaFinalizacion\}\}/g, fechaFormateada)
-      .replace(/\{\{fechaQR\}\}/g, fechaQR);
-
-    // Configurar headers para descargar el PDF
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="certificado-${nombreCurso.replace(/\s+/g, '-')}.pdf"`);
-
-    // Generar PDF usando Puppeteer
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    // Devolver datos del certificado para que el frontend genere el PDF
+    return res.status(201).json({
+      message: 'Certificado generado correctamente',
+      certificado: {
+        ...certificadoData,
+        fechaFinalizacionTexto: fechaFormateada,
+        fechaQR,
+      },
     });
-
-    try {
-      const page = await browser.newPage();
-      await page.setContent(htmlTemplate, { waitUntil: 'networkidle0' });
-      
-      const pdfBuffer = await page.pdf({
-        format: 'A4',
-        landscape: false,
-        printBackground: true,
-        margin: {
-          top: '0',
-          right: '0',
-          bottom: '0',
-          left: '0'
-        }
-      });
-
-      await browser.close();
-
-      // Enviar PDF al cliente
-      res.send(pdfBuffer);
-    } catch (pdfError) {
-      await browser.close();
-      throw pdfError;
-    }
   } catch (error: any) {
     console.error('Error al generar certificado:', error);
     return res.status(500).json({
