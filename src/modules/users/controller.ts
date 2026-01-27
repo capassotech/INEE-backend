@@ -6,9 +6,6 @@ import { normalizeText } from '../../utils/utils';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Tipos para la asignación de recursos
-
-
 const sendAssignmentEmail = async ({
   userEmail,
   userName,
@@ -17,28 +14,38 @@ const sendAssignmentEmail = async ({
   resourceTitles,
 }: SendAssignmentEmailParams): Promise<void> => {
   const resourceTypeLabels = {
-    curso: { singular: 'curso', plural: 'cursos' },
-    evento: { singular: 'evento', plural: 'eventos' },
-    ebook: { singular: 'ebook', plural: 'ebooks' },
+    curso: { singular: 'curso', plural: 'cursos', articulo: 'El', articuloPlural: 'Los' },
+    evento: { singular: 'evento', plural: 'eventos', articulo: 'El', articuloPlural: 'Los' },
+    ebook: { singular: 'ebook', plural: 'ebooks', articulo: 'El', articuloPlural: 'Los' },
   };
 
   const labels = resourceTypeLabels[resourceType];
   const isSingle = resourceTitles.length === 1;
-  const resourceLabel = isSingle ? labels.singular : labels.plural;
   
-  const mensajeRecursos = isSingle 
-    ? `el ${labels.singular} ${resourceTitles[0]}`
-    : `los siguientes ${labels.plural}: ${resourceTitles.join(', ')}`;
+  const productosAsignados = isSingle 
+    ? `${labels.articulo} ${labels.singular} ${resourceTitles[0]}`
+    : `${labels.articuloPlural} ${labels.plural}: ${resourceTitles.join(', ')}`;
 
   const subject = isSingle 
-    ? `${labels.singular.charAt(0).toUpperCase() + labels.singular.slice(1)} asignado`
-    : `${labels.plural.charAt(0).toUpperCase() + labels.plural.slice(1)} asignados`;
+    ? "Tu formación ya está disponible en INEE®"
+    : "Tus formaciones ya están disponibles en INEE®";
+
+  const mensajeCuerpo = isSingle
+    ? `<strong>${labels.articulo} ${labels.singular} ${resourceTitles[0]}</strong> ya fue asignado a tu perfil en INEE® y se encuentra disponible en el campus.`
+    : `<strong>${labels.articuloPlural} ${labels.plural}</strong> ya fueron asignados a tu perfil en INEE® y se encuentran disponibles en el campus.`;
 
   const { error } = await resend.emails.send({
     from: "INEE Oficial <contacto@ineeoficial.com>",
     to: userEmail,
     subject,
-    html: `<p>Hola ${userName} ${userLastName}! Te informamos que has sido asignado a ${mensajeRecursos} en INEE.</p>`,
+    html: `
+      <p>Hola ${userName},</p>
+      <p>${mensajeCuerpo}</p>
+      <strong>Accedé a la formación desde el campus:</strong><br>
+      <a href="https://estudiante.ineeoficial.com/">https://estudiante.ineeoficial.com/</a></p>
+      <p>Equipo INEE®<br>
+      Instituto de Negocios Emprendedor Empresarial</p>
+    `,
   });
 
   if (error) {

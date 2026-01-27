@@ -3,7 +3,7 @@ import { z } from "zod";
 export interface DiscountCode {
   id: string;
   codigo: string;
-  porcentaje: number; // 0-100
+  porcentaje: number; // >0 y <=100
   createdAt?: string;
   updatedAt?: string;
 }
@@ -16,7 +16,7 @@ export const DiscountCodeCreateSchema = z.object({
     .trim(),
   porcentaje: z
     .number()
-    .min(0, "El porcentaje no puede ser menor a 0")
+    .gt(0, "El porcentaje debe ser mayor a 0")
     .max(100, "El porcentaje no puede ser mayor a 100"),
 });
 
