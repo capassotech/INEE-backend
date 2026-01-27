@@ -31,8 +31,12 @@ export const updatePreferenceId = async (orderId: string, preferenceId: string) 
 
 // Esto viene de las rutas
 export const getOrders = async (req: Request, res: Response) => {
-    const orders = await firestore.collection('orders').get();
-    return res.json(orders.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+    const snapshot = await firestore
+        .collection('orders')
+        .orderBy('createdAt', 'desc')
+        .get();
+
+    return res.json(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
 }
 
 export const getOrderById = async (req: Request, res: Response) => {
