@@ -129,6 +129,18 @@ export const createExamen = async (req: AuthenticatedRequest, res: Response) => 
       }
     }
 
+    // Validar que no exista ya un examen activo para esta formación
+    const examenesExistentes = await collection
+      .where("id_formacion", "==", id_formacion)
+      .where("estado", "==", "activo")
+      .get();
+
+    if (!examenesExistentes.empty) {
+      return res.status(400).json({ 
+        message: "Ya existe un examen activo para esta formación. Solo se permite un examen por formación." 
+      });
+    }
+
     const examenData = {
       titulo,
       id_formacion,
@@ -172,6 +184,25 @@ export const updateExamen = async (req: AuthenticatedRequest, res: Response) => 
 
     if (!doc.exists) {
       return res.status(404).json({ message: "Examen no encontrado" });
+    }
+
+    const examenActual = doc.data();
+
+    // Si se está cambiando la formación, validar que no exista ya un examen activo para la nueva formación
+    if (id_formacion && id_formacion !== examenActual?.id_formacion) {
+      const examenesExistentes = await collection
+        .where("id_formacion", "==", id_formacion)
+        .where("estado", "==", "activo")
+        .get();
+
+      // Excluir el examen actual de la validación
+      const examenesOtros = examenesExistentes.docs.filter(doc => doc.id !== id);
+      
+      if (examenesOtros.length > 0) {
+        return res.status(400).json({ 
+          message: "Ya existe un examen activo para esta formación. Solo se permite un examen por formación." 
+        });
+      }
     }
 
     // Validaciones similares al create
