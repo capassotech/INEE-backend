@@ -1542,6 +1542,12 @@ const validateProds = async (items: any[]): Promise<boolean> => {
             continue;
         }
 
+        // Validar avales
+        const aval = await firestore.collection('avales').doc(item.id).get();
+        if (aval.exists) {
+            continue;
+        }
+
         return false;
     }
     return true;
@@ -1659,7 +1665,19 @@ const assignProductsToUser = async (
             const ebookDoc = await firestore.collection('ebooks').doc(productId).get();
             if (ebookDoc.exists && !ebooksAsignados.includes(productId)) {
                 ebooksAsignados.push(productId);
+                continue;
             }
+
+            // Verificar si es un aval (los avales no se asignan directamente al usuario,
+            // son certificaciones asociadas a las formaciones)
+            const avalDoc = await firestore.collection('avales').doc(productId).get();
+            if (avalDoc.exists) {
+                console.log(`📜 [AVAL] Aval ${productId} detectado - no se asigna directamente al usuario`);
+                continue;
+            }
+
+            // Si llegamos aquí, el producto no existe en ninguna colección
+            console.warn(`⚠️ [ITEM] Producto ${productId} no encontrado en ninguna colección (courses, events, ebooks, avales)`);
         }
 
         // Actualizar el usuario con los nuevos productos asignados
