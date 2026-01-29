@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { firestore } from "../../config/firebase";
+import { FieldValue } from "firebase-admin/firestore";
 import { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { validateUser, normalizeText } from "../../utils/utils";
 import { ValidatedCreateEbook, ValidatedUpdateEbook } from "../../types/ebooks";
@@ -134,7 +135,11 @@ export const createEbook = async (req: AuthenticatedRequest, res: Response) => {
 
   try {
     const ebookData: ValidatedCreateEbook = req.body;
-    const newEbook: any = { ...ebookData };
+    // Filtrar campos undefined para no guardarlos en Firestore
+    // Pero permitir null explícitamente (especialmente para cuotas)
+    const newEbook: any = Object.fromEntries(
+      Object.entries(ebookData).filter(([_, value]) => value !== undefined)
+    );
 
     const docRef = await collection.add(newEbook);
     const createdDoc = await docRef.get();
@@ -188,8 +193,51 @@ export const updateEbook = async (req: AuthenticatedRequest, res: Response) => {
         continue;
       }
 
+      // 👇 MANEJO ESPECIAL DE CUOTAS
+      if (key === "cuotas") {
+        // Caso 1: cuotas: null → Guardar como null (permitir null explícitamente)
+        if (value === null) {
+          dataToUpdate[key] = null;
+          continue;
+        }
+
+        // Caso 2: cuotas: {} (objeto vacío) → Convertir a null
+        if (
+          typeof value === "object" &&
+          !Array.isArray(value) &&
+          Object.keys(value).length === 0
+        ) {
+          dataToUpdate[key] = null;
+          continue;
+        }
+
+        // Caso 3: cuotas: { cantidad_cuotas, monto_cuota } → Validar y actualizar
+        if (typeof value === "object" && value !== null) {
+          const cuotas = value as any;
+          // La validación del schema ya se hizo, pero verificamos estructura básica
+          if (
+            cuotas.cantidad_cuotas !== undefined &&
+            cuotas.monto_cuota !== undefined
+          ) {
+            dataToUpdate[key] = value;
+            continue;
+          }
+        }
+
+        // Caso 4: cuotas: undefined → No modificar cuotas existentes (omitir del update)
+        if (value === undefined) {
+          continue;
+        }
+      }
+
+      // Permitir null explícitamente para otros campos opcionales
+      if (value === null) {
+        dataToUpdate[key] = null;
+        continue;
+      }
+
       // Incluir el campo si tiene un valor válido (incluyendo false y 0)
-      if (value !== undefined && value !== null) {
+      if (value !== undefined) {
         // No copiar objetos de Firestore directamente (tienen _seconds, _nanoseconds)
         if (
           typeof value === "object" &&

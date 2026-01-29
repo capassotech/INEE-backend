@@ -24,6 +24,11 @@ export const validateSchema = (
           code: err.code,
         }));
 
+        console.error("❌ [VALIDATION ERROR]:", {
+          errors: formattedErrors,
+          receivedData: JSON.stringify(dataToValidate, null, 2),
+        });
+
         return res.status(400).json({
           error: "Datos de entrada inválidos",
           details: formattedErrors,
