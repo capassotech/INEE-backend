@@ -8,9 +8,8 @@ export const validateSchema = (
   target: ValidationTarget = "body"
 ) => {
   return (req: Request, res: Response, next: NextFunction) => {
+    const dataToValidate = req[target];
     try {
-      const dataToValidate = req[target];
-
       const validatedData = schema.parse(dataToValidate);
 
       (req as any)[target] = validatedData;
