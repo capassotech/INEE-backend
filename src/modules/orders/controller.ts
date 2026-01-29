@@ -1,13 +1,15 @@
 import { Request, Response } from "express";
 import { firestore } from '../../config/firebase';
+import { normalizeText } from "../../utils/utils";
+import { cache, CACHE_KEYS } from "../../utils/cache";
 
-// Metodos necesarios
+const collection = firestore.collection('orders');
+
 export const createOrder = async (userId: string, items: any[], totalPrice: number, status: string) => {
-    // Generar número de orden legible: ORD-YYYY-NNNNNN
     const year = new Date().getFullYear();
     const orderNumber = `ORD-${year}-${Date.now().toString().slice(-6)}`;
     
-    const order = await firestore.collection('orders').add({
+    const order = await collection.add({
         userId,
         items,
         totalPrice,
@@ -15,28 +17,151 @@ export const createOrder = async (userId: string, items: any[], totalPrice: numb
         status,
         orderNumber
     });
+    cache.invalidatePattern(`${CACHE_KEYS.ORDERS}:`);
+    
     return { orderId: order.id, orderNumber };
 }
 
 export const updateOrderStatus = async (orderId: string, status: string) => {
-    const order = await firestore.collection('orders').doc(orderId).update({ status });
+    const order = await collection.doc(orderId).update({ status });
+    cache.invalidatePattern(`${CACHE_KEYS.ORDERS}:`);
     return order;
 }
 
 export const updatePreferenceId = async (orderId: string, preferenceId: string) => {
-    const order = await firestore.collection('orders').doc(orderId).update({ preferenceId });
+    const order = await collection.doc(orderId).update({ preferenceId });
+    cache.invalidatePattern(`${CACHE_KEYS.ORDERS}:`);
     return order;
 }
 
 
-// Esto viene de las rutas
 export const getOrders = async (req: Request, res: Response) => {
-    const orders = await firestore.collection('orders').get();
-    return res.json(orders.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+    try {
+        const limit = Math.min(parseInt(req.query.limit as string || '20'), 100); 
+        const lastId = req.query.lastId as string | undefined;
+        const pageQuery = req.query.page as string | undefined;
+        const page = pageQuery ? Math.max(parseInt(pageQuery, 10) || 1, 1) : undefined;
+        const search = req.query.search as string | undefined;  
+        
+        const shouldCache = !search && !lastId && !page;
+        
+        if (shouldCache) {
+            const cacheKey = cache.generateKey(CACHE_KEYS.ORDERS, { limit });
+            const cached = cache.get(cacheKey);
+            if (cached) {
+                return res.json(cached);
+            }
+        }
+        
+        const queryLimit = search && search.trim() ? limit * 3 : limit; 
+        
+        let snapshot: FirebaseFirestore.QuerySnapshot<FirebaseFirestore.DocumentData>;
+        
+        if (page && page > 1) {
+            const skipCount = (page - 1) * limit;
+            
+            if (skipCount <= 50 * limit) {
+                let currentQuery = collection.orderBy('createdAt', 'desc').limit(skipCount);
+                let skipSnapshot = await currentQuery.get();
+                
+                if (skipSnapshot.docs.length === skipCount) {
+                    const lastDocForPagination = skipSnapshot.docs[skipSnapshot.docs.length - 1];
+                    const extendedQuery = collection.orderBy('createdAt', 'desc')
+                        .startAfter(lastDocForPagination)
+                        .limit(queryLimit + 1);
+                    snapshot = await extendedQuery.get();
+                } else {
+                    const emptyQuery = collection.orderBy('createdAt', 'desc').limit(0);
+                    snapshot = await emptyQuery.get();
+                }
+            } else {
+                const emptyQuery = collection.orderBy('createdAt', 'desc').limit(0);
+                snapshot = await emptyQuery.get();
+            }
+        } else if (lastId) {
+            const lastDoc = await collection.doc(lastId).get();
+            if (lastDoc.exists) {
+                const extendedQuery = collection.orderBy('createdAt', 'desc')
+                    .startAfter(lastDoc)
+                    .limit(queryLimit + 1);
+                snapshot = await extendedQuery.get();
+            } else {
+                const emptyQuery = collection.orderBy('createdAt', 'desc').limit(0);
+                snapshot = await emptyQuery.get();
+            }
+        } else {
+            const extendedQuery = collection.orderBy('createdAt', 'desc').limit(queryLimit + 1);
+            snapshot = await extendedQuery.get();
+        }
+
+        if (snapshot.empty) {
+            return res.json({
+                orders: [],
+                pagination: {
+                    hasMore: false,
+                    lastId: null,
+                    limit,
+                    count: 0
+                }
+            });
+        }
+
+        const docs = snapshot.docs.slice(0, queryLimit);
+        let orders = docs.map((doc) => ({ 
+            id: doc.id, 
+            ...doc.data() 
+        }));
+        
+        if (search && search.trim()) {
+            const searchNormalized = normalizeText(search);
+            orders = orders.filter((order: any) => {
+                const orderNumber = normalizeText(order.orderNumber || '');
+                const userId = normalizeText(order.userId || '');
+                return orderNumber.includes(searchNormalized) || userId.includes(searchNormalized);
+            });
+            orders = orders.slice(0, limit);
+        } else {
+            orders = orders.slice(0, limit);
+        }
+        
+        const lastDoc = docs[docs.length - 1];
+        const hasMore = snapshot.docs.length > queryLimit;
+        
+        const response = {
+            orders,
+            pagination: {
+                hasMore,
+                lastId: lastDoc?.id,
+                limit,
+                count: orders.length,
+                ...(page && { page, totalPages: hasMore ? page + 1 : page })
+            }
+        };
+        
+        if (shouldCache) {
+            const cacheKey = cache.generateKey(CACHE_KEYS.ORDERS, { limit });
+            cache.set(cacheKey, response, 300); 
+        }
+        
+        return res.json(response);
+    } catch (error) {
+        console.error('getOrders error:', error);
+        return res.status(500).json({ error: 'Error al obtener órdenes' });
+    }
 }
 
 export const getOrderById = async (req: Request, res: Response) => {
-    const { orderId } = req.params;
-    const order = await firestore.collection('orders').doc(orderId).get();
-    return res.json(order.data());
+    try {
+        const { orderId } = req.params;
+        const order = await collection.doc(orderId).get();
+        
+        if (!order.exists) {
+            return res.status(404).json({ error: "Orden no encontrada" });
+        }
+        
+        return res.json({ id: order.id, ...order.data() });
+    } catch (error) {
+        console.error('getOrderById error:', error);
+        return res.status(500).json({ error: 'Error al obtener orden' });
+    }
 }
