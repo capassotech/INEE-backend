@@ -117,7 +117,8 @@ export const createPayment = async (req: Request, res: Response) => {
 
         const { orderId, orderNumber } = await createOrder(metadata.userId, items, transactionAmount, 'pending');
 
-        const isProduction = !process.env.MERCADO_PAGO_ACCESS_TOKEN?.startsWith('TEST-');
+        // Detectar si es producción basándose en FIREBASE_PROJECT_ID
+        const isProduction = process.env.FIREBASE_PROJECT_ID === 'inee-admin';
         const baseUrl = isProduction
             ? (process.env.WEBHOOK_BASE_URL || 'https://inee-backend.onrender.com')
             : 'https://inee-backend-qa.onrender.com';
@@ -1203,9 +1204,17 @@ export const createPreference = async (req: Request, res: Response) => {
       "pending"
     );
 
-    const webhookUrl = `https://inee-backend-qa.onrender.com/api/payments/mercadopago/webhook`;
+    // Detectar si es producción basándose en FIREBASE_PROJECT_ID
+    const isProduction = process.env.FIREBASE_PROJECT_ID === 'inee-admin';
+    const baseUrl = isProduction
+        ? (process.env.WEBHOOK_BASE_URL || 'https://inee-backend.onrender.com')
+        : 'https://inee-backend-qa.onrender.com';
+    const webhookUrl = `${baseUrl}/api/payments/mercadopago/webhook`;
 
-    const frontendUrl = "https://tienda-qa.ineeoficial.com/";
+    // URL del frontend según el entorno
+    const frontendUrl = isProduction
+        ? (process.env.FRONTEND_URL || 'https://ineeoficial.com')
+        : 'https://tienda-qa.ineeoficial.com/';
 
     // Calcular el total de los items para ajustar si hay descuento
     const itemsTotal = items.reduce((sum, item) => {
