@@ -20,6 +20,7 @@ export interface UserProfile {
   fechaActualizacion: Date;
   aceptaTerminos: boolean;
   activo: boolean;
+  provider?: string; 
   fechaEliminacion?: Date;
   // MEMBRESÍAS DESACTIVADAS - Comentado para posible reactivación futura
   // membresia_id?: string;
