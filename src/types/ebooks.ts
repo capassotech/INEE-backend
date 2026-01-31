@@ -7,10 +7,10 @@ export const EbookCreateSchema = z.object({
   author: z.string().min(1, "El autor es obligatorio"),
   precio: z.number()
     .min(0, "El precio no puede ser negativo")
-    .max(999999, "El precio no puede exceder $999,999"),
+    .max(9999999, "El precio no puede exceder $9.999.999"),
   precio_anterior: z.number()
     .min(0, "El precio anterior no puede ser negativo")
-    .max(999999, "El precio anterior no puede exceder $999,999")
+    .max(9999999, "El precio anterior no puede exceder $9.999.999")
     .optional(),
   cuotas: z
     .preprocess(
@@ -31,7 +31,7 @@ export const EbookCreateSchema = z.object({
               .max(12, "La cantidad de cuotas no puede exceder 12"),
             monto_cuota: z.number()
               .min(0, "El monto por cuota no puede ser negativo")
-              .max(999999, "El monto por cuota no puede exceder $999,999"),
+              .max(9999999, "El monto por cuota no puede exceder $9.999.999"),
           }),
         ])
         .optional()
@@ -74,12 +74,12 @@ export const EbookUpdateSchema = z
     precio: z
       .number()
       .min(0, "El precio no puede ser negativo")
-      .max(999999, "El precio no puede exceder $999,999")
+      .max(9999999, "El precio no puede exceder $9.999.999")
       .optional(),
     precio_anterior: z
       .number()
       .min(0, "El precio anterior no puede ser negativo")
-      .max(999999, "El precio anterior no puede exceder $999,999")
+      .max(9999999, "El precio anterior no puede exceder $9.999.999")
       .nullable()
       .optional(),
     cuotas: z
@@ -100,7 +100,7 @@ export const EbookUpdateSchema = z
               .max(12, "La cantidad de cuotas no puede exceder 12"),
             monto_cuota: z.number()
               .min(0, "El monto por cuota no puede ser negativo")
-              .max(999999, "El monto por cuota no puede exceder $999,999"),
+              .max(9999999, "El monto por cuota no puede exceder $9.999.999"),
           }),
         ])
       ),

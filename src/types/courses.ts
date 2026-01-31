@@ -82,10 +82,10 @@ export const CourseSchema = z.object({
     }),
     precio: z.number()
         .min(0, "El precio no puede ser negativo")
-        .max(999999, "El precio no puede exceder $999,999"),
+        .max(9999999, "El precio no puede exceder $9.999.999"),
     precio_anterior: z.number()
         .min(0, "El precio anterior no puede ser negativo")
-        .max(999999, "El precio anterior no puede exceder $999,999")
+        .max(9999999, "El precio anterior no puede exceder $9.999.999")
         .optional(),
     cuotas: z.object({
         cantidad_cuotas: z.number()
@@ -94,7 +94,7 @@ export const CourseSchema = z.object({
             .max(12, "La cantidad de cuotas no puede exceder 12"),
         monto_cuota: z.number()
             .min(0, "El monto por cuota no puede ser negativo")
-            .max(999999, "El monto por cuota no puede exceder $999,999"),
+            .max(9999999, "El monto por cuota no puede exceder $9.999.999"),
     }).optional(),
     imagen: z.string().optional(),
     id_profesor: z.union([
