@@ -78,7 +78,7 @@ export const createBackModule = async (req: Request, res: Response) => {
         
         const cursoExists = await firestore.collection('courses').doc(moduleData.id_curso).get();
         if (!cursoExists.exists) {
-            return res.status(404).json({ error: 'El curso especificado no existe' });
+            return res.status(404).json({ error: 'El formacion especificado no existe' });
         }
 
         const newModule = await firestore.collection('modulos').add({
@@ -114,7 +114,7 @@ export const updateBackModule = async (req: Request, res: Response) => {
         const cursoExists = await firestore.collection('courses').doc(updateData.id_curso || '').get();
         if (updateData.id_curso) {
             if (!cursoExists.exists) {
-                return res.status(404).json({ error: 'El curso especificado no existe' });
+                return res.status(404).json({ error: 'La formacion especificado no existe' });
             }
         }
         

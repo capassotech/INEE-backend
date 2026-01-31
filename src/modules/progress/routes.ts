@@ -47,7 +47,7 @@ router.get(
   (req: Request, res: Response) => obtenerEstadoContenido(req as AuthenticatedRequest, res)
 );
 
-// Listar cursos del usuario con progreso (requiere autenticación)
+// Listar formaciones del usuario con progreso (requiere autenticación)
 router.get(
   '/mis-cursos',
   authMiddleware,

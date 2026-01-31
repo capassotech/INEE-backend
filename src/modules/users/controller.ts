@@ -14,7 +14,7 @@ const sendAssignmentEmail = async ({
   resourceTitles,
 }: SendAssignmentEmailParams): Promise<void> => {
   const resourceTypeLabels = {
-    curso: { singular: 'curso', plural: 'cursos', articulo: 'El', articuloPlural: 'Los' },
+    curso: { singular: 'formación', plural: 'formaciones', articulo: 'La', articuloPlural: 'Las' },
     evento: { singular: 'evento', plural: 'eventos', articulo: 'El', articuloPlural: 'Los' },
     ebook: { singular: 'ebook', plural: 'ebooks', articulo: 'El', articuloPlural: 'Los' },
   };
@@ -31,7 +31,7 @@ const sendAssignmentEmail = async ({
     : "Tus formaciones ya están disponibles en INEE®";
 
   const mensajeCuerpo = isSingle
-    ? `<strong>${labels.articulo} ${labels.singular} ${resourceTitles[0]}</strong> ya fue asignado a tu perfil en INEE® y se encuentra disponible en el campus.`
+    ? `<strong>${labels.articulo} ${labels.singular} ${resourceTitles[0]}</strong> ya se encuentra asociado a tu perfil en INEE® y disponible en el campus.`
     : `<strong>${labels.articuloPlural} ${labels.plural}</strong> ya fueron asignados a tu perfil en INEE® y se encuentran disponibles en el campus.`;
 
   const { error } = await resend.emails.send({
@@ -323,7 +323,7 @@ export const asignCourseToUser = async (req: any, res: Response) => {
   const idsCursos = Array.isArray(id_curso) ? id_curso : [id_curso];
 
   if (!idsCursos.length) {
-    return res.status(400).json({ error: 'Debe proporcionar al menos un ID de curso' });
+    return res.status(400).json({ error: 'Debe proporcionar al menos un ID de formacion' });
   }
 
   const userDoc = await firestore.collection('users').doc(id_usuario).get();
@@ -332,7 +332,7 @@ export const asignCourseToUser = async (req: any, res: Response) => {
     return res.status(404).json({ error: 'Usuario no encontrado' });
   }
 
-  // Validar que todos los cursos existen
+  // Validar que todos los formaciones existen
   const courseDocs = await Promise.all(
     idsCursos.map((id: string) => firestore.collection('courses').doc(id).get())
   );
@@ -340,15 +340,15 @@ export const asignCourseToUser = async (req: any, res: Response) => {
   const cursosNoEncontrados = idsCursos.filter((id: string, index: number) => !courseDocs[index].exists);
   if (cursosNoEncontrados.length > 0) {
     return res.status(404).json({ 
-      error: 'Uno o más cursos no encontrados',
+      error: 'Una o más formaciones no encontradas',
       cursosNoEncontrados 
     });
   }
 
-  // Obtener títulos de los cursos para el email
+  // Obtener títulos de las formaciones para el email
   const titulosCursos = courseDocs.map(doc => doc.data()?.titulo || '').filter(Boolean);
   
-  // Actualizar cursos asignados sin duplicados
+  // Actualizar formaciones asignados sin duplicados
   const cursosAsignadosActuales = userDoc.data()?.cursos_asignados || [];
   const cursosNuevos = idsCursos.filter((id: string) => !cursosAsignadosActuales.includes(id));
   const cursosAsignadosActualizados = [...new Set([...cursosAsignadosActuales, ...idsCursos])];
@@ -365,8 +365,8 @@ export const asignCourseToUser = async (req: any, res: Response) => {
   });
 
   const mensaje = cursosNuevos.length === idsCursos.length
-    ? (idsCursos.length === 1 ? 'Curso asignado al usuario' : 'Cursos asignados al usuario')
-    : `${cursosNuevos.length} nuevo(s) curso(s) asignado(s), ${idsCursos.length - cursosNuevos.length} ya estaban asignados`;
+    ? (idsCursos.length === 1 ? 'Formación asignada al usuario' : 'Formaciones asignados al usuario')
+    : `${cursosNuevos.length} nueva(s) formacion(es) asignada(s), ${idsCursos.length - cursosNuevos.length} ya estaban asignados`;
 
   return res.status(200).json({ 
     message: mensaje,
@@ -382,7 +382,7 @@ export const desasignarCursoFromUser = async (req: any, res: Response) => {
   const idsCursos = Array.isArray(id_curso) ? id_curso : [id_curso];
 
   if (!idsCursos.length) {
-    return res.status(400).json({ error: 'Debe proporcionar al menos un ID de curso' });
+    return res.status(400).json({ error: 'Debe proporcionar al menos un ID de formacion' });
   }
 
   const userDoc = await firestore.collection('users').doc(id_usuario).get();
@@ -398,8 +398,8 @@ export const desasignarCursoFromUser = async (req: any, res: Response) => {
   await userDoc.ref.update({ cursos_asignados: cursosActualizados });
   
   const mensaje = cursosDesasignados.length === idsCursos.length
-    ? (idsCursos.length === 1 ? 'Curso desasignado del usuario' : 'Cursos desasignados del usuario')
-    : `${cursosDesasignados.length} curso(s) desasignado(s), ${idsCursos.length - cursosDesasignados.length} no estaban asignados`;
+    ? (idsCursos.length === 1 ? 'Formacion desasignada del usuario' : 'Formaciones desasignados del usuario')
+    : `${cursosDesasignados.length} formacion(es) desasignada(s), ${idsCursos.length - cursosDesasignados.length} no estaban asignadas`;
 
   return res.status(200).json({ 
     message: mensaje,

@@ -121,7 +121,7 @@ export const getUserCourses = async (req: Request, res: Response) => {
     return res.json(coursesData);
   } catch (err) {
     console.error("getUserCourses error:", err);
-    return res.status(500).json({ error: "Error al obtener cursos del usuario" });
+    return res.status(500).json({ error: "Error al obtener formaciones del usuario" });
   }
 };
 ```
@@ -163,7 +163,7 @@ export const getUserCourses = async (req: Request, res: Response) => {
     return res.json(coursesData);
   } catch (err) {
     console.error("getUserCourses error:", err);
-    return res.status(500).json({ error: "Error al obtener cursos del usuario" });
+    return res.status(500).json({ error: "Error al obtener formaciones del usuario" });
   }
 };
 ```
@@ -171,7 +171,7 @@ export const getUserCourses = async (req: Request, res: Response) => {
 **Nota:** `getAll()` puede leer hasta 10 documentos a la vez. Si hay más, dividir en batches:
 
 ```typescript
-// Si hay más de 10 cursos, dividir en batches
+// Si hay más de 10 formaciones, dividir en batches
 const BATCH_SIZE = 10;
 const batches = [];
 
@@ -258,7 +258,7 @@ export const getAllCourses = async (req: Request, res: Response) => {
     });
   } catch (err) {
     console.error("getAllCourses error:", err);
-    return res.status(500).json({ error: "Error al obtener cursos" });
+    return res.status(500).json({ error: "Error al obtener formaciones" });
   }
 };
 ```
@@ -376,7 +376,7 @@ export const getAllCourses = async (req: Request, res: Response) => {
     return res.json(result);
   } catch (err) {
     console.error("getAllCourses error:", err);
-    return res.status(500).json({ error: "Error al obtener cursos" });
+    return res.status(500).json({ error: "Error al obtener formaciones" });
   }
 };
 
@@ -384,7 +384,7 @@ export const getAllCourses = async (req: Request, res: Response) => {
 export const createCourse = async (req: AuthenticatedRequest, res: Response) => {
   // ... lógica de creación ...
   
-  // Invalidar caché de cursos
+  // Invalidar caché de formaciones
   await cache.invalidatePattern('courses:*');
   
   return res.status(201).json({ /* ... */ });

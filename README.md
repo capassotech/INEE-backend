@@ -36,7 +36,7 @@ El backend debe configurarse con las credenciales de Firebase correspondientes a
   /modules
     /auth       -> Autenticación con Firebase Auth
     /users      -> Gestión de usuarios
-    /courses    -> CRUD de cursos y lecciones
+    /courses    -> CRUD de formaciones y lecciones
     /purchases   -> Lógica de compras
     /mercado-pago -> Integración con Mercado Pago
   /middleware   -> Middlewares de autenticación y validación
@@ -51,7 +51,7 @@ El frontend envía un `idToken` de Firebase en el header `Authorization: Bearer 
 
 Datos almacenados en Firestore:
 - `users` - Usuarios y roles
-- `courses` - Cursos, módulos y lecciones
+- `courses` - formaciones, módulos y lecciones
 - `purchases` - Compras realizadas
 
 ## 💳 Mercado Pago
