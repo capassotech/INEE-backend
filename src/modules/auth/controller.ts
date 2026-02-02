@@ -55,22 +55,8 @@ export const registerUser = async (req: Request, res: Response) => {
     // Generar token personalizado para respuesta inmediata
     const customToken = await firebaseAuth.createCustomToken(userRecord.uid);
 
-    // Email enviado al usuario
-    await resend.emails.send({
-      from: "INEE Oficial <contacto@ineeoficial.com>",
-      to: userRecord.email || "",
-      subject: "Bienvenida a INEE®. Acceso al campus virtual",
-      html: `
-        <p>Hola ${nombre},</p>
-        <p>Te damos la bienvenida a <strong>INEE® – Instituto de Negocios Emprendedor Empresarial</strong>.<br>
-        Tu inscripción fue confirmada y ya tenés acceso al campus de formación.</p>
-        <p>INEE® es un espacio de formación profesional orientado a la consultoría estratégica, el liderazgo y el desarrollo emprendedor. Las formaciones están diseñadas para fortalecer criterio profesional, capacidad de análisis y toma de decisiones con método.</p>
-        <p>En el campus vas a encontrar contenidos con base conceptual sólida y aplicación práctica, organizados a partir del <strong>método DAACRE®</strong>, nuestro marco de intervención profesional.</p>
-        <p><strong>Ingresá al campus desde acá:</strong> <a href="https://estudiante.ineeoficial.com">https://estudiante.ineeoficial.com</a></p>
-        <strong>Felicitaciones por formar parte de INEE®.</strong><br>
-        Nos alegra acompañarte en este recorrido.</p>
-      `,
-    });
+    // Enviar email de bienvenida
+    await sendWelcomeEmail(userRecord.email || "", nombre);
 
     return res.status(201).json({
       message: "Usuario registrado exitosamente",
@@ -315,22 +301,8 @@ export const googleRegister = async (req: Request, res: Response) => {
 
     const customToken = await firebaseAuth.createCustomToken(uid);
 
-    // Email enviado al usuario
-    await resend.emails.send({
-      from: "INEE Oficial <contacto@ineeoficial.com>",
-      to: email,
-      subject: "Bienvenida a INEE®. Acceso al campus virtual",
-      html: `
-        <p>Hola ${nombre},</p>
-        <p>Te damos la bienvenida a INEE® – Instituto de Negocios Emprendedor Empresarial.<br>
-        Tu inscripción fue confirmada y ya tenés acceso al campus de formación.</p>
-        <p>INEE® es un espacio de formación profesional orientado a la consultoría estratégica, el liderazgo y el desarrollo emprendedor. Las formaciones están diseñadas para fortalecer criterio profesional, capacidad de análisis y toma de decisiones con método.</p>
-        <p>En el campus vas a encontrar contenidos con base conceptual sólida y aplicación práctica, organizados a partir del método DAACRE®, nuestro marco de intervención profesional.</p>
-        <p>Ingresá al campus desde acá: <a href="https://ineeoficial.com">https://ineeoficial.com</a></p>
-        <p>Felicitaciones por formar parte de INEE®.<br>
-        Nos alegra acompañarte en este recorrido.</p>
-      `,
-    });
+    // Enviar email de bienvenida
+    await sendWelcomeEmail(email, nombre);
 
     return res.json({
       message: "Usuario registrado exitosamente con Google",
@@ -890,5 +862,37 @@ export const updateUserAdditionalData = async (
       details:
         process.env.NODE_ENV === "development" ? error.message : undefined,
     });
+  }
+};
+
+// Función para enviar email de bienvenida
+export const sendWelcomeEmail = async (email: string, nombre: string) => {
+  try {
+    await resend.emails.send({
+      from: "INEE Oficial <contacto@ineeoficial.com>",
+      to: email,
+      subject: "Bienvenida a INEE®. Acceso al campus virtual",
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6;">
+          <p>Hola ${nombre},</p>
+          
+          <p>Te damos la bienvenida a <strong>INEE® – Instituto de Negocios Emprendedor Empresarial</strong>.<br>
+          Tu inscripción fue confirmada y ya tenés acceso al campus de formación.</p>
+          
+          <p>INEE® es un espacio de formación profesional orientado a la consultoría estratégica, el liderazgo y el desarrollo emprendedor. Las formaciones están diseñadas para fortalecer criterio profesional, capacidad de análisis y toma de decisiones con método.</p>
+          
+          <p>En el campus vas a encontrar contenidos con base conceptual sólida y aplicación práctica, organizados a partir del <strong>método DAACRE®</strong>, nuestro marco de intervención profesional.</p>
+          
+          <p><strong>Ingresá al campus desde acá:</strong><br>
+          <a href="https://estudiante.ineeoficial.com" style="display: inline-block; padding: 12px 24px; background-color: #00a650; color: white; text-decoration: none; border-radius: 5px; margin-top: 10px;">Ingresar a INEE®</a></p>
+          
+          <p style="margin-top: 30px;"><strong>Felicitaciones por formar parte de INEE®.</strong><br>
+          Nos alegra acompañarte en este recorrido.</p>
+        </div>
+      `,
+    });
+  } catch (error) {
+    console.error('Error enviando email de bienvenida:', error);
+    throw error;
   }
 };
