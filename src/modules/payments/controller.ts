@@ -1204,19 +1204,13 @@ export const createPreference = async (req: Request, res: Response) => {
       "pending"
     );
 
-    // Detectar si es producción basándose en FIREBASE_PROJECT_ID
     const isProduction = process.env.FIREBASE_PROJECT_ID === 'inee-admin';
-    const baseUrl = isProduction
-        ? (process.env.WEBHOOK_BASE_URL || 'https://inee-backend.onrender.com')
-        : 'https://inee-backend-qa.onrender.com';
+    console.log("Variable de comparacion: ", isProduction);
+    const baseUrl = isProduction ? 'https://inee-backend.onrender.com' : 'https://inee-backend-qa.onrender.com';
     const webhookUrl = `${baseUrl}/api/payments/mercadopago/webhook`;
 
-    // URL del frontend según el entorno
-    const frontendUrl = isProduction
-        ? (process.env.FRONTEND_URL || 'https://ineeoficial.com')
-        : 'https://tienda-qa.ineeoficial.com/';
+    const frontendUrl = isProduction ? 'https://ineeoficial.com' : 'https://tienda-qa.ineeoficial.com';
 
-    // Calcular el total de los items para ajustar si hay descuento
     const itemsTotal = items.reduce((sum, item) => {
       const rawUnitPrice = item.unit_price !== undefined && item.unit_price !== null
         ? item.unit_price
@@ -1224,7 +1218,6 @@ export const createPreference = async (req: Request, res: Response) => {
       return sum + (Number(rawUnitPrice) * Number(item.quantity || 1));
     }, 0);
 
-    // Si hay descuento y el total de items no coincide con el total final, ajustar los items proporcionalmente
     let adjustedItems = items;
     if (metadata?.discountAmount && metadata.discountAmount > 0 && Math.abs(itemsTotal - transactionAmount) > 0.01) {
       const discountRatio = transactionAmount / itemsTotal;
@@ -1267,10 +1260,9 @@ export const createPreference = async (req: Request, res: Response) => {
       };
     });
 
-    const cleanFrontendUrl = frontendUrl.endsWith('/') ? frontendUrl.slice(0, -1) : frontendUrl;
-    const successUrl = `${cleanFrontendUrl}/checkout/success?order=${orderNumber}`;
-    const pendingUrl = `${cleanFrontendUrl}/checkout/pending?order=${orderNumber}`;
-    const failureUrl = `${cleanFrontendUrl}/checkout/failure?order=${orderNumber}`;
+    const successUrl = `${frontendUrl}/checkout/success?order=${orderNumber}`;
+    const pendingUrl = `${frontendUrl}/checkout/pending?order=${orderNumber}`;
+    const failureUrl = `${frontendUrl}/checkout/failure?order=${orderNumber}`;
 
     console.log("🔗 URLs de retorno Checkout PRO:", {
       frontendUrl,
