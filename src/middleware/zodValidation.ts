@@ -8,9 +8,8 @@ export const validateSchema = (
   target: ValidationTarget = "body"
 ) => {
   return (req: Request, res: Response, next: NextFunction) => {
+    const dataToValidate = req[target];
     try {
-      const dataToValidate = req[target];
-
       const validatedData = schema.parse(dataToValidate);
 
       (req as any)[target] = validatedData;
@@ -23,6 +22,11 @@ export const validateSchema = (
           message: err.message,
           code: err.code,
         }));
+
+        console.error("❌ [VALIDATION ERROR]:", {
+          errors: formattedErrors,
+          receivedData: JSON.stringify(dataToValidate, null, 2),
+        });
 
         return res.status(400).json({
           error: "Datos de entrada inválidos",

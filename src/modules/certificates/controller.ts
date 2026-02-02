@@ -31,28 +31,28 @@ export const generarCertificado = async (req: AuthenticatedRequest, res: Respons
       return res.status(400).json({ error: 'El usuario no tiene nombre o DNI completos' });
     }
 
-    // Validar que el curso existe
+    // Validar que la formacion existe
     const cursoDoc = await firestore.collection('courses').doc(cursoId).get();
     if (!cursoDoc.exists) {
-      return res.status(404).json({ error: 'Curso no encontrado' });
+      return res.status(404).json({ error: 'Formacion no encontrada' });
     }
 
     const cursoData = cursoDoc.data();
-    const nombreCurso = cursoData?.titulo || 'Curso';
+    const nombreCurso = cursoData?.titulo || 'Formación';
 
-    // Validar que el usuario tiene acceso al curso
+    // Validar que el usuario tiene acceso a la formacion
     const cursosAsignados = userData?.cursos_asignados || [];
     if (!cursosAsignados.includes(cursoId)) {
-      return res.status(403).json({ error: 'El usuario no tiene acceso a este curso' });
+      return res.status(403).json({ error: 'El usuario no tiene acceso a esta formacion' });
     }
 
-    // Verificar que el curso está completado (progreso 100%)
+    // Verificar que la formacion está completado (progreso 100%)
     const modulosIds = cursoData?.id_modulos || [];
     if (modulosIds.length === 0) {
-      return res.status(400).json({ error: 'El curso no tiene módulos' });
+      return res.status(400).json({ error: 'La formacion no tiene módulos' });
     }
 
-    // Obtener progreso del curso
+    // Obtener progreso de la formacion
     let totalContenidos = 0;
     let contenidosCompletados = 0;
 
@@ -94,13 +94,13 @@ export const generarCertificado = async (req: AuthenticatedRequest, res: Respons
 
     if (progresoGeneral < 100) {
       return res.status(400).json({
-        error: 'El curso no está completado',
+        error: 'La formacion no está completado',
         progreso: progresoGeneral,
         faltante: 100 - progresoGeneral,
       });
     }
 
-    // Verificar si el curso tiene examen asociado
+    // Verificar si la formacion tiene examen asociado
     const examenesSnapshot = await firestore
       .collection('examenes')
       .where('id_formacion', '==', cursoId)
@@ -108,7 +108,7 @@ export const generarCertificado = async (req: AuthenticatedRequest, res: Respons
       .get();
 
     if (!examenesSnapshot.empty) {
-      // El curso tiene examen, verificar que el usuario lo haya aprobado
+      // La formacion tiene examen, verificar que el usuario lo haya aprobado
       const examenesRealizadosSnapshot = await firestore
         .collection('examenes_realizados')
         .where('id_usuario', '==', userId)
@@ -279,7 +279,7 @@ export const validarCertificado = async (req: Request, res: Response) => {
     const fechaFinalizacion = certificadoData?.fechaFinalizacion?.toDate() || new Date();
     const fechaEmision = certificadoData?.fechaEmision?.toDate() || new Date();
 
-    // Verificar que el curso todavía existe
+    // Verificar que la formacion todavía existe
     const cursoDoc = await firestore
       .collection('courses')
       .doc(certificadoData?.cursoId)
@@ -288,7 +288,7 @@ export const validarCertificado = async (req: Request, res: Response) => {
     if (!cursoDoc.exists) {
       return res.status(200).json({
         valido: false,
-        mensaje: 'El curso asociado a este certificado ya no existe',
+        mensaje: 'La formacion asociado a este certificado ya no existe',
       });
     }
 

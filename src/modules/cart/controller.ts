@@ -49,7 +49,7 @@ export const createCart = async (req: Request, res: Response) => {
         return res.status(400).json({ error: 'Carrito ya existe' });
     }
 
-    // Validar que cada producto existe (puede ser curso, evento o ebook)
+    // Validar que cada producto existe (puede ser formaciones, evento o ebook)
     for (const item of items) {
         const { productId, productType } = item;
         
@@ -82,7 +82,7 @@ export const createCart = async (req: Request, res: Response) => {
         
         if (!product.exists) {
             return res.status(404).json({ 
-                error: `${productType === 'course' ? 'Curso' : productType === 'event' ? 'Evento' : 'Ebook'} no encontrado` 
+                error: `${productType === 'course' ? 'Formación' : productType === 'event' ? 'Evento' : 'Ebook'} no encontrado` 
             });
         }
     }

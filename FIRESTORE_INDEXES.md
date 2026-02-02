@@ -59,7 +59,7 @@ Ver la sección "Índices Definidos" más abajo para la lista completa con todos
    - Query: `.where('userId', '==', uid).where('paymentStatus', '==', 'approved')`
 
 2. **userId + courseId + paymentStatus**
-   - Para: `hasAccessToCourse` - Verificar acceso a un curso
+   - Para: `hasAccessToCourse` - Verificar acceso a un formacion
    - Query: `.where('userId', '==', uid).where('courseId', '==', courseId).where('paymentStatus', '==', 'approved')`
 
 3. **userId + courseId**
@@ -69,7 +69,7 @@ Ver la sección "Índices Definidos" más abajo para la lista completa con todos
 ### Reviews (Reseñas)
 
 1. **courseId + createdAt (DESC)**
-   - Para: `getReviewsByCourse` - Obtener reseñas de un curso ordenadas por fecha
+   - Para: `getReviewsByCourse` - Obtener reseñas de un formacion ordenadas por fecha
    - Query: `.where('courseId', '==', courseId).orderBy('createdAt', 'desc')`
 
 2. **userId + courseId**
@@ -94,23 +94,23 @@ Ver la sección "Índices Definidos" más abajo para la lista completa con todos
    - Query: `.where('userId', '==', userId).where('estado', '==', 'activa')`
    - Usado en: `listarMisInscripciones`
 
-### Courses (Cursos)
+### Courses (formaciones)
 
 1. **id_profesor + fechaCreacion (DESC)**
-   - Para: Consultas de cursos por profesor ordenados por fecha
+   - Para: Consultas de formaciones por profesor ordenados por fecha
 
 2. **pilar + __name__** (Índice automático)
-   - Para: `getAllCourses` - Filtrar cursos por pilar con paginación
+   - Para: `getAllCourses` - Filtrar formaciones por pilar con paginación
    - Query: `.where('pilar', '==', pilar).orderBy('__name__')`
    - **Nota**: Firestore crea este índice automáticamente cuando se necesita
 
 3. **type + __name__** (Índice automático)
-   - Para: `getAllCourses` - Filtrar cursos por tipo con paginación
+   - Para: `getAllCourses` - Filtrar formaciones por tipo con paginación
    - Query: `.where('type', '==', type).orderBy('__name__')`
    - **Nota**: Firestore crea este índice automáticamente cuando se necesita
 
 4. **nivel + __name__** (Índice automático)
-   - Para: `getAllCourses` - Filtrar cursos por nivel con paginación
+   - Para: `getAllCourses` - Filtrar formaciones por nivel con paginación
    - Query: `.where('nivel', '==', nivel).orderBy('__name__')`
    - **Nota**: Firestore crea este índice automáticamente cuando se necesita
 

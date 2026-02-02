@@ -154,8 +154,6 @@ export const getAllCourses = async (req: Request, res: Response) => {
         count: courses.length
       }
     };
-
-    console.log(response)
     
     // ✅ CACHÉ: Guardar en caché si corresponde
     if (shouldCache) {
@@ -171,7 +169,7 @@ export const getAllCourses = async (req: Request, res: Response) => {
     return res.json(response);
   } catch (err) {
     console.error("getAllCourses error:", err);
-    return res.status(500).json({ error: "Error al obtener cursos" });
+    return res.status(500).json({ error: "Error al obtener formaciones" });
   }
 };
 
@@ -279,7 +277,7 @@ export const getUserCourses = async (req: Request, res: Response) => {
       uniqueCourses = uniqueCourses.slice(0, limit);
     }
 
-    // Calcular lastId basado en los cursos filtrados
+    // Calcular lastId basado en las formaciones filtradas
     const lastCourseId = uniqueCourses.length > 0 
       ? uniqueCourses[uniqueCourses.length - 1]?.id 
       : (currentPageIds[currentPageIds.length - 1] || null);
@@ -305,7 +303,7 @@ export const getUserCourses = async (req: Request, res: Response) => {
     return res.json(responseData);
   } catch (err) {
     console.error("getUserCourses error:", err);
-    return res.status(500).json({ error: "Error al obtener cursos del usuario" });
+    return res.status(500).json({ error: "Error al obtener formaciones del usuario" });
   }
 };
 
@@ -315,7 +313,7 @@ export const getCourseById = async (req: Request, res: Response) => {
     const doc = await collection.doc(id).get();
 
     if (!doc.exists) {
-      return res.status(404).json({ error: "Curso no encontrado" });
+      return res.status(404).json({ error: "Formacion no encontrada" });
     }
 
     const data = doc.data();
@@ -323,7 +321,7 @@ export const getCourseById = async (req: Request, res: Response) => {
     return res.json({ id: doc.id, ...data });
   } catch (err) {
     console.error("getCourseById error:", err);
-    return res.status(500).json({ error: "Error al obtener curso" });
+    return res.status(500).json({ error: "Error al obtener formacion" });
   }
 };
 
@@ -391,17 +389,17 @@ export const createCourse = async (
 
     const docRef = await collection.add({ ...courseData });
 
-    // ✅ CACHÉ: Invalidar caché de cursos al crear uno nuevo
+    // ✅ CACHÉ: Invalidar caché de formaciones al crear uno nuevo
     cache.invalidatePattern(`${CACHE_KEYS.COURSES}:`);
 
     return res.status(201).json({
       id: docRef.id,
-      message: "Curso creado exitosamente",
+      message: "Formacion creada exitosamente",
       ...courseData,
     });
   } catch (err) {
     console.error("createCourse error:", err);
-    return res.status(500).json({ error: "Error al crear curso" });
+    return res.status(500).json({ error: "Error al crear formacion" });
   }
 };
 
@@ -422,7 +420,7 @@ export const updateCourse = async (
     
     const existingCourse = await collection.doc(id).get();
     if (!existingCourse.exists) {
-      return res.status(404).json({ error: "Curso no encontrado" });
+      return res.status(404).json({ error: "Formacion no encontrada" });
     }
 
     if (updateData.id_profesor) {
@@ -476,21 +474,21 @@ export const updateCourse = async (
 
     await collection.doc(id).update({ ...updateData });
 
-    // ✅ CACHÉ: Invalidar caché de cursos al actualizar
+    // ✅ CACHÉ: Invalidar caché de formaciones al actualizar
     cache.invalidatePattern(`${CACHE_KEYS.COURSES}:`);
 
-    // Obtener el curso actualizado para devolverlo con los saltos de línea preservados
+    // Obtener la formacion actualizado para devolverlo con los saltos de línea preservados
     const updatedDoc = await collection.doc(id).get();
     const updatedData = updatedDoc.exists ? { id: updatedDoc.id, ...updatedDoc.data() } : null;
 
     return res.json({
-      message: "Curso actualizado exitosamente",
+      message: "Formacion actualizada exitosamente",
       id: id,
       ...(updatedData && { curso: updatedData }),
     });
   } catch (err) {
     console.error("updateCourse error:", err);
-    return res.status(500).json({ error: "Error al actualizar curso" });
+    return res.status(500).json({ error: "Error al actualizar formacion" });
   }
 };
 
@@ -510,21 +508,21 @@ export const deleteCourse = async (
 
     const courseExists = await collection.doc(id).get();
     if (!courseExists.exists) {
-      return res.status(404).json({ error: "Curso no encontrado" });
+      return res.status(404).json({ error: "Formacion no encontrada" });
     }
 
     await collection.doc(id).delete();
 
-    // ✅ CACHÉ: Invalidar caché de cursos al eliminar
+    // ✅ CACHÉ: Invalidar caché de formaciones al eliminar
     cache.invalidatePattern(`${CACHE_KEYS.COURSES}:`);
 
     return res.json({
-      message: "Curso eliminado exitosamente",
+      message: "Formacion eliminada exitosamente",
       id: id,
     });
   } catch (err) {
     console.error("deleteCourse error:", err);
-    return res.status(500).json({ error: "Error al eliminar curso" });
+    return res.status(500).json({ error: "Error al eliminar formacion" });
   }
 };
 
@@ -535,7 +533,7 @@ export const checkCourseExists = async (req: Request, res: Response) => {
     return res.json({ exists: doc.exists });
   } catch (err) {
     console.error("checkCourseExists error:", err);
-    return res.status(500).json({ error: "Error al verificar curso" });
+    return res.status(500).json({ error: "Error al verificar formacion" });
   }
 };
 

@@ -27,20 +27,20 @@ export const marcarCompletado = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    // Validar que el usuario tiene acceso al curso
+    // Validar que el usuario tiene acceso a la formacion
     const userData = userDoc.data();
     const cursosAsignados = userData?.cursos_asignados || [];
     if (!cursosAsignados.includes(cursoId)) {
-      return res.status(403).json({ error: 'El usuario no tiene acceso a este curso' });
+      return res.status(403).json({ error: 'El usuario no tiene acceso a esta formacion' });
     }
 
-    // Validar que el curso existe
+    // Validar que la formacion existe
     const cursoDoc = await firestore.collection('courses').doc(cursoId).get();
     if (!cursoDoc.exists) {
-      return res.status(404).json({ error: 'Curso no encontrado' });
+      return res.status(404).json({ error: 'Formacion no encontrada' });
     }
 
-    // Validar que el módulo existe y pertenece al curso
+    // Validar que el módulo existe y pertenece a la formacion
     const moduloDoc = await firestore.collection('modulos').doc(moduloId).get();
     if (!moduloDoc.exists) {
       return res.status(404).json({ error: 'Módulo no encontrado' });
@@ -48,7 +48,7 @@ export const marcarCompletado = async (req: Request, res: Response) => {
 
     const moduloData = moduloDoc.data();
     if (moduloData?.id_curso !== cursoId) {
-      return res.status(400).json({ error: 'El módulo no pertenece a este curso' });
+      return res.status(400).json({ error: 'El módulo no pertenece a esta formacion' });
     }
 
     // Validar que el contenido existe en el módulo
@@ -119,7 +119,7 @@ export const marcarCompletado = async (req: Request, res: Response) => {
       await progresoRef.set(nuevoProgreso);
     }
 
-    // Recalcular progreso general del curso
+    // Recalcular progreso general de la formacion
     const progresoGeneral = await calcularProgresoGeneral(userId, cursoId);
     const moduloProgreso = await obtenerProgresoModulo(userId, moduloId, cursoId);
 
@@ -204,7 +204,7 @@ export const desmarcarCompletado = async (req: Request, res: Response) => {
       fecha_actualizacion: new Date(),
     });
 
-    // Recalcular progreso general del curso
+    // Recalcular progreso general de la formacion
     const progresoGeneral = await calcularProgresoGeneral(userId, cursoId);
 
     return res.status(200).json({
@@ -221,7 +221,7 @@ export const desmarcarCompletado = async (req: Request, res: Response) => {
 };
 
 /**
- * Obtener progreso de un curso
+ * Obtener progreso de una formacion
  * GET /api/progreso/curso/:cursoId
  */
 export const obtenerProgresoCurso = async (req: AuthenticatedRequest, res: Response) => {
@@ -229,10 +229,10 @@ export const obtenerProgresoCurso = async (req: AuthenticatedRequest, res: Respo
     const userId = req.user.uid;
     const { cursoId } = req.params;
 
-    // Validar que el curso existe
+    // Validar que la formacion existe
     const cursoDoc = await firestore.collection('courses').doc(cursoId).get();
     if (!cursoDoc.exists) {
-      return res.status(404).json({ error: 'Curso no encontrado' });
+      return res.status(404).json({ error: 'Formacion no encontrada' });
     }
 
     const cursoData = cursoDoc.data();
@@ -250,7 +250,7 @@ export const obtenerProgresoCurso = async (req: AuthenticatedRequest, res: Respo
       });
     }
 
-    // Obtener todos los módulos del curso
+    // Obtener todos los módulos de la formacion
     const modulosPromises = modulosIds.map((moduloId: string) =>
       firestore.collection('modulos').doc(moduloId).get()
     );
@@ -330,9 +330,9 @@ export const obtenerProgresoCurso = async (req: AuthenticatedRequest, res: Respo
       data: respuesta,
     });
   } catch (error) {
-    console.error('Error al obtener progreso del curso:', error);
+    console.error('Error al obtener progreso de la formacion:', error);
     return res.status(500).json({
-      error: 'Error interno del servidor al obtener progreso del curso',
+      error: 'Error interno del servidor al obtener progreso de la formacion',
     });
   }
 };
@@ -403,7 +403,7 @@ export const obtenerEstadoContenido = async (req: AuthenticatedRequest, res: Res
 };
 
 /**
- * Listar cursos del usuario con progreso
+ * Listar formaciones del usuario con progreso
  * GET /api/progreso/mis-cursos
  */
 export const listarMisCursos = async (req: AuthenticatedRequest, res: Response) => {
@@ -427,7 +427,7 @@ export const listarMisCursos = async (req: AuthenticatedRequest, res: Response) 
       });
     }
 
-    // Obtener información de cada curso
+    // Obtener información de cada formacion
     const cursosPromises = cursosAsignados.map((cursoId: string) =>
       firestore.collection('courses').doc(cursoId).get()
     );
@@ -459,22 +459,22 @@ export const listarMisCursos = async (req: AuthenticatedRequest, res: Response) 
       data: cursosConProgreso,
     });
   } catch (error) {
-    console.error('Error al listar cursos del usuario:', error);
+    console.error('Error al listar formaciones del usuario:', error);
     return res.status(500).json({
-      error: 'Error interno del servidor al listar cursos del usuario',
+      error: 'Error interno del servidor al listar formaciones del usuario',
     });
   }
 };
 
 /**
- * Función helper: Calcular progreso general de un curso
+ * Función helper: Calcular progreso general de una formacion
  */
 export async function calcularProgresoGeneral(userId: string, cursoId: string): Promise<ResumenProgresoCurso> {
   try {
-    // Obtener el curso
+    // Obtener la formacion
     const cursoDoc = await firestore.collection('courses').doc(cursoId).get();
     if (!cursoDoc.exists) {
-      throw new Error('Curso no encontrado');
+      throw new Error('Formacion no encontrado');
     }
 
     const cursoData = cursoDoc.data();
@@ -492,7 +492,7 @@ export async function calcularProgresoGeneral(userId: string, cursoId: string): 
       return resumen;
     }
 
-    // Obtener todos los módulos del curso
+    // Obtener todos los módulos de la formacion
     const modulosPromises = modulosIds.map((moduloId: string) =>
       firestore.collection('modulos').doc(moduloId).get()
     );
@@ -688,7 +688,7 @@ function normalizarContenidoId(contenidos: any[], contenidoId: string): string {
 }
 
 /**
- * Función helper: Obtener progreso general de un curso (sin recalcular)
+ * Función helper: Obtener progreso general de una formacion (sin recalcular)
  */
 async function obtenerProgresoGeneral(userId: string, cursoId: string): Promise<ResumenProgresoCurso> {
   const userDoc = await firestore.collection('users').doc(userId).get();
@@ -707,4 +707,3 @@ async function obtenerProgresoGeneral(userId: string, cursoId: string): Promise<
   // Si no existe, calcularlo
   return await calcularProgresoGeneral(userId, cursoId);
 }
-
