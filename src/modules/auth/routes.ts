@@ -12,10 +12,13 @@ import {
   refreshToken,
   updateUserAdditionalData,
   checkEmailExists,
-  googleRegister,
+  googleAuth,
   getUserById,
   getUserByEmail,
   validateToken,
+  linkPasswordProvider,
+  linkGoogleProvider,   
+  updateUserDni,       
 } from "./controller";
 import {
   validateRegistration,
@@ -28,7 +31,6 @@ import {
 
 const router = Router();
 
-// Rutas públicas
 router.post("/register", sanitizeInput, validateRegistration, registerUser);
 
 router.post(
@@ -39,7 +41,11 @@ router.post(
   loginUser
 );
 
-router.post("/google-register", googleRegister);
+router.post("/google", googleAuth); 
+
+router.post("/link-password", linkPasswordProvider); 
+
+router.post("/link-google", linkGoogleProvider);     
 
 router.post("/validate-token", sanitizeInput, validateToken);
 
@@ -50,9 +56,9 @@ router.get("/check-email/:email", getUserByEmail);
 router.get("/login-stats", (req: Request, res: Response) => {
   res.json(getLoginStats());
 });
+
 router.post("/check-email", sanitizeInput, checkEmailExists);
 
-// Rutas protegidas (requieren autenticación)
 router.get("/me", authMiddleware, (req: Request, res: Response) =>
   getUserProfile(req as AuthenticatedRequest, res)
 );
@@ -68,6 +74,10 @@ router.put(
 
 router.put("/additional-data", authMiddleware, (req: Request, res: Response) =>
   updateUserAdditionalData(req as AuthenticatedRequest, res)
+);
+
+router.patch("/update-dni", authMiddleware, (req: Request, res: Response) =>  
+  updateUserDni(req as AuthenticatedRequest, res)
 );
 
 router.delete("/me", authMiddleware, (req: Request, res: Response) =>
