@@ -1183,8 +1183,6 @@ export const createPreference = async (req: Request, res: Response) => {
     }
 
     const total = await calculateTotalPrice(items);
-    // Si hay un descuento aplicado (discountAmount en metadata), usar el totalAmount que ya tiene el descuento aplicado
-    // De lo contrario, usar el total calculado desde los items
     const transactionAmount = (metadata?.discountAmount && metadata.discountAmount > 0) 
         ? metadata.totalAmount 
         : (total || metadata.totalAmount);
@@ -1204,19 +1202,13 @@ export const createPreference = async (req: Request, res: Response) => {
       "pending"
     );
 
-    // Detectar si es producción basándose en FIREBASE_PROJECT_ID
     const isProduction = process.env.FIREBASE_PROJECT_ID === 'inee-admin';
-    const baseUrl = isProduction
-        ? (process.env.WEBHOOK_BASE_URL || 'https://inee-backend.onrender.com')
-        : 'https://inee-backend-qa.onrender.com';
+    console.log("Variable de comparacion: ", isProduction);
+    const baseUrl = isProduction ? 'https://inee-backend.onrender.com' : 'https://inee-backend-qa.onrender.com';
     const webhookUrl = `${baseUrl}/api/payments/mercadopago/webhook`;
 
-    // URL del frontend según el entorno
-    const frontendUrl = isProduction
-        ? (process.env.FRONTEND_URL || 'https://ineeoficial.com')
-        : 'https://tienda-qa.ineeoficial.com/';
+    const frontendUrl = isProduction ? 'https://ineeoficial.com' : 'https://tienda-qa.ineeoficial.com';
 
-    // Calcular el total de los items para ajustar si hay descuento
     const itemsTotal = items.reduce((sum, item) => {
       const rawUnitPrice = item.unit_price !== undefined && item.unit_price !== null
         ? item.unit_price
@@ -1224,7 +1216,6 @@ export const createPreference = async (req: Request, res: Response) => {
       return sum + (Number(rawUnitPrice) * Number(item.quantity || 1));
     }, 0);
 
-    // Si hay descuento y el total de items no coincide con el total final, ajustar los items proporcionalmente
     let adjustedItems = items;
     if (metadata?.discountAmount && metadata.discountAmount > 0 && Math.abs(itemsTotal - transactionAmount) > 0.01) {
       const discountRatio = transactionAmount / itemsTotal;
@@ -1267,17 +1258,9 @@ export const createPreference = async (req: Request, res: Response) => {
       };
     });
 
-    const cleanFrontendUrl = frontendUrl.endsWith('/') ? frontendUrl.slice(0, -1) : frontendUrl;
-    const successUrl = `${cleanFrontendUrl}/checkout/success?order=${orderNumber}`;
-    const pendingUrl = `${cleanFrontendUrl}/checkout/pending?order=${orderNumber}`;
-    const failureUrl = `${cleanFrontendUrl}/checkout/failure?order=${orderNumber}`;
-
-    console.log("🔗 URLs de retorno Checkout PRO:", {
-      frontendUrl,
-      successUrl,
-      pendingUrl,
-      failureUrl,
-    });
+    const successUrl = `${frontendUrl}/checkout/success?order=${orderNumber}`;
+    const pendingUrl = `${frontendUrl}/checkout/pending?order=${orderNumber}`;
+    const failureUrl = `${frontendUrl}/checkout/failure?order=${orderNumber}`;
 
     const preferenceBody: any = {
       items: mpItems,
@@ -1335,8 +1318,6 @@ export const createPreference = async (req: Request, res: Response) => {
 export const handleWebhook = async (req: Request, res: Response) => {
     try {
         console.log('🔔 Webhook recibido de Mercado Pago');
-        console.log('Headers:', req.headers);
-        console.log('Body:', JSON.stringify(req.body, null, 2));
 
         const xSignature = req.headers['x-signature'] as string;
         const xRequestId = req.headers['x-request-id'] as string;
@@ -1368,8 +1349,6 @@ export const handleWebhook = async (req: Request, res: Response) => {
             console.warn('⚠️  No se pudo extraer el payment ID del webhook');
             return res.sendStatus(200);
         }
-
-        console.log(`📦 Procesando notificación de pago: ${paymentId}`);
 
         const paymentClient = new Payment(mpClient);
         const payment = await paymentClient.get({ id: paymentId });
@@ -1425,7 +1404,6 @@ export const handleWebhook = async (req: Request, res: Response) => {
             webhookProcessedAt: new Date()
         });
 
-            // Si el pago fue aprobado, asignar productos al usuario
             if (payment.status === 'approved') {
                 console.log(`🎁 Asignando productos al usuario ${orderData.userId}`);
                 await assignProductsToUser(
@@ -1435,7 +1413,6 @@ export const handleWebhook = async (req: Request, res: Response) => {
                     payment.status
                 );
 
-                // Enviar email de confirmación
                 try {
                     await sendPaymentConfirmationEmail(orderData.userId, orderId, orderData);
                     console.log(`📧 Email de confirmación enviado a ${orderData.userId}`);
@@ -1578,7 +1555,6 @@ const assignProductsToUser = async (
         }
 
         const userData = userDoc.data();
-        // Inicializar arrays vacíos si no existen
         const cursosAsignados = Array.isArray(userData?.cursos_asignados) ? userData.cursos_asignados : [];
         const eventosAsignados = Array.isArray(userData?.eventos_asignados) ? userData.eventos_asignados : [];
         const ebooksAsignados = Array.isArray(userData?.ebooks_asignados) ? userData.ebooks_asignados : [];
@@ -1617,21 +1593,11 @@ const assignProductsToUser = async (
 
             const eventDoc = await firestore.collection('events').doc(productId).get();
             if (eventDoc.exists) {
-                console.log(`🎯 [EVENTO DETECTADO] Evento ${productId} encontrado para usuario ${userId} - precio: ${precio}`);
                 
-                // Agregar evento a eventos_asignados si no está ya incluido
                 if (!eventosAsignados.includes(productId)) {
                     eventosAsignados.push(productId);
                     console.log(`✅ [EVENTO] Evento agregado a eventos_asignados`);
                 }
-                
-                // CREAR INSCRIPCIÓN SIEMPRE después de un pago exitoso
-                // No verificar si existe, simplemente crear (Firestore permite múltiples documentos)
-                console.log(`📝 [INSCRIPCIÓN] === INICIANDO CREACIÓN DE INSCRIPCIÓN ===`);
-                console.log(`📝 [INSCRIPCIÓN] Evento: ${productId}`);
-                console.log(`📝 [INSCRIPCIÓN] Usuario: ${userId}`);
-                console.log(`📝 [INSCRIPCIÓN] PaymentId: ${paymentId || 'N/A'}`);
-                console.log(`📝 [INSCRIPCIÓN] PaymentStatus: ${paymentStatus || 'N/A'}`);
                 
                 // Datos de la inscripción
                 const nuevaInscripcion: any = {
@@ -1677,8 +1643,6 @@ const assignProductsToUser = async (
                 continue;
             }
 
-            // Verificar si es un aval (los avales no se asignan directamente al usuario,
-            // son certificaciones asociadas a las formaciones)
             const avalDoc = await firestore.collection('avales').doc(productId).get();
             if (avalDoc.exists) {
                 console.log(`📜 [AVAL] Aval ${productId} detectado - no se asigna directamente al usuario`);
@@ -1689,8 +1653,6 @@ const assignProductsToUser = async (
             console.warn(`⚠️ [ITEM] Producto ${productId} no encontrado en ninguna colección (courses, events, ebooks, avales)`);
         }
 
-        // Actualizar el usuario con los nuevos productos asignados
-        // Asegurarse de que siempre sean arrays, incluso si estaban vacíos
         const updateData: any = {
             cursos_asignados: Array.isArray(cursosAsignados) ? cursosAsignados : [],
             eventos_asignados: Array.isArray(eventosAsignados) ? eventosAsignados : [],
