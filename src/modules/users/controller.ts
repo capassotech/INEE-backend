@@ -3,6 +3,7 @@ import { firestore, firebaseAuth } from '../../config/firebase';
 import type { UserRegistrationData, UserProfile, SendAssignmentEmailParams } from '../../types/user';
 import { Resend } from 'resend';
 import { normalizeText } from '../../utils/utils';
+import { sendWelcomeEmail } from '../auth/controller';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -737,14 +738,9 @@ export const createUser = async (req: Request, res: Response) => {
       console.error('Error al verificar login:', loginTestError.message);
     }
 
-    // Enviar email al usuario creado (no crítico si falla)
+    // Enviar email de bienvenida al usuario creado (no crítico si falla)
     try {
-      await resend.emails.send({
-        from: "INEE Oficial <contacto@ineeoficial.com>",
-        to: userRecord.email || "",
-        subject: "Bienvenido a INEE",
-        html: `<p>Bienvenido a INEE ${nombre} ${apellido}! Te informamos que has sido registrado en INEE.</p>`,
-      });
+      await sendWelcomeEmail(userRecord.email || "", nombre);
     } catch (emailError: any) {
       console.error('Error enviando email de bienvenida:', emailError);
     }
