@@ -596,7 +596,7 @@ const assignProductsToUser = async (
     }
 };
 
-const sendPaymentConfirmationEmail = async (userId: string, orderId: string, orderData: any) => {
+const sendPaymentConfirmationEmail = async (userId: string, orderId: string, orderData: any, totalPaid?: number) => {
     try {
         const userDoc = await firestore.collection('users').doc(userId).get();
         if (!userDoc.exists) {
@@ -639,7 +639,8 @@ const sendPaymentConfirmationEmail = async (userId: string, orderId: string, ord
             return `<li><a href="${productLink}" style="color: #00a650; text-decoration: none;">${productName}</a> - $${productPrice}</li>`;
         }).join('');
 
-        let total = items.reduce((acc: number, item: any) => acc + ((item.unit_price || item.precio || item.price || 0) * (item.quantity || 1)), 0);
+        // Usar el total pagado desde Mercado Pago si está disponible, sino calcular desde items
+        let total = totalPaid ?? items.reduce((acc: number, item: any) => acc + ((item.unit_price || item.precio || item.price || 0) * (item.quantity || 1)), 0);
 
         const emailMessage = `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
