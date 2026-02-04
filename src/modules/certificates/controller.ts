@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { AuthenticatedRequest } from '../../middleware/authMiddleware';
 import { firestore } from '../../config/firebase';
-import puppeteer from 'puppeteer';
+import { PDFDocument, rgb } from 'pdf-lib';
 import QRCode from 'qrcode';
 import { randomUUID } from 'crypto';
 import { CertificadoData, CertificadoValidationResponse } from '../../types/certificates';
@@ -127,11 +127,14 @@ export const generarCertificado = async (req: AuthenticatedRequest, res: Respons
     // Generar ID único para el certificado
     const certificadoId = randomUUID();
 
-    // Crear URL de validación pública
-    const baseUrl = 'https://estudiante-qa.ineeoficial.com';
+
+    const isProduction = process.env.FIREBASE_PROJECT_ID === 'inee-admin';
+    const baseUrl = isProduction
+      ? 'https://estudiante.ineeoficial.com'
+      : 'https://estudiante-qa.ineeoficial.com';
     const validationUrl = `${baseUrl}/validar-certificado/${certificadoId}`;
-    
-    console.log('URL del certificado generado:', validationUrl);
+
+    console.log('URL del certificado generado:', validationUrl, `(env: ${isProduction ? 'producción' : 'qa'})`);
 
     // Generar QR Code como Data URL
     const qrCodeDataUrl = await QRCode.toDataURL(validationUrl, {
@@ -142,6 +145,9 @@ export const generarCertificado = async (req: AuthenticatedRequest, res: Respons
     // Crear datos del certificado
     const fechaFinalizacion = new Date();
     const fechaEmision = new Date();
+    
+    // Determinar el tipo de certificado antes de guardar
+    const tipoCertificado: 'APROBACION' | 'PARTICIPACION' = !examenesSnapshot.empty ? 'APROBACION' : 'PARTICIPACION';
 
     const certificadoData: CertificadoData = {
       certificadoId,
@@ -154,6 +160,7 @@ export const generarCertificado = async (req: AuthenticatedRequest, res: Respons
       fechaEmision,
       qrCodeUrl: qrCodeDataUrl,
       validationUrl,
+      tipo: tipoCertificado,
     };
 
     // Guardar certificado en Firestore
@@ -166,80 +173,320 @@ export const generarCertificado = async (req: AuthenticatedRequest, res: Respons
         fechaEmision: fechaEmision,
       });
 
-    // Formatear fecha de finalización para el texto principal: "9 / Septiembre / 2026"
+    // Formatear fecha de finalización: "9 / Septiembre / 2026"
     const dia = fechaFinalizacion.getDate();
     const mes = fechaFinalizacion.toLocaleDateString('es-AR', { month: 'long' });
     const año = fechaFinalizacion.getFullYear();
     const mesCapitalizado = mes.charAt(0).toUpperCase() + mes.slice(1);
     const fechaFormateada = `${dia} / ${mesCapitalizado} / ${año}`;
 
-    // Formatear fecha para el QR: "22/09/2026"
-    const diaQR = fechaFinalizacion.getDate().toString().padStart(2, '0');
-    const mesQR = (fechaFinalizacion.getMonth() + 1).toString().padStart(2, '0');
-    const añoQR = fechaFinalizacion.getFullYear();
-    const fechaQR = `${diaQR}/${mesQR}/${añoQR}`;
+    // Formatear fecha actual para el campo Fecha_Actual: "03/02/2026"
+    const diaActual = fechaEmision.getDate().toString().padStart(2, '0');
+    const mesActual = (fechaEmision.getMonth() + 1).toString().padStart(2, '0');
+    const añoActual = fechaEmision.getFullYear();
+    const fechaActual = `${diaActual}/${mesActual}/${añoActual}`;
 
-    // Leer plantilla HTML
+    // Determinar qué PDF usar según si tiene examen o no
+    const tieneExamen = !examenesSnapshot.empty;
+    const pdfFileName = tieneExamen ? 'APROBACION.pdf' : 'PARTICIPACION.pdf';
+
+    // Leer el PDF template con campos de formulario
     // En desarrollo: __dirname = src/modules/certificates
     // En producción: __dirname = dist/modules/certificates
-    const templatePath = join(__dirname, 'templates', 'certificado.html');
-    let htmlTemplate: string;
+    const templatePath = join(__dirname, 'templates', 'pdf', pdfFileName);
+    let pdfTemplateBytes: Buffer;
     
     try {
-      htmlTemplate = readFileSync(templatePath, 'utf-8');
+      pdfTemplateBytes = readFileSync(templatePath);
     } catch (error) {
       // Si no se encuentra en dist, intentar en src (desarrollo)
       const srcPath = templatePath.replace(/dist\//, 'src/');
-      htmlTemplate = readFileSync(srcPath, 'utf-8');
+      pdfTemplateBytes = readFileSync(srcPath);
     }
 
-    // Reemplazar placeholders en la plantilla
-    htmlTemplate = htmlTemplate
-      .replace(/\{\{qrCodeUrl\}\}/g, qrCodeDataUrl)
-      .replace(/\{\{nombreCompleto\}\}/g, nombreCompleto)
-      .replace(/\{\{dni\}\}/g, dni)
-      .replace(/\{\{nombreCurso\}\}/g, nombreCurso)
-      .replace(/\{\{fechaFinalizacion\}\}/g, fechaFormateada)
-      .replace(/\{\{fechaQR\}\}/g, fechaQR);
+    // Cargar el PDF template
+    const pdfDoc = await PDFDocument.load(pdfTemplateBytes);
+    
+    // Obtener el formulario del PDF
+    const form = pdfDoc.getForm();
+    
+    // Convertir QR Code de Data URL a Buffer
+    const qrImageBytes = Buffer.from(qrCodeDataUrl.split(',')[1], 'base64');
+    
+    try {
+      // Rellenar los campos del formulario según los nombres que proporcionaste
+      // Nombre del estudiante
+      const nombreField = form.getTextField('Nombre_Estudiante');
+      nombreField.setText(nombreCompleto);
+      
+      // DNI del estudiante
+      const dniField = form.getTextField('DNI_Estudiante');
+      dniField.setText(dni);
+      
+      // Fecha de finalización
+      const fechaFinField = form.getTextField('Fecha_Finalizacion');
+      fechaFinField.setText(fechaFormateada);
+      
+      // Nombre de la formación
+      const nombreFormacionField = form.getTextField('Nombre_Formacion');
+      nombreFormacionField.setText(nombreCurso);
+      
+      // Fecha actual
+      const fechaActualField = form.getTextField('Fecha_Actual');
+      fechaActualField.setText(fechaActual);
+      
+      // Agregar imagen QR
+      // El QR debe estar embebido como PNG
+      const qrImage = await pdfDoc.embedPng(qrImageBytes);
+      
+      // Intentar encontrar el campo QR y establecer la imagen
+      let qrFieldFound = false;
+      
+      try {
+        // Intentar como botón (PDFButton)
+        const qrButton = form.getButton('QR');
+        qrButton.setImage(qrImage);
+        qrFieldFound = true;
+        console.log('QR agregado como botón');
+      } catch (buttonError) {
+        // Si no funciona como botón, intentar buscar entre todos los campos
+        try {
+          const fields = form.getFields();
+          for (const field of fields) {
+            const fieldName = field.getName();
+            if (fieldName === 'QR' || fieldName.toLowerCase().includes('qr')) {
+              console.log(`Campo QR encontrado: ${fieldName} (${field.constructor.name})`);
+              
+              // Si es un botón, establecer imagen
+              if (field.constructor.name === 'PDFButton') {
+                (field as any).setImage(qrImage);
+                qrFieldFound = true;
+                break;
+              }
+            }
+          }
+        } catch (searchError) {
+          console.log('No se pudo buscar campos QR:', searchError);
+        }
+      }
+      
+      // Si no se encontró el campo QR, agregarlo manualmente en la página
+      if (!qrFieldFound) {
+        console.log('Campo QR no encontrado, agregando imagen directamente en la página');
+        
+        const pages = pdfDoc.getPages();
+        const firstPage = pages[0];
+        
+        // Tamaño del QR (ajustar según necesites)
+        const qrSize = 100;
+        
+        // Posición: centrado horizontalmente, en la parte inferior
+        // Ajusta estas coordenadas según tu diseño
+        const x = (firstPage.getWidth() / 2) - (qrSize / 2);
+        const y = 80; // Distancia desde el borde inferior
+        
+        firstPage.drawImage(qrImage, {
+          x: x,
+          y: y,
+          width: qrSize,
+          height: qrSize,
+        });
+        
+        console.log(`QR agregado manualmente en posición (${x}, ${y})`);
+      }
+      
+      // Aplanar el formulario para que los campos no sean editables
+      form.flatten();
+      
+    } catch (fieldError: any) {
+      console.error('Error al rellenar campos del formulario:', fieldError);
+      // Listar todos los campos disponibles para debugging
+      const fields = form.getFields();
+      console.log('Campos disponibles en el PDF:');
+      fields.forEach(field => {
+        const name = field.getName();
+        const type = field.constructor.name;
+        console.log(`  - ${name} (${type})`);
+      });
+      
+      return res.status(400).json({
+        error: 'Error al rellenar los campos del certificado',
+        details: fieldError.message,
+        camposDisponibles: fields.map(f => ({ nombre: f.getName(), tipo: f.constructor.name })),
+        mensaje: 'Verifica que los nombres de los campos en el PDF coincidan con los esperados'
+      });
+    }
+
+    // Generar el PDF modificado
+    const pdfBytes = await pdfDoc.save();
 
     // Configurar headers para descargar el PDF
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="certificado-${nombreCurso.replace(/\s+/g, '-')}.pdf"`);
 
-    // Generar PDF usando Puppeteer
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-
-    try {
-      const page = await browser.newPage();
-      await page.setContent(htmlTemplate, { waitUntil: 'networkidle0' });
-      
-      const pdfBuffer = await page.pdf({
-        format: 'A4',
-        landscape: false,
-        printBackground: true,
-        margin: {
-          top: '0',
-          right: '0',
-          bottom: '0',
-          left: '0'
-        }
-      });
-
-      await browser.close();
-
-      // Enviar PDF al cliente
-      res.send(pdfBuffer);
-    } catch (pdfError) {
-      await browser.close();
-      throw pdfError;
-    }
+    // Enviar PDF al cliente
+    res.send(Buffer.from(pdfBytes));
   } catch (error: any) {
     console.error('Error al generar certificado:', error);
     return res.status(500).json({
       error: 'Error interno del servidor al generar el certificado',
+      details: error.message,
+    });
+  }
+};
+
+/**
+ * Obtener PDF del certificado por ID (público)
+ * GET /api/certificados/pdf/:certificadoId
+ */
+export const obtenerPdfCertificado = async (req: Request, res: Response) => {
+  try {
+    const { certificadoId } = req.params;
+
+    if (!certificadoId) {
+      return res.status(400).json({ error: 'ID de certificado requerido' });
+    }
+
+    // Buscar certificado en Firestore
+    const certificadoDoc = await firestore
+      .collection('certificados')
+      .doc(certificadoId)
+      .get();
+
+    if (!certificadoDoc.exists) {
+      return res.status(404).json({ error: 'Certificado no encontrado' });
+    }
+
+    const certificadoData = certificadoDoc.data();
+
+    // Convertir timestamps de Firestore a Date
+    const fechaFinalizacion = certificadoData?.fechaFinalizacion?.toDate() || new Date();
+    const fechaEmision = certificadoData?.fechaEmision?.toDate() || new Date();
+
+    // Formatear fechas
+    const dia = fechaFinalizacion.getDate();
+    const mes = fechaFinalizacion.toLocaleDateString('es-AR', { month: 'long' });
+    const año = fechaFinalizacion.getFullYear();
+    const mesCapitalizado = mes.charAt(0).toUpperCase() + mes.slice(1);
+    const fechaFormateada = `${dia} / ${mesCapitalizado} / ${año}`;
+
+    const diaActual = fechaEmision.getDate().toString().padStart(2, '0');
+    const mesActual = (fechaEmision.getMonth() + 1).toString().padStart(2, '0');
+    const añoActual = fechaEmision.getFullYear();
+    const fechaActual = `${diaActual}/${mesActual}/${añoActual}`;
+
+    // Determinar qué PDF usar
+    const tipoCertificado = certificadoData?.tipo || 'PARTICIPACION';
+    const pdfFileName = tipoCertificado === 'APROBACION' ? 'APROBACION.pdf' : 'PARTICIPACION.pdf';
+
+    // Leer el PDF template
+    const templatePath = join(__dirname, 'templates', 'pdf', pdfFileName);
+    let pdfTemplateBytes: Buffer;
+    
+    try {
+      pdfTemplateBytes = readFileSync(templatePath);
+    } catch (error) {
+      const srcPath = templatePath.replace(/dist\//, 'src/');
+      pdfTemplateBytes = readFileSync(srcPath);
+    }
+
+    // Cargar el PDF
+    const pdfDoc = await PDFDocument.load(pdfTemplateBytes);
+    const form = pdfDoc.getForm();
+
+    // Obtener datos del certificado
+    const nombreCompleto = certificadoData?.nombreCompleto || '';
+    const dni = certificadoData?.dni || '';
+    const nombreCurso = certificadoData?.nombreCurso || '';
+    const qrCodeDataUrl = certificadoData?.qrCodeUrl || '';
+
+    // Convertir QR Code de Data URL a Buffer
+    const qrImageBytes = Buffer.from(qrCodeDataUrl.split(',')[1], 'base64');
+
+    try {
+      // Rellenar campos
+      const nombreField = form.getTextField('Nombre_Estudiante');
+      nombreField.setText(nombreCompleto);
+      
+      const dniField = form.getTextField('DNI_Estudiante');
+      dniField.setText(dni);
+      
+      const fechaFinField = form.getTextField('Fecha_Finalizacion');
+      fechaFinField.setText(fechaFormateada);
+      
+      const nombreFormacionField = form.getTextField('Nombre_Formacion');
+      nombreFormacionField.setText(nombreCurso);
+      
+      const fechaActualField = form.getTextField('Fecha_Actual');
+      fechaActualField.setText(fechaActual);
+      
+      // Agregar QR
+      const qrImage = await pdfDoc.embedPng(qrImageBytes);
+      let qrFieldFound = false;
+      
+      try {
+        const qrButton = form.getButton('QR');
+        qrButton.setImage(qrImage);
+        qrFieldFound = true;
+      } catch (buttonError) {
+        // Buscar entre todos los campos
+        try {
+          const fields = form.getFields();
+          for (const field of fields) {
+            const fieldName = field.getName();
+            if (fieldName === 'QR' || fieldName.toLowerCase().includes('qr')) {
+              if (field.constructor.name === 'PDFButton') {
+                (field as any).setImage(qrImage);
+                qrFieldFound = true;
+                break;
+              }
+            }
+          }
+        } catch (searchError) {
+          console.log('No se pudo buscar campos QR:', searchError);
+        }
+      }
+      
+      // Si no se encontró, agregar manualmente
+      if (!qrFieldFound) {
+        const pages = pdfDoc.getPages();
+        const firstPage = pages[0];
+        const qrSize = 100;
+        const x = (firstPage.getWidth() / 2) - (qrSize / 2);
+        const y = 80;
+        
+        firstPage.drawImage(qrImage, {
+          x: x,
+          y: y,
+          width: qrSize,
+          height: qrSize,
+        });
+      }
+      
+      // Aplanar el formulario
+      form.flatten();
+      
+    } catch (fieldError: any) {
+      console.error('Error al rellenar campos:', fieldError);
+      return res.status(400).json({
+        error: 'Error al rellenar los campos del certificado',
+        details: fieldError.message,
+      });
+    }
+
+    // Generar PDF
+    const pdfBytes = await pdfDoc.save();
+
+    // Configurar headers
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="certificado-${certificadoData?.nombreCurso?.replace(/\s+/g, '-')}.pdf"`);
+
+    // Enviar PDF
+    res.send(Buffer.from(pdfBytes));
+  } catch (error: any) {
+    console.error('Error al obtener PDF del certificado:', error);
+    return res.status(500).json({
+      error: 'Error interno del servidor',
       details: error.message,
     });
   }
@@ -325,6 +572,7 @@ export const validarCertificado = async (req: Request, res: Response) => {
         fechaEmision,
         qrCodeUrl: certificadoData?.qrCodeUrl || '',
         validationUrl: certificadoData?.validationUrl || '',
+        tipo: certificadoData?.tipo || 'PARTICIPACION',
       },
     };
 
