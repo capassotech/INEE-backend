@@ -226,6 +226,184 @@ export const linkPasswordProvider = async (req: Request, res: Response) => {
   }
 };
 
+export const linkGoogleProvider = async (req: Request, res: Response) => {
+  try {
+    const { email, password, googleIdToken } = req.body;
+
+    if (!email || !password || !googleIdToken) {
+      return res.status(400).json({
+        error: "Email, contraseña y token de Google requeridos",
+      });
+    }
+
+    console.log(`[LINK GOOGLE] Intentando vincular Google para: ${email}`);
+
+    // PASO 1: Verificar la contraseña del usuario
+    let firebaseApiKey = process.env.FIREBASE_API_KEY;
+    const projectId = process.env.FIREBASE_PROJECT_ID;
+
+    if (!firebaseApiKey) {
+      if (projectId === "inee-qa") {
+        firebaseApiKey = "AIzaSyC0mx89rSeedrdTtpyqrlhS7FAIejCrIWM";
+      } else {
+        firebaseApiKey = "AIzaSyAZDT5DM68-9qYH23HdKAsOTaV_qCAPEiw";
+      }
+    }
+
+    // Validar la contraseña
+    const authResponse = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${firebaseApiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          password,
+          returnSecureToken: true,
+        }),
+      }
+    );
+
+    const authResult = await authResponse.json();
+
+    if (!authResponse.ok) {
+      console.error(`[LINK GOOGLE] Contraseña incorrecta`);
+      return res.status(401).json({
+        error: "Contraseña incorrecta",
+      });
+    }
+
+    const uid = authResult.localId;
+    const userIdToken = authResult.idToken;
+
+    // PASO 2: Verificar el token de Google
+    let googleDecodedToken;
+    try {
+      googleDecodedToken = await firebaseAuth.verifyIdToken(googleIdToken);
+    } catch (error) {
+      console.error("[LINK GOOGLE] Token de Google inválido:", error);
+      return res.status(400).json({
+        error: "Token de Google inválido",
+      });
+    }
+
+    const googleUid = googleDecodedToken.uid;
+    const googleEmail = googleDecodedToken.email;
+
+    // PASO 3: Verificar que los emails coinciden
+    if (email !== googleEmail) {
+      console.error("[LINK GOOGLE] Emails no coinciden");
+      return res.status(400).json({
+        error: "Los emails no coinciden",
+      });
+    }
+
+    // PASO 4: Obtener los proveedores actuales del usuario
+    const existingUser = await firebaseAuth.getUser(uid);
+    const providers = existingUser.providerData.map((p) => p.providerId);
+
+    // PASO 5: Verificar que no tenga ya Google vinculado
+    if (providers.includes("google.com")) {
+      console.log("[LINK GOOGLE] Usuario ya tiene Google vinculado");
+
+      // Eliminar el usuario de Google duplicado
+      if (googleUid !== uid) {
+        try {
+          await firebaseAuth.deleteUser(googleUid);
+          console.log(`[LINK GOOGLE] Usuario de Google duplicado (${googleUid}) eliminado`);
+        } catch (deleteError) {
+          console.error("[LINK GOOGLE] Error eliminando usuario duplicado:", deleteError);
+        }
+      }
+
+      // Generar token y retornar
+      const customToken = await firebaseAuth.createCustomToken(uid);
+      const userDoc = await firestore.collection("users").doc(uid).get();
+      const userData = userDoc.data();
+
+      return res.json({
+        message: "Ya tenías Google vinculado. Sesión iniciada correctamente",
+        token: customToken,
+        user: {
+          uid,
+          email: userData?.email,
+          nombre: userData?.nombre,
+          apellido: userData?.apellido,
+          role: userData?.role,
+          dni: userData?.dni || null,
+        },
+      });
+    }
+
+    console.log(`[LINK GOOGLE] Proveedores actuales: ${providers.join(", ")}`);
+
+    // PASO 6: CRÍTICO - Eliminar el usuario de Google ANTES de actualizar Firestore
+    // Esto es necesario porque Firebase Auth creó un usuario separado
+    if (googleUid !== uid) {
+      try {
+        console.log(`[LINK GOOGLE] Eliminando usuario de Google duplicado (${googleUid})...`);
+        await firebaseAuth.deleteUser(googleUid);
+        console.log(`[LINK GOOGLE] Usuario de Google duplicado eliminado exitosamente`);
+      } catch (deleteError: any) {
+        console.error("[LINK GOOGLE] Error eliminando usuario de Google:", deleteError);
+
+        // Si no se puede eliminar, es un error crítico
+        if (deleteError.code !== "auth/user-not-found") {
+          return res.status(500).json({
+            error: "No se pudo vincular la cuenta. Por favor, intenta de nuevo",
+            details: process.env.NODE_ENV === "development" ? deleteError.message : undefined,
+          });
+        }
+      }
+    }
+
+    // PASO 7: Actualizar el usuario en Firebase Auth para incluir Google como proveedor
+    // NOTA: Firebase Admin SDK no tiene un método directo para "linkWithProvider"
+    // La vinculación debe hacerse desde el lado del cliente
+    // Por lo tanto, aquí solo actualizamos Firestore y confiamos en que el cliente
+    // hará la vinculación correcta
+
+    // PASO 8: Actualizar Firestore
+    const updateData: any = {
+      provider: "password,google",
+      photoURL: googleDecodedToken.picture || "",
+      ultimoAcceso: new Date(),
+      fechaActualizacion: new Date(),
+    };
+
+    await firestore.collection("users").doc(uid).update(updateData);
+    console.log(`[LINK GOOGLE] Firestore actualizado con ambos proveedores`);
+
+    // PASO 9: Obtener datos del usuario y generar token
+    const userDoc = await firestore.collection("users").doc(uid).get();
+    const userData = userDoc.data();
+
+    const customToken = await firebaseAuth.createCustomToken(uid);
+
+    console.log(`[LINK GOOGLE] Vinculación completada exitosamente`);
+
+    return res.json({
+      message: "Cuenta de Google vinculada exitosamente",
+      token: customToken,
+      user: {
+        uid,
+        email: userData?.email,
+        nombre: userData?.nombre,
+        apellido: userData?.apellido,
+        role: userData?.role,
+        dni: userData?.dni || null,
+      },
+    });
+  } catch (error: any) {
+    console.error("[LINK GOOGLE] Error general:", error);
+    return res.status(500).json({
+      error: "Error interno del servidor",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+};
+
 export const loginUser = async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
@@ -796,7 +974,7 @@ export const googleAuth = async (req: Request, res: Response) => {
     const customToken = await firebaseAuth.createCustomToken(googleUid);
 
     // Enviar email de bienvenida
-    await sendWelcomeEmail(email, nombre);
+    await sendWelcomeEmail(googleEmail, nombre);
 
     console.log(`[GOOGLE AUTH] Usuario registrado exitosamente con Google`);
 
@@ -1019,6 +1197,64 @@ export const updateUserProfile = async (
 
     return res.status(500).json({
       error: "Error interno del servidor",
+    });
+  }
+};
+
+export const updateUserDni = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const uid = req.user.uid;
+    const { dni } = req.body;
+
+    if (!dni) {
+      return res.status(400).json({
+        error: "DNI es requerido",
+      });
+    }
+
+    // Validar formato de DNI (ajustar según tu país)
+    if (typeof dni !== "string" || dni.trim().length < 7) {
+      return res.status(400).json({
+        error: "Formato de DNI inválido",
+      });
+    }
+
+    // Verificar que el DNI no exista ya
+    const existingDniQuery = await firestore
+      .collection("users")
+      .where("dni", "==", dni.trim())
+      .get();
+
+    if (!existingDniQuery.empty) {
+      const existingUser = existingDniQuery.docs[0];
+      if (existingUser.id !== uid) {
+        return res.status(409).json({
+          error: "Ya existe un usuario registrado con este DNI",
+        });
+      }
+    }
+
+    // Actualizar DNI
+    await firestore.collection("users").doc(uid).update({
+      dni: dni.trim(),
+      fechaActualizacion: new Date(),
+    });
+
+    console.log(`[UPDATE DNI] DNI actualizado para usuario: ${uid}`);
+
+    return res.json({
+      message: "DNI actualizado exitosamente",
+      dni: dni.trim(),
+    });
+  } catch (error: any) {
+    console.error("[UPDATE DNI] Error:", error);
+    return res.status(500).json({
+      error: "Error interno del servidor",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
