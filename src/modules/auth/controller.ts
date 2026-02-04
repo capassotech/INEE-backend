@@ -90,22 +90,8 @@ export const registerUser = async (req: Request, res: Response) => {
     // Generar token personalizado
     const customToken = await firebaseAuth.createCustomToken(userRecord.uid);
 
-    // Email de bienvenida
-    await resend.emails.send({
-      from: "INEE Oficial <contacto@ineeoficial.com>",
-      to: userRecord.email || "",
-      subject: "Bienvenida a INEE®. Acceso al campus virtual",
-      html: `
-        <p>Hola ${nombre},</p>
-        <p>Te damos la bienvenida a <strong>INEE® – Instituto de Negocios Emprendedor Empresarial</strong>.<br>
-        Tu inscripción fue confirmada y ya tenés acceso al campus de formación.</p>
-        <p>INEE® es un espacio de formación profesional orientado a la consultoría estratégica, el liderazgo y el desarrollo emprendedor. Las formaciones están diseñadas para fortalecer criterio profesional, capacidad de análisis y toma de decisiones con método.</p>
-        <p>En el campus vas a encontrar contenidos con base conceptual sólida y aplicación práctica, organizados a partir del <strong>método DAACRE®</strong>, nuestro marco de intervención profesional.</p>
-        <p><strong>Ingresá al campus desde acá:</strong> <a href="https://estudiante.ineeoficial.com">https://estudiante.ineeoficial.com</a></p>
-        <strong>Felicitaciones por formar parte de INEE®.</strong><br>
-        Nos alegra acompañarte en este recorrido.</p>
-      `,
-    });
+    // Enviar email de bienvenida
+    await sendWelcomeEmail(userRecord.email || "", nombre);
 
     return res.status(201).json({
       message: "Usuario registrado exitosamente",
@@ -809,22 +795,8 @@ export const googleAuth = async (req: Request, res: Response) => {
 
     const customToken = await firebaseAuth.createCustomToken(googleUid);
 
-    // Email de bienvenida
-    await resend.emails.send({
-      from: "INEE Oficial <contacto@ineeoficial.com>",
-      to: googleEmail,
-      subject: "Bienvenida a INEE®. Acceso al campus virtual",
-      html: `
-        <p>Hola ${nombre},</p>
-        <p>Te damos la bienvenida a INEE® – Instituto de Negocios Emprendedor Empresarial.<br>
-        Tu inscripción fue confirmada y ya tenés acceso al campus de formación.</p>
-        <p>INEE® es un espacio de formación profesional orientado a la consultoría estratégica, el liderazgo y el desarrollo emprendedor. Las formaciones están diseñadas para fortalecer criterio profesional, capacidad de análisis y toma de decisiones con método.</p>
-        <p>En el campus vas a encontrar contenidos con base conceptual sólida y aplicación práctica, organizados a partir del método DAACRE®, nuestro marco de intervención profesional.</p>
-        <p>Ingresá al campus desde acá: <a href="https://ineeoficial.com">https://ineeoficial.com</a></p>
-        <p>Felicitaciones por formar parte de INEE®.<br>
-        Nos alegra acompañarte en este recorrido.</p>
-      `,
-    });
+    // Enviar email de bienvenida
+    await sendWelcomeEmail(email, nombre);
 
     console.log(`[GOOGLE AUTH] Usuario registrado exitosamente con Google`);
 
@@ -1392,238 +1364,34 @@ export const updateUserAdditionalData = async (
   }
 };
 
-export const linkGoogleProvider = async (req: Request, res: Response) => {
+// Función para enviar email de bienvenida
+export const sendWelcomeEmail = async (email: string, nombre: string) => {
   try {
-    const { email, password, googleIdToken } = req.body;
-
-    if (!email || !password || !googleIdToken) {
-      return res.status(400).json({
-        error: "Email, contraseña y token de Google requeridos",
-      });
-    }
-
-    console.log(`[LINK GOOGLE] Intentando vincular Google para: ${email}`);
-
-    // PASO 1: Verificar la contraseña del usuario
-    let firebaseApiKey = process.env.FIREBASE_API_KEY;
-    const projectId = process.env.FIREBASE_PROJECT_ID;
-
-    if (!firebaseApiKey) {
-      if (projectId === "inee-qa") {
-        firebaseApiKey = "AIzaSyC0mx89rSeedrdTtpyqrlhS7FAIejCrIWM";
-      } else {
-        firebaseApiKey = "AIzaSyAZDT5DM68-9qYH23HdKAsOTaV_qCAPEiw";
-      }
-    }
-
-    // Validar la contraseña
-    const authResponse = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${firebaseApiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          password,
-          returnSecureToken: true,
-        }),
-      }
-    );
-
-    const authResult = await authResponse.json();
-
-    if (!authResponse.ok) {
-      console.error(`[LINK GOOGLE] Contraseña incorrecta`);
-      return res.status(401).json({
-        error: "Contraseña incorrecta",
-      });
-    }
-
-    const uid = authResult.localId;
-    const userIdToken = authResult.idToken;
-
-    // PASO 2: Verificar el token de Google
-    let googleDecodedToken;
-    try {
-      googleDecodedToken = await firebaseAuth.verifyIdToken(googleIdToken);
-    } catch (error) {
-      console.error("[LINK GOOGLE] Token de Google inválido:", error);
-      return res.status(400).json({
-        error: "Token de Google inválido",
-      });
-    }
-
-    const googleUid = googleDecodedToken.uid;
-    const googleEmail = googleDecodedToken.email;
-
-    // PASO 3: Verificar que los emails coinciden
-    if (email !== googleEmail) {
-      console.error("[LINK GOOGLE] Emails no coinciden");
-      return res.status(400).json({
-        error: "Los emails no coinciden",
-      });
-    }
-
-    // PASO 4: Obtener los proveedores actuales del usuario
-    const existingUser = await firebaseAuth.getUser(uid);
-    const providers = existingUser.providerData.map((p) => p.providerId);
-
-    // PASO 5: Verificar que no tenga ya Google vinculado
-    if (providers.includes("google.com")) {
-      console.log("[LINK GOOGLE] Usuario ya tiene Google vinculado");
-      
-      // Eliminar el usuario de Google duplicado
-      if (googleUid !== uid) {
-        try {
-          await firebaseAuth.deleteUser(googleUid);
-          console.log(`[LINK GOOGLE] Usuario de Google duplicado (${googleUid}) eliminado`);
-        } catch (deleteError) {
-          console.error("[LINK GOOGLE] Error eliminando usuario duplicado:", deleteError);
-        }
-      }
-
-      // Generar token y retornar
-      const customToken = await firebaseAuth.createCustomToken(uid);
-      const userDoc = await firestore.collection("users").doc(uid).get();
-      const userData = userDoc.data();
-
-      return res.json({
-        message: "Ya tenías Google vinculado. Sesión iniciada correctamente",
-        token: customToken,
-        user: {
-          uid,
-          email: userData?.email,
-          nombre: userData?.nombre,
-          apellido: userData?.apellido,
-          role: userData?.role,
-          dni: userData?.dni || null,
-        },
-      });
-    }
-
-    console.log(`[LINK GOOGLE] Proveedores actuales: ${providers.join(", ")}`);
-
-    // PASO 6: CRÍTICO - Eliminar el usuario de Google ANTES de actualizar Firestore
-    // Esto es necesario porque Firebase Auth creó un usuario separado
-    if (googleUid !== uid) {
-      try {
-        console.log(`[LINK GOOGLE] Eliminando usuario de Google duplicado (${googleUid})...`);
-        await firebaseAuth.deleteUser(googleUid);
-        console.log(`[LINK GOOGLE] Usuario de Google duplicado eliminado exitosamente`);
-      } catch (deleteError: any) {
-        console.error("[LINK GOOGLE] Error eliminando usuario de Google:", deleteError);
-        
-        // Si no se puede eliminar, es un error crítico
-        if (deleteError.code !== "auth/user-not-found") {
-          return res.status(500).json({
-            error: "No se pudo vincular la cuenta. Por favor, intenta de nuevo",
-            details: process.env.NODE_ENV === "development" ? deleteError.message : undefined,
-          });
-        }
-      }
-    }
-
-    // PASO 7: Actualizar el usuario en Firebase Auth para incluir Google como proveedor
-    // NOTA: Firebase Admin SDK no tiene un método directo para "linkWithProvider"
-    // La vinculación debe hacerse desde el lado del cliente
-    // Por lo tanto, aquí solo actualizamos Firestore y confiamos en que el cliente
-    // hará la vinculación correcta
-
-    // PASO 8: Actualizar Firestore
-    const updateData: any = {
-      provider: "password,google",
-      photoURL: googleDecodedToken.picture || "",
-      ultimoAcceso: new Date(),
-      fechaActualizacion: new Date(),
-    };
-
-    await firestore.collection("users").doc(uid).update(updateData);
-    console.log(`[LINK GOOGLE] Firestore actualizado con ambos proveedores`);
-
-    // PASO 9: Obtener datos del usuario y generar token
-    const userDoc = await firestore.collection("users").doc(uid).get();
-    const userData = userDoc.data();
-
-    const customToken = await firebaseAuth.createCustomToken(uid);
-
-    console.log(`[LINK GOOGLE] Vinculación completada exitosamente`);
-
-    return res.json({
-      message: "Cuenta de Google vinculada exitosamente",
-      token: customToken,
-      user: {
-        uid,
-        email: userData?.email,
-        nombre: userData?.nombre,
-        apellido: userData?.apellido,
-        role: userData?.role,
-        dni: userData?.dni || null,
-      },
+    await resend.emails.send({
+      from: "INEE Oficial <contacto@ineeoficial.com>",
+      to: email,
+      subject: "Bienvenida a INEE®. Acceso al campus virtual",
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6;">
+          <p>Hola ${nombre},</p>
+          
+          <p>Te damos la bienvenida a <strong>INEE® – Instituto de Negocios Emprendedor Empresarial</strong>.<br>
+          Tu inscripción fue confirmada y ya tenés acceso al campus de formación.</p>
+          
+          <p>INEE® es un espacio de formación profesional orientado a la consultoría estratégica, el liderazgo y el desarrollo emprendedor. Las formaciones están diseñadas para fortalecer criterio profesional, capacidad de análisis y toma de decisiones con método.</p>
+          
+          <p>En el campus vas a encontrar contenidos con base conceptual sólida y aplicación práctica, organizados a partir del <strong>método DAACRE®</strong>, nuestro marco de intervención profesional.</p>
+          
+          <p><strong>Ingresá al campus desde acá:</strong><br>
+          <a href="https://estudiante.ineeoficial.com" style="display: inline-block; padding: 12px 24px; background-color: #00a650; color: white; text-decoration: none; border-radius: 5px; margin-top: 10px;">Ingresar a INEE®</a></p>
+          
+          <p style="margin-top: 30px;"><strong>Felicitaciones por formar parte de INEE®.</strong><br>
+          Nos alegra acompañarte en este recorrido.</p>
+        </div>
+      `,
     });
-  } catch (error: any) {
-    console.error("[LINK GOOGLE] Error general:", error);
-    return res.status(500).json({
-      error: "Error interno del servidor",
-      details:
-        process.env.NODE_ENV === "development" ? error.message : undefined,
-    });
-  }
-};
-
-export const updateUserDni = async (
-  req: AuthenticatedRequest,
-  res: Response
-) => {
-  try {
-    const uid = req.user.uid;
-    const { dni } = req.body;
-
-    if (!dni) {
-      return res.status(400).json({
-        error: "DNI es requerido",
-      });
-    }
-
-    // Validar formato de DNI (ajustar según tu país)
-    if (typeof dni !== "string" || dni.trim().length < 7) {
-      return res.status(400).json({
-        error: "Formato de DNI inválido",
-      });
-    }
-
-    // Verificar que el DNI no exista ya
-    const existingDniQuery = await firestore
-      .collection("users")
-      .where("dni", "==", dni.trim())
-      .get();
-
-    if (!existingDniQuery.empty) {
-      const existingUser = existingDniQuery.docs[0];
-      if (existingUser.id !== uid) {
-        return res.status(409).json({
-          error: "Ya existe un usuario registrado con este DNI",
-        });
-      }
-    }
-
-    // Actualizar DNI
-    await firestore.collection("users").doc(uid).update({
-      dni: dni.trim(),
-      fechaActualizacion: new Date(),
-    });
-
-    console.log(`[UPDATE DNI] DNI actualizado para usuario: ${uid}`);
-
-    return res.json({
-      message: "DNI actualizado exitosamente",
-      dni: dni.trim(),
-    });
-  } catch (error: any) {
-    console.error("[UPDATE DNI] Error:", error);
-    return res.status(500).json({
-      error: "Error interno del servidor",
-      details:
-        process.env.NODE_ENV === "development" ? error.message : undefined,
-    });
+  } catch (error) {
+    console.error('Error enviando email de bienvenida:', error);
+    throw error;
   }
 };
