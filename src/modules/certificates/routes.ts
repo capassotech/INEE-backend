@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import {
   generarCertificado,
   validarCertificado,
+  obtenerPdfCertificado,
 } from './controller';
 import { authMiddleware, AuthenticatedRequest } from '../../middleware/authMiddleware';
 import { validateMultiple } from '../../middleware/zodValidation';
@@ -22,6 +23,12 @@ router.post(
 router.get(
   '/validar/:certificadoId',
   validarCertificado
+);
+
+// Obtener PDF del certificado (público, no requiere autenticación)
+router.get(
+  '/pdf/:certificadoId',
+  obtenerPdfCertificado
 );
 
 export default router;

@@ -22,30 +22,45 @@ const sendAssignmentEmail = async ({
 
   const labels = resourceTypeLabels[resourceType];
   const isSingle = resourceTitles.length === 1;
-  
-  const productosAsignados = isSingle 
-    ? `${labels.articulo} ${labels.singular} ${resourceTitles[0]}`
-    : `${labels.articuloPlural} ${labels.plural}: ${resourceTitles.join(', ')}`;
 
   const subject = isSingle 
     ? "Tu formación ya está disponible en INEE®"
     : "Tus formaciones ya están disponibles en INEE®";
 
-  const mensajeCuerpo = isSingle
-    ? `<strong>${labels.articulo} ${labels.singular} ${resourceTitles[0]}</strong> ya se encuentra asociado a tu perfil en INEE® y disponible en el campus.`
-    : `<strong>${labels.articuloPlural} ${labels.plural}</strong> ya fueron asignados a tu perfil en INEE® y se encuentran disponibles en el campus.`;
+  // Construir la lista de formaciones con viñetas verdes y checkmarks
+  const listaFormaciones = resourceTitles.map(title => 
+    `<li style="margin-bottom: 8px;">
+      <span style="color: #00a650; font-size: 18px; margin-right: 8px;">✅</span>
+      <strong>${title}</strong>
+    </li>`
+  ).join('');
+
+  // Texto introductorio según cantidad
+  const textoIntro = isSingle
+    ? `${labels.articulo} siguiente ${labels.singular} ya fue asignada a tu perfil en INEE® y se encuentra disponible en el campus:`
+    : `Las siguientes ${labels.plural} ya fueron asignadas a tu perfil en INEE® y se encuentran disponibles en el campus:`;
 
   const { error } = await resend.emails.send({
     from: "INEE Oficial <contacto@ineeoficial.com>",
     to: userEmail,
     subject,
     html: `
-      <p>Hola ${userName},</p>
-      <p>${mensajeCuerpo}</p>
-      <strong>Accedé a la formación desde el campus:</strong><br>
-      <a href="https://estudiante.ineeoficial.com/">https://estudiante.ineeoficial.com/</a></p>
-      <p>Equipo INEE®<br>
-      Instituto de Negocios Emprendedor Empresarial</p>
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6; color: #333;">
+        <p>Hola ${userName},</p>
+        
+        <p>${textoIntro}</p>
+        
+        <ul style="list-style: none; padding-left: 0;">
+          ${listaFormaciones}
+        </ul>
+        
+        <p style="margin-top: 20px;">Accedé a tus formaciones desde el campus:</p>
+        <p>
+          <a href="https://estudiante.ineeoficial.com/" style="display: inline-block; padding: 12px 24px; background-color: #00a650; color: white; text-decoration: none; border-radius: 5px; margin-top: 10px;">
+            👉 https://estudiante.ineeoficial.com/
+          </a>
+        </p>
+      </div>
     `,
   });
 

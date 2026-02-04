@@ -30,7 +30,41 @@ export const registerUser = async (req: Request, res: Response) => {
       });
     }
 
-    // Crear usuario en Firebase Auth
+    // NUEVO: Verificar si ya existe un usuario con ese email
+    let existingAuthUser;
+    try {
+      existingAuthUser = await firebaseAuth.getUserByEmail(email);
+    } catch (authError: any) {
+      if (authError.code !== "auth/user-not-found") {
+        console.error("Error verificando usuario:", authError);
+      }
+    }
+
+    // Si existe un usuario con ese email
+    if (existingAuthUser) {
+      const providers = existingAuthUser.providerData.map((p) => p.providerId);
+      const hasPasswordProvider = providers.includes("password");
+      const hasGoogleProvider = providers.includes("google.com");
+
+      // Si ya tiene email/password → Error: Email ya registrado
+      if (hasPasswordProvider) {
+        return res.status(409).json({
+          error: "Ya existe un usuario registrado con este email",
+        });
+      }
+
+      // Si solo tiene Google → Ofrecer vincular password
+      if (hasGoogleProvider && !hasPasswordProvider) {
+        return res.status(409).json({
+          code: "USER_EXISTS_WITH_GOOGLE",
+          email: email,
+          existingUid: existingAuthUser.uid,
+          message: "Ya tenés una cuenta con Google. ¿Querés agregar contraseña a tu cuenta?",
+        });
+      }
+    }
+
+    // Si no existe o no tiene conflicto, crear usuario normal
     const userRecord = await firebaseAuth.createUser({
       email,
       password,
@@ -44,6 +78,7 @@ export const registerUser = async (req: Request, res: Response) => {
       apellido,
       dni,
       role: "alumno",
+      provider: "password",
       fechaRegistro: new Date(),
       fechaActualizacion: new Date(),
       aceptaTerminos,
@@ -52,7 +87,7 @@ export const registerUser = async (req: Request, res: Response) => {
 
     await firestore.collection("users").doc(userRecord.uid).set(userProfile);
 
-    // Generar token personalizado para respuesta inmediata
+    // Generar token personalizado
     const customToken = await firebaseAuth.createCustomToken(userRecord.uid);
 
     // Enviar email de bienvenida
@@ -66,6 +101,7 @@ export const registerUser = async (req: Request, res: Response) => {
         nombre,
         apellido,
         role: "alumno",
+        dni,
       },
       customToken,
     });
@@ -98,6 +134,98 @@ export const registerUser = async (req: Request, res: Response) => {
   }
 };
 
+export const linkPasswordProvider = async (req: Request, res: Response) => {
+  try {
+    const { email, password, nombre, apellido, dni, aceptaTerminos } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        error: "Email y contraseña son requeridos",
+      });
+    }
+
+    // Verificar que el usuario existe y solo tiene Google
+    let existingAuthUser;
+    try {
+      existingAuthUser = await firebaseAuth.getUserByEmail(email);
+    } catch (authError: any) {
+      return res.status(404).json({
+        error: "Usuario no encontrado",
+      });
+    }
+
+    const providers = existingAuthUser.providerData.map((p) => p.providerId);
+    const hasPasswordProvider = providers.includes("password");
+    const hasGoogleProvider = providers.includes("google.com");
+
+    // Verificar que solo tenga Google
+    if (!hasGoogleProvider) {
+      return res.status(400).json({
+        error: "Este usuario no está registrado con Google",
+      });
+    }
+
+    if (hasPasswordProvider) {
+      return res.status(409).json({
+        error: "Este usuario ya tiene contraseña configurada",
+      });
+    }
+
+    // Agregar contraseña al usuario existente
+    await firebaseAuth.updateUser(existingAuthUser.uid, {
+      password: password,
+    });
+
+    // Preparar datos para actualizar
+    const updateData: any = {
+      provider: "google,password",  // Importante: mantener ambos
+      fechaActualizacion: new Date(),
+    };
+
+    // Solo actualizar campos si se proporcionan (para registro)
+    if (nombre) updateData.nombre = nombre;
+    if (apellido) updateData.apellido = apellido;
+    if (dni) updateData.dni = dni;
+    if (aceptaTerminos !== undefined) updateData.aceptaTerminos = aceptaTerminos;
+
+    // Actualizar Firestore
+    await firestore.collection("users").doc(existingAuthUser.uid).update(updateData);
+
+    // Obtener datos actualizados
+    const userDoc = await firestore.collection("users").doc(existingAuthUser.uid).get();
+    const userData = userDoc.data();
+
+    const customToken = await firebaseAuth.createCustomToken(existingAuthUser.uid);
+
+    return res.json({
+      message: "Contraseña agregada exitosamente a tu cuenta",
+      token: customToken,
+      user: {
+        uid: existingAuthUser.uid,
+        email: userData?.email,
+        nombre: userData?.nombre,
+        apellido: userData?.apellido,
+        role: userData?.role,
+        dni: userData?.dni,
+      },
+    });
+  } catch (error: any) {
+    console.error("Error en linkPasswordProvider:", error);
+
+    if (error.code === "auth/weak-password") {
+      return res.status(400).json({
+        error: "La contraseña es muy débil",
+      });
+    }
+
+    return res.status(500).json({
+      error: "Error interno del servidor",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+};
+
 export const loginUser = async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
@@ -115,31 +243,49 @@ export const loginUser = async (req: Request, res: Response) => {
       });
     }
 
-  
+    let existingUser;
+    try {
+      existingUser = await firebaseAuth.getUserByEmail(email);
+      
+      const providers = existingUser.providerData.map((p) => p.providerId);
+      const hasPasswordProvider = providers.includes("password");
+      const hasGoogleProvider = providers.includes("google.com");
+
+      console.log(`[LOGIN] Usuario encontrado. Proveedores:`, providers);
+
+      // Si solo tiene Google (no tiene password configurado)
+      if (hasGoogleProvider && !hasPasswordProvider) {
+        console.log(`[LOGIN] Usuario solo tiene Google, ofrecer agregar password`);
+        
+        return res.status(409).json({
+          code: "USER_HAS_GOOGLE_ONLY",
+          email: email,
+          existingUid: existingUser.uid,
+          message: "Ya tenés una cuenta con Google. ¿Querés agregar contraseña a tu cuenta?",
+        });
+      }
+      
+      // Si tiene password, continuar con el login normal
+      console.log(`[LOGIN] Usuario tiene password configurado, procediendo con login`);
+      
+    } catch (getUserError: any) {
+      if (getUserError.code === 'auth/user-not-found') {
+        console.log(`[LOGIN] Usuario no encontrado, intentando login de todas formas`);
+      } else {
+        console.error("[LOGIN] Error verificando usuario:", getUserError);
+      }
+    }
 
     let firebaseApiKey = process.env.FIREBASE_API_KEY;
     const projectId = process.env.FIREBASE_PROJECT_ID;
-    
-    // Si no hay API key en variables de entorno, usar la del proyecto según FIREBASE_PROJECT_ID
+
     if (!firebaseApiKey) {
       if (projectId === "inee-qa") {
-        // API key del proyecto QA
         firebaseApiKey = "AIzaSyC0mx89rSeedrdTtpyqrlhS7FAIejCrIWM";
-        console.log(`[LOGIN DEBUG] ⚠️ FIREBASE_API_KEY no configurada, usando API key de QA (detectado por FIREBASE_PROJECT_ID=${projectId})`);
-      } else if (projectId === "inee-admin") {
-        // API key del proyecto de producción
-        firebaseApiKey = "AIzaSyAZDT5DM68-9qYH23HdKAsOTaV_qCAPEiw";
-        console.log(`[LOGIN DEBUG] ⚠️ FIREBASE_API_KEY no configurada, usando API key de producción (detectado por FIREBASE_PROJECT_ID=${projectId})`);
       } else {
-        // Fallback a producción si no se puede detectar
         firebaseApiKey = "AIzaSyAZDT5DM68-9qYH23HdKAsOTaV_qCAPEiw";
-        console.log(`[LOGIN DEBUG] ⚠️ FIREBASE_API_KEY no configurada y proyecto desconocido (${projectId}), usando API key de producción como fallback`);
       }
-    } else {
-      console.log(`[LOGIN DEBUG] ✅ Usando API key de variable de entorno FIREBASE_API_KEY`);
     }
-    
-    console.log(`[LOGIN DEBUG] Proyecto: ${projectId}, API Key: ${firebaseApiKey.substring(0, 20)}...`);
 
     try {
       const response = await fetch(
@@ -163,16 +309,6 @@ export const loginUser = async (req: Request, res: Response) => {
         console.error(`Error de Firebase Auth:`, authResult.error);
 
         // Manejar errores específicos de Firebase Auth
-        if (authResult.error?.message === "EMAIL_NOT_FOUND") {
-          return res.status(401).json({
-            error: "Credenciales inválidas",
-          });
-        }
-        if (authResult.error?.message === "INVALID_PASSWORD") {
-          return res.status(401).json({
-            error: "Credenciales inválidas",
-          });
-        }
         if (authResult.error?.message === "USER_DISABLED") {
           return res.status(403).json({
             error: "Usuario deshabilitado",
@@ -186,10 +322,6 @@ export const loginUser = async (req: Request, res: Response) => {
 
         return res.status(401).json({
           error: "Credenciales inválidas",
-          details:
-            process.env.NODE_ENV === "development"
-              ? authResult.error?.message
-              : undefined,
         });
       }
       // Si llegamos aquí, las credenciales son válidas
@@ -214,8 +346,6 @@ export const loginUser = async (req: Request, res: Response) => {
         });
       }
 
-      // Retornar el idToken que viene de Firebase Auth (no customToken)
-      // El idToken es lo que el middleware authMiddleware espera
       const idToken = authResult.idToken;
 
       return res.json({
@@ -263,9 +393,9 @@ export const loginUser = async (req: Request, res: Response) => {
   }
 };
 
-export const googleRegister = async (req: Request, res: Response) => {
+export const googleAuth = async (req: Request, res: Response) => {
   try {
-    const { idToken, email, nombre, apellido, dni, aceptaTerminos } = req.body;
+    const { idToken, dni, aceptaTerminos } = req.body;
 
     if (!idToken) {
       return res.status(400).json({
@@ -273,48 +403,418 @@ export const googleRegister = async (req: Request, res: Response) => {
       });
     }
 
+    // Verificar el token de Google
     const decodedToken = await firebaseAuth.verifyIdToken(idToken);
-    const { uid, picture } = decodedToken;
+    const { uid: googleUid, picture, email: googleEmail, name } = decodedToken;
 
-    const existingUser = await firestore.collection("users").doc(uid).get();
-
-    if (existingUser.exists) {
+    if (!googleEmail) {
       return res.status(400).json({
-        error: "Usuario ya registrado",
+        error: "No se pudo determinar el email del usuario de Google",
       });
     }
 
+    console.log(`[GOOGLE AUTH] Procesando autenticación para: ${googleEmail}`);
+
+    // Buscar si existe un usuario con ese email
+    let existingAuthUser;
+    try {
+      existingAuthUser = await firebaseAuth.getUserByEmail(googleEmail);
+      console.log(`[GOOGLE AUTH] Usuario encontrado en Auth:`, existingAuthUser.uid);
+    } catch (authError: any) {
+      if (authError.code !== "auth/user-not-found") {
+        console.error("[GOOGLE AUTH] Error verificando usuario:", authError);
+      } else {
+        console.log(`[GOOGLE AUTH] Usuario no existe en Auth, es nuevo`);
+      }
+    }
+
+    // CASO 1: Usuario existe
+    if (existingAuthUser) {
+      const providers = existingAuthUser.providerData.map((p) => p.providerId);
+      const hasPasswordProvider = providers.includes("password");
+      const hasGoogleProvider = providers.includes("google.com");
+
+      console.log(`[GOOGLE AUTH] Proveedores actuales:`, providers);
+
+      // ============================================================
+      // CASO 1.A: Usuario tiene AMBOS proveedores (vinculación automática de Firebase)
+      // ============================================================
+      if (hasPasswordProvider && hasGoogleProvider) {
+        console.log(`[GOOGLE AUTH] Usuario ya tiene ambos proveedores vinculados automáticamente por Firebase`);
+
+        const userDoc = await firestore.collection("users").doc(existingAuthUser.uid).get();
+
+        // Si el usuario existe en Firestore, actualizar provider correctamente
+        if (userDoc.exists) {
+          const userData = userDoc.data();
+          
+          if (!userData) {
+            return res.status(500).json({
+              error: "Error interno: datos de usuario no disponibles",
+            });
+          }
+          
+          // CRÍTICO: Asegurar que Firestore refleje ambos proveedores
+          if (userData.provider !== "password,google" && userData.provider !== "google,password") {
+            console.log(`[GOOGLE AUTH] Actualizando provider en Firestore a "password,google"`);
+            await firestore.collection("users").doc(existingAuthUser.uid).update({
+              provider: "password,google",
+              photoURL: picture || userData.photoURL || "",
+              ultimoAcceso: new Date(),
+              fechaActualizacion: new Date(),
+            });
+          } else {
+            // Solo actualizar foto y último acceso
+            await firestore.collection("users").doc(existingAuthUser.uid).update({
+              photoURL: picture || userData.photoURL || "",
+              ultimoAcceso: new Date(),
+            });
+          }
+
+          if (!userData?.activo) {
+            return res.status(403).json({
+              error: "Usuario desactivado",
+            });
+          }
+
+          const customToken = await firebaseAuth.createCustomToken(existingAuthUser.uid);
+
+          return res.json({
+            message: "Login exitoso con Google",
+            user: {
+              uid: existingAuthUser.uid,
+              email: userData.email,
+              nombre: userData.nombre,
+              apellido: userData.apellido,
+              role: userData.role,
+              photoURL: picture || userData.photoURL,
+              dni: userData.dni || null,
+              needsDni: !userData.dni,
+            },
+            token: customToken,
+          });
+        }
+
+        // Si no existe en Firestore pero tiene ambos proveedores, es un caso raro
+        // Crearlo con DNI si se proporcionó
+        if (dni && aceptaTerminos !== undefined) {
+          const displayName = name || decodedToken.name || "";
+          const nameParts = displayName.split(" ");
+          const nombreFromGoogle = nameParts[0] || "";
+          const apellidoFromGoogle = nameParts.slice(1).join(" ") || "";
+
+          const existingDniQuery = await firestore
+            .collection("users")
+            .where("dni", "==", dni)
+            .get();
+
+          if (!existingDniQuery.empty) {
+            return res.status(409).json({
+              error: "Ya existe un usuario registrado con este DNI",
+            });
+          }
+
+          const userProfile = {
+            email: googleEmail,
+            nombre: nombreFromGoogle,
+            apellido: apellidoFromGoogle,
+            dni: dni,
+            photoURL: picture || "",
+            provider: "password,google",
+            fechaRegistro: new Date(),
+            aceptaTerminos: aceptaTerminos,
+            activo: true,
+            role: "alumno",
+          };
+
+          await firestore.collection("users").doc(existingAuthUser.uid).set(userProfile);
+
+          const customToken = await firebaseAuth.createCustomToken(existingAuthUser.uid);
+
+          await resend.emails.send({
+            from: "INEE Oficial <contacto@ineeoficial.com>",
+            to: googleEmail,
+            subject: "Bienvenida a INEE®. Acceso al campus virtual",
+            html: `
+          <p>Hola ${nombreFromGoogle},</p>
+          <p>Te damos la bienvenida a INEE® – Instituto de Negocios Emprendedor Empresarial.<br>
+          Tu inscripción fue confirmada y ya tenés acceso al campus de formación.</p>
+          <p>INEE® es un espacio de formación profesional orientado a la consultoría estratégica, el liderazgo y el desarrollo emprendedor. Las formaciones están diseñadas para fortalecer criterio profesional, capacidad de análisis y toma de decisiones con método.</p>
+          <p>En el campus vas a encontrar contenidos con base conceptual sólida y aplicación práctica, organizados a partir del método DAACRE®, nuestro marco de intervención profesional.</p>
+          <p>Ingresá al campus desde acá: <a href="https://ineeoficial.com">https://ineeoficial.com</a></p>
+          <p>Felicitaciones por formar parte de INEE®.<br>
+          Nos alegra acompañarte en este recorrido.</p>
+        `,
+          });
+
+          return res.status(201).json({
+            message: "Usuario registrado exitosamente con Google",
+            user: {
+              uid: existingAuthUser.uid,
+              email: googleEmail,
+              nombre: nombreFromGoogle,
+              apellido: apellidoFromGoogle,
+              role: "alumno",
+              dni: dni,
+              needsDni: false,
+            },
+            token: customToken,
+          });
+        }
+
+        // Si no proporcionó DNI, pedirlo
+        return res.status(404).json({
+          error: "Usuario no registrado, por favor registrate",
+        });
+      }
+
+      // ============================================================
+      // CASO 1.B: Usuario tiene password pero NO tiene Google vinculado
+      // ============================================================
+      if (hasPasswordProvider && !hasGoogleProvider) {
+        console.log(`[GOOGLE AUTH] Usuario tiene password, necesita vincular Google`);
+
+        // IMPORTANTE: Si llegamos acá, Firebase NO vinculó automáticamente
+        // Esto significa que el usuario rechazó la vinculación o hay configuración especial
+        
+        // Eliminar el usuario de Google que se creó automáticamente (si es diferente)
+        if (googleUid !== existingAuthUser.uid) {
+          try {
+            await firebaseAuth.deleteUser(googleUid);
+            console.log(`[GOOGLE AUTH] Usuario de Google duplicado (${googleUid}) eliminado`);
+          } catch (deleteError) {
+            console.error("[GOOGLE AUTH] Error eliminando usuario duplicado:", deleteError);
+          }
+        }
+
+        // Devolver que necesita vincular con password
+        return res.status(409).json({
+          code: "NEEDS_PASSWORD_TO_LINK",
+          email: googleEmail,
+          existingUid: existingAuthUser.uid,
+          message: "Ya tenés una cuenta con este email. Ingresá tu contraseña para vincular Google",
+        });
+      }
+
+      // ============================================================
+      // CASO 1.C: Usuario solo tiene Google (login normal)
+      // ============================================================
+      console.log(`[GOOGLE AUTH] Usuario ya tiene Google, login normal`);
+
+      const userDoc = await firestore.collection("users").doc(existingAuthUser.uid).get();
+
+      if (!userDoc.exists) {
+        console.log(`[GOOGLE AUTH] Usuario existe en Auth pero no en Firestore, creando perfil...`);
+
+        if (dni && aceptaTerminos !== undefined) {
+          const displayName = name || decodedToken.name || "";
+          const nameParts = displayName.split(" ");
+          const nombreFromGoogle = nameParts[0] || "";
+          const apellidoFromGoogle = nameParts.slice(1).join(" ") || "";
+
+          const existingDniQuery = await firestore
+            .collection("users")
+            .where("dni", "==", dni)
+            .get();
+
+          if (!existingDniQuery.empty) {
+            return res.status(409).json({
+              error: "Ya existe un usuario registrado con este DNI",
+            });
+          }
+
+          const userProfile = {
+            email: googleEmail,
+            nombre: nombreFromGoogle,
+            apellido: apellidoFromGoogle,
+            dni: dni,
+            photoURL: picture || "",
+            provider: hasPasswordProvider ? "password,google" : "google",
+            fechaRegistro: new Date(),
+            aceptaTerminos: aceptaTerminos,
+            activo: true,
+            role: "alumno",
+          };
+
+          await firestore.collection("users").doc(existingAuthUser.uid).set(userProfile);
+
+          console.log(`[GOOGLE AUTH] Perfil creado en Firestore para usuario existente en Auth`);
+
+          const customToken = await firebaseAuth.createCustomToken(existingAuthUser.uid);
+
+          await resend.emails.send({
+            from: "INEE Oficial <contacto@ineeoficial.com>",
+            to: googleEmail,
+            subject: "Bienvenida a INEE®. Acceso al campus virtual",
+            html: `
+          <p>Hola ${nombreFromGoogle},</p>
+          <p>Te damos la bienvenida a INEE® – Instituto de Negocios Emprendedor Empresarial.<br>
+          Tu inscripción fue confirmada y ya tenés acceso al campus de formación.</p>
+          <p>INEE® es un espacio de formación profesional orientado a la consultoría estratégica, el liderazgo y el desarrollo emprendedor. Las formaciones están diseñadas para fortalecer criterio profesional, capacidad de análisis y toma de decisiones con método.</p>
+          <p>En el campus vas a encontrar contenidos con base conceptual sólida y aplicación práctica, organizados a partir del método DAACRE®, nuestro marco de intervención profesional.</p>
+          <p>Ingresá al campus desde acá: <a href="https://ineeoficial.com">https://ineeoficial.com</a></p>
+          <p>Felicitaciones por formar parte de INEE®.<br>
+          Nos alegra acompañarte en este recorrido.</p>
+        `,
+          });
+
+          return res.status(201).json({
+            message: "Usuario registrado exitosamente con Google",
+            user: {
+              uid: existingAuthUser.uid,
+              email: googleEmail,
+              nombre: nombreFromGoogle,
+              apellido: apellidoFromGoogle,
+              role: "alumno",
+              dni: dni,
+              needsDni: false,
+            },
+            token: customToken,
+          });
+        } else {
+          console.log(`[GOOGLE AUTH] Usuario huérfano en Auth sin datos de registro`);
+
+          return res.status(404).json({
+            error: "Usuario no registrado, por favor registrate",
+          });
+        }
+      }
+
+      const userData = userDoc.data();
+
+      if (!userData?.activo) {
+        return res.status(403).json({
+          error: "Usuario desactivado",
+        });
+      }
+
+      // Actualizar foto y último acceso
+      await firestore.collection("users").doc(existingAuthUser.uid).update({
+        photoURL: picture || userData.photoURL || "",
+        ultimoAcceso: new Date(),
+      });
+
+      const customToken = await firebaseAuth.createCustomToken(existingAuthUser.uid);
+
+      return res.json({
+        message: "Login exitoso con Google",
+        user: {
+          uid: existingAuthUser.uid,
+          email: userData.email,
+          nombre: userData.nombre,
+          apellido: userData.apellido,
+          role: userData.role,
+          photoURL: picture || userData.photoURL,
+          dni: userData.dni || null,
+          needsDni: !userData.dni,
+        },
+        token: customToken,
+      });
+    }
+
+    // CASO 2: Usuario completamente nuevo
+    console.log(`[GOOGLE AUTH] Usuario nuevo con Google`);
+
+    // Verificar que no exista ya en Firestore con este googleUid
+    const existingUser = await firestore.collection("users").doc(googleUid).get();
+
+    if (existingUser.exists) {
+      console.log(`[GOOGLE AUTH] Usuario ya existe en Firestore, login`);
+      const userData = existingUser.data();
+      const customToken = await firebaseAuth.createCustomToken(googleUid);
+
+      return res.json({
+        message: "Login exitoso con Google",
+        user: {
+          uid: googleUid,
+          email: userData?.email,
+          nombre: userData?.nombre,
+          apellido: userData?.apellido,
+          role: userData?.role,
+          dni: userData?.dni || null,
+          needsDni: !userData?.dni,
+        },
+        token: customToken,
+      });
+    }
+
+    // Si es nuevo y NO envió DNI → Pedir que complete el registro
+    if (!dni || aceptaTerminos === undefined) {
+      console.log(`[GOOGLE AUTH] Usuario nuevo, necesita completar registro con DNI`);
+
+      // Extraer nombre y apellido del displayName de Google
+      const displayName = name || "";
+      const nameParts = displayName.split(" ");
+      const nombre = nameParts[0] || "";
+      const apellido = nameParts.slice(1).join(" ") || "";
+
+      return res.status(400).json({
+        code: "NEEDS_REGISTRATION_DATA",
+        message: "Completá tu registro ingresando tu DNI",
+        userData: {
+          email: googleEmail,
+          nombre: nombre,
+          apellido: apellido,
+          photoURL: picture,
+        },
+      });
+    }
+
+    // Verificar que el DNI no exista ya
+    const existingDniQuery = await firestore
+      .collection("users")
+      .where("dni", "==", dni)
+      .get();
+
+    if (!existingDniQuery.empty) {
+      return res.status(409).json({
+        error: "Ya existe un usuario registrado con este DNI",
+      });
+    }
+
+    // Crear nuevo usuario con Google (CON DNI)
+    const displayName = name || "";
+    const nameParts = displayName.split(" ");
+    const nombre = nameParts[0] || "";
+    const apellido = nameParts.slice(1).join(" ") || "";
+
     const userProfile = {
-      email,
-      nombre,
-      apellido,
-      dni,
+      email: googleEmail,
+      nombre: nombre,
+      apellido: apellido,
+      dni: dni,
       photoURL: picture || "",
       provider: "google",
       fechaRegistro: new Date(),
-      aceptaTerminos,
+      aceptaTerminos: aceptaTerminos,
       activo: true,
       role: "alumno",
     };
 
-    await firestore.collection("users").doc(uid).set(userProfile);
+    await firestore.collection("users").doc(googleUid).set(userProfile);
 
-    const customToken = await firebaseAuth.createCustomToken(uid);
+    const customToken = await firebaseAuth.createCustomToken(googleUid);
 
     // Enviar email de bienvenida
     await sendWelcomeEmail(email, nombre);
 
-    return res.json({
+    console.log(`[GOOGLE AUTH] Usuario registrado exitosamente con Google`);
+
+    return res.status(201).json({
       message: "Usuario registrado exitosamente con Google",
       user: {
-        uid,
-        email,
-        nombre,
+        uid: googleUid,
+        email: googleEmail,
+        nombre: nombre,
+        apellido: apellido,
+        role: "alumno",
+        dni: dni,
+        needsDni: false,
       },
       token: customToken,
     });
   } catch (error: any) {
-    console.error("Error en googleRegister:", error);
+    console.error("[GOOGLE AUTH] Error:", error);
     return res.status(500).json({
       error: "Error interno del servidor",
       details:
@@ -587,7 +1087,6 @@ export const refreshToken = async (
   }
 };
 
-// Validar token de otra aplicación (tienda) y devolver customToken para plataforma
 export const validateToken = async (req: Request, res: Response) => {
   try {
     const { idToken } = req.body;
@@ -608,7 +1107,7 @@ export const validateToken = async (req: Request, res: Response) => {
       console.log("[AUTH] Token validado exitosamente. UID:", decodedToken.uid);
     } catch (verifyError: any) {
       console.error("[AUTH] Error al verificar token:", verifyError.code, verifyError.message);
-      
+
       // Si el error es porque el token es de otro proyecto, dar un mensaje más claro
       if (verifyError.code === "auth/invalid-id-token" || verifyError.code === "auth/argument-error") {
         console.error("[AUTH] El token puede ser de un proyecto de Firebase diferente");

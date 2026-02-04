@@ -20,6 +20,7 @@ export interface CertificadoData {
   fechaEmision: Date;
   qrCodeUrl: string;
   validationUrl: string;
+  tipo: 'APROBACION' | 'PARTICIPACION';
 }
 
 export interface CertificadoValidationResponse {
