@@ -1,10 +1,10 @@
 import { Request, Response } from "express";
 import { firestore } from "../../config/firebase";
-import { Resend } from "resend";
 import { MercadoPagoConfig, Payment, PaymentMethod, Preference } from "mercadopago";
 import { createOrder, updateOrderStatus, updatePreferenceId } from "../orders/controller";
 import crypto from 'crypto';
 import axios from 'axios';
+import { sendResourceAvailableEmail, type ResourceTypeEmail, type ItemsByType } from "../emails/resourceAvailableEmail";
 
 
 const mpClient = new MercadoPagoConfig({
@@ -15,8 +15,6 @@ const mpClient = new MercadoPagoConfig({
 });
 
 const preferenceClient = new Preference(mpClient);
-
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 export const createPreference = async (req: Request, res: Response) => {
     try {
@@ -617,6 +615,82 @@ const assignProductsToUser = async (
     }
 };
 
+/**
+ * Resuelve tipo (curso/evento/ebook) y título de cada item de la orden consultando Firestore.
+ * Devuelve { resourceType, resourceTitles, itemsByType? }: mismo tipo si todos coinciden;
+ * si hay mezcla (recursos), incluye itemsByType para que el mail liste por tipo (Formación / Evento / Ebook).
+ */
+const resolveOrderItemsForEmail = async (items: any[]): Promise<{
+    resourceType: ResourceTypeEmail;
+    resourceTitles: string[];
+    itemsByType?: ItemsByType;
+}> => {
+    const byType: { curso: string[]; evento: string[]; ebook: string[] } = {
+        curso: [],
+        evento: [],
+        ebook: [],
+    };
+
+    for (const item of items) {
+        const productId = item.id || item.productId;
+        const fallbackTitle = item.nombre || item.title || 'Recurso';
+        if (!productId) {
+            byType.curso.push(fallbackTitle);
+            continue;
+        }
+
+        const courseDoc = await firestore.collection('courses').doc(productId).get();
+        if (courseDoc.exists) {
+            const titulo = courseDoc.data()?.titulo || fallbackTitle;
+            byType.curso.push(titulo);
+            continue;
+        }
+
+        const eventDoc = await firestore.collection('events').doc(productId).get();
+        if (eventDoc.exists) {
+            const titulo = eventDoc.data()?.titulo || fallbackTitle;
+            byType.evento.push(titulo);
+            continue;
+        }
+
+        const ebookDoc = await firestore.collection('ebooks').doc(productId).get();
+        if (ebookDoc.exists) {
+            const titulo = ebookDoc.data()?.title || fallbackTitle;
+            byType.ebook.push(titulo);
+            continue;
+        }
+
+        byType.curso.push(fallbackTitle);
+    }
+
+    const allTitles: string[] = [];
+    const typesPresent: ResourceTypeEmail[] = [];
+    if (byType.curso.length) {
+        allTitles.push(...byType.curso);
+        typesPresent.push('curso');
+    }
+    if (byType.evento.length) {
+        allTitles.push(...byType.evento);
+        typesPresent.push('evento');
+    }
+    if (byType.ebook.length) {
+        allTitles.push(...byType.ebook);
+        typesPresent.push('ebook');
+    }
+
+    if (allTitles.length === 0) {
+        return { resourceType: 'recursos', resourceTitles: [] };
+    }
+    if (typesPresent.length === 1) {
+        return { resourceType: typesPresent[0], resourceTitles: allTitles };
+    }
+    const itemsByType: ItemsByType = {};
+    if (byType.curso.length) itemsByType.curso = byType.curso;
+    if (byType.evento.length) itemsByType.evento = byType.evento;
+    if (byType.ebook.length) itemsByType.ebook = byType.ebook;
+    return { resourceType: 'recursos', resourceTitles: allTitles, itemsByType };
+};
+
 const sendPaymentConfirmationEmail = async (userId: string, orderId: string, orderData: any, totalPaid: number) => {
     try {
         const userDoc = await firestore.collection('users').doc(userId).get();
@@ -635,39 +709,23 @@ const sendPaymentConfirmationEmail = async (userId: string, orderId: string, ord
         }
 
         const items = Array.isArray(orderData) ? orderData : (orderData.items || []);
-        
-        // Obtener nombres de las formaciones
-        const formacionesNombres = items.map((item: any) => 
-            item.nombre || item.title || 'Formación'
-        ).join(', ');
+        if (items.length === 0) {
+            console.warn('sendPaymentConfirmationEmail: orden sin items');
+            return;
+        }
 
-        // Usar el total pagado desde Mercado Pago si está disponible, sino calcular desde items
-        let total = totalPaid ?? items.reduce((acc: number, item: any) => acc + ((item.unit_price || item.precio || item.price || 0) * (item.quantity || 1)), 0);
+        const { resourceType, resourceTitles, itemsByType } = await resolveOrderItemsForEmail(items);
+        if (resourceTitles.length === 0) {
+            console.warn('sendPaymentConfirmationEmail: no se pudieron resolver títulos');
+            return;
+        }
 
-        const emailMessage = `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-                <p style="margin-bottom: 20px;"><strong>Asunto:</strong> Formación disponible en INEE®</p>
-                
-                <p style="margin-bottom: 15px;">Hola, ${userName}</p>
-                
-                <p style="margin-bottom: 15px;">Te informamos que ya tenés disponible la formación <strong>{{${formacionesNombres}}}</strong> en el campus virtual de INEE®.</p>
-                
-                <p style="margin-bottom: 15px;">Podés acceder a los contenidos desde el campus y comenzar cuando quieras, avanzando a tu propio ritmo.</p>
-                
-                <p style="margin-bottom: 15px;">Ingresá al campus desde acá:<br>
-                <a href="https://estudiante.ineeoficial.com" style="color: #0066cc; text-decoration: none;">https://estudiante.ineeoficial.com</a></p>
-                
-                <p style="margin-bottom: 15px;">Cualquier duda, estamos disponibles para acompañarte.</p>
-                
-                <p style="margin-bottom: 5px;">Equipo INEE®</p>
-            </div>
-        `;
-
-        await resend.emails.send({
-            from: "INEE Oficial <contacto@ineeoficial.com>",
-            to: userEmail,
-            subject: `Formación disponible en INEE®`,
-            html: emailMessage
+        await sendResourceAvailableEmail({
+            userEmail,
+            userName,
+            resourceType,
+            resourceTitles,
+            ...(itemsByType && { itemsByType }),
         });
 
         console.log(`✅ Email de confirmación enviado a ${userEmail}`);
