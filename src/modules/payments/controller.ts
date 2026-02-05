@@ -636,61 +636,37 @@ const sendPaymentConfirmationEmail = async (userId: string, orderId: string, ord
 
         const items = Array.isArray(orderData) ? orderData : (orderData.items || []);
         
-        const generateProductLink = (item: any): string => {
-            const baseUrl = 'https://estudiante.ineeoficial.com';
-            const itemId = item.id || item.productId;
-            const pictureUrl = item.picture_url || item.imagen || item.image || '';
-            
-            if (!itemId) return baseUrl; 
-            
-            const pictureUrlLower = String(pictureUrl).toLowerCase();
-            
-            if (pictureUrlLower.includes('formaciones')) return `${baseUrl}/curso/${itemId}`;
-            else if (pictureUrlLower.includes('ebooks')) return `${baseUrl}/ebook/${itemId}`;
-            else if (pictureUrlLower.includes('eventos')) return `${baseUrl}/evento/${itemId}`;
-            
-            return baseUrl;
-        };
-        
-        const itemsList = items.map((item: any) => {
-            const productName = item.nombre || item.title || 'Producto';
-            const productPrice = item.precio || item.price || item.unit_price || 0;
-            const productLink = generateProductLink(item);
-            
-            return `<li><a href="${productLink}" style="color: #00a650; text-decoration: none;">${productName}</a> - $${productPrice}</li>`;
-        }).join('');
+        // Obtener nombres de las formaciones
+        const formacionesNombres = items.map((item: any) => 
+            item.nombre || item.title || 'Formación'
+        ).join(', ');
 
         // Usar el total pagado desde Mercado Pago si está disponible, sino calcular desde items
         let total = totalPaid ?? items.reduce((acc: number, item: any) => acc + ((item.unit_price || item.precio || item.price || 0) * (item.quantity || 1)), 0);
 
         const emailMessage = `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2 style="color: #00a650;">¡Pago Confirmado!</h2>
-                <p>Hola <strong>${userName}</strong>,</p>
-                <p>Tu pago ha sido procesado exitosamente.</p>
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+                <p style="margin-bottom: 20px;"><strong>Asunto:</strong> Formación disponible en INEE®</p>
                 
-                <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                    <h3 style="margin-top: 0;">Detalles de tu compra:</h3>
-                    <p><strong>Número de Orden:</strong> ${orderData.orderNumber || orderId}</p>
-                    <p><strong>Estado:</strong> Pagado ✅</p>
-                    <p><strong>Total:</strong> $${total}</p>
-                    <p><strong>Fecha:</strong> ${new Date().toLocaleDateString('es-ES')}</p>
-                </div>
-
-                <h3>Productos adquiridos:</h3>
-                <ul style="list-style: none; padding-left: 0;">${itemsList}</ul>
-
-                <p>Haz clic en cada producto para acceder directamente a tu contenido.</p>
-                <p>También puedes acceder a todos tus productos desde tu <a href="https://estudiante.ineeoficial.com" style="color: #00a650; text-decoration: none;">cuenta de estudiante</a>.</p>
+                <p style="margin-bottom: 15px;">Hola, ${userName}</p>
                 
-                <p style="margin-top: 30px;">Gracias por tu compra,<br><strong>Equipo INEE</strong></p>
+                <p style="margin-bottom: 15px;">Te informamos que ya tenés disponible la formación <strong>{{${formacionesNombres}}}</strong> en el campus virtual de INEE®.</p>
+                
+                <p style="margin-bottom: 15px;">Podés acceder a los contenidos desde el campus y comenzar cuando quieras, avanzando a tu propio ritmo.</p>
+                
+                <p style="margin-bottom: 15px;">Ingresá al campus desde acá:<br>
+                <a href="https://estudiante.ineeoficial.com" style="color: #0066cc; text-decoration: none;">https://estudiante.ineeoficial.com</a></p>
+                
+                <p style="margin-bottom: 15px;">Cualquier duda, estamos disponibles para acompañarte.</p>
+                
+                <p style="margin-bottom: 5px;">Equipo INEE®</p>
             </div>
         `;
 
         await resend.emails.send({
             from: "INEE Oficial <contacto@ineeoficial.com>",
             to: userEmail,
-            subject: `✅ Confirmación de Pago - Orden ${orderData.orderNumber || orderId}`,
+            subject: `Formación disponible en INEE®`,
             html: emailMessage
         });
 
