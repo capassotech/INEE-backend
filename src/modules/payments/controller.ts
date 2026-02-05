@@ -135,6 +135,9 @@ export const createPreference = async (req: Request, res: Response) => {
       const successUrl = `${frontendUrl}/checkout/success?order=${orderNumber}`;
       const pendingUrl = `${frontendUrl}/checkout/pending?order=${orderNumber}`;
       const failureUrl = `${frontendUrl}/checkout/failure?order=${orderNumber}`;
+
+      console.log("metadata original: ", metadata);
+      console.log("transactionAmount calculado con descuentos: ", transactionAmount);
   
       const preferenceBody: any = {
         items: mpItems,
@@ -153,6 +156,7 @@ export const createPreference = async (req: Request, res: Response) => {
           orderId,
           orderNumber,
           items,
+          finalAmount: transactionAmount, // Monto final con descuentos aplicados
         },
       };
   
@@ -186,10 +190,9 @@ export const createPreference = async (req: Request, res: Response) => {
         details: err?.message || "Error inesperado",
       });
     }
-  };
+};
   
-  
-  export const handleWebhook = async (req: Request, res: Response) => {
+export const handleWebhook = async (req: Request, res: Response) => {
       try {
           console.log('🔔 Webhook recibido de Mercado Pago');
   
@@ -301,10 +304,12 @@ export const createPreference = async (req: Request, res: Response) => {
                       status: newStatus,
                       paymentStatus: payment.status,
                       paymentId,
+                      totalPaid: payment.transaction_amount, // Monto real pagado desde MercadoPago
                       paymentDetails: {
                           status_detail: payment.status_detail,
                           payment_method_id: payment.payment_method_id,
                           payment_type_id: payment.payment_type_id,
+                          transaction_amount: payment.transaction_amount,
                       },
                       updatedAt: new Date(),
                       webhookProcessedAt: new Date()
@@ -320,10 +325,26 @@ export const createPreference = async (req: Request, res: Response) => {
                       payment.id?.toString(), 
                       payment.status
                   );
+
+                  // Leer los datos actualizados de la orden después de la transacción
+                  const updatedOrderDoc = await firestore.collection('orders').doc(orderId).get();
+                  const updatedOrderData = updatedOrderDoc.data();
+
+                  if (!updatedOrderData) {
+                      console.error('Error: no se pudo leer la orden actualizada');
+                      return res.sendStatus(500);
+                  }
+
+                  console.log("orderData actualizado: ", updatedOrderData);
   
                   try {
-                      await sendPaymentConfirmationEmail(orderData.userId, orderId, orderData);
-                      console.log(`📧 Email de confirmación enviado a ${orderData.userId}`);
+                      await sendPaymentConfirmationEmail(
+                          updatedOrderData.userId, 
+                          orderId, 
+                          updatedOrderData, 
+                          updatedOrderData.totalPaid || payment.transaction_amount
+                      );
+                      console.log(`📧 Email de confirmación enviado a ${updatedOrderData.userId}`);
                   } catch (emailError) {
                       console.error('Error enviando email:', emailError);
                   }
@@ -343,7 +364,7 @@ export const createPreference = async (req: Request, res: Response) => {
           console.error('❌ handleWebhook error:', err);
           return res.sendStatus(500);
       }
-  };
+};
 
 const validateWebhookSignature = (body: any, signature: string, requestId: string): boolean => {
     const secret = process.env.MERCADO_PAGO_WEBHOOK_SECRET || '';
@@ -596,7 +617,7 @@ const assignProductsToUser = async (
     }
 };
 
-const sendPaymentConfirmationEmail = async (userId: string, orderId: string, orderData: any, totalPaid?: number) => {
+const sendPaymentConfirmationEmail = async (userId: string, orderId: string, orderData: any, totalPaid: number) => {
     try {
         const userDoc = await firestore.collection('users').doc(userId).get();
         if (!userDoc.exists) {
@@ -680,15 +701,17 @@ const sendPaymentConfirmationEmail = async (userId: string, orderId: string, ord
     }
 };
 
-
-const getPaymentErrorMessage = (statusDetail: string): string => {
-    const errorMessages: { [key: string]: string } = {
-        'cc_rejected_bad_filled_card_number': 'Número de tarjeta inválido',
-        // ... todos los mensajes
-    };
-    return errorMessages[statusDetail] || 'El pago no pudo ser procesado. Intenta con otro medio de pago';
-};
 // Implementacion de Checkout API oculta
+
+// const getPaymentErrorMessage = (statusDetail: string): string => {
+//     const errorMessages: { [key: string]: string } = {
+//         'cc_rejected_bad_filled_card_number': 'Número de tarjeta inválido',
+//         // ... todos los mensajes
+//     };
+//     return errorMessages[statusDetail] || 'El pago no pudo ser procesado. Intenta con otro medio de pago';
+// };
+
+
 
 // export const createPayment = async (req: Request, res: Response) => {
 //   try {
