@@ -1,71 +1,17 @@
 import { Request, Response } from 'express';
 import { firestore, firebaseAuth } from '../../config/firebase';
 import type { UserRegistrationData, UserProfile, SendAssignmentEmailParams } from '../../types/user';
-import { Resend } from 'resend';
 import { normalizeText } from '../../utils/utils';
+import { sendWelcomeEmail } from '../auth/controller';
+import { sendResourceAvailableEmail } from '../emails/resourceAvailableEmail';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
-const sendAssignmentEmail = async ({
-  userEmail,
-  userName,
-  userLastName,
-  resourceType,
-  resourceTitles,
-}: SendAssignmentEmailParams): Promise<void> => {
-  const resourceTypeLabels = {
-    curso: { singular: 'formación', plural: 'formaciones', articulo: 'La', articuloPlural: 'Las' },
-    evento: { singular: 'evento', plural: 'eventos', articulo: 'El', articuloPlural: 'Los' },
-    ebook: { singular: 'ebook', plural: 'ebooks', articulo: 'El', articuloPlural: 'Los' },
-  };
-
-  const labels = resourceTypeLabels[resourceType];
-  const isSingle = resourceTitles.length === 1;
-
-  const subject = isSingle 
-    ? "Tu formación ya está disponible en INEE®"
-    : "Tus formaciones ya están disponibles en INEE®";
-
-  // Construir la lista de formaciones con viñetas verdes y checkmarks
-  const listaFormaciones = resourceTitles.map(title => 
-    `<li style="margin-bottom: 8px;">
-      <span style="color: #00a650; font-size: 18px; margin-right: 8px;">✅</span>
-      <strong>${title}</strong>
-    </li>`
-  ).join('');
-
-  // Texto introductorio según cantidad
-  const textoIntro = isSingle
-    ? `${labels.articulo} siguiente ${labels.singular} ya fue asignada a tu perfil en INEE® y se encuentra disponible en el campus:`
-    : `Las siguientes ${labels.plural} ya fueron asignadas a tu perfil en INEE® y se encuentran disponibles en el campus:`;
-
-  const { error } = await resend.emails.send({
-    from: "INEE Oficial <contacto@ineeoficial.com>",
-    to: userEmail,
-    subject,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6; color: #333;">
-        <p>Hola ${userName},</p>
-        
-        <p>${textoIntro}</p>
-        
-        <ul style="list-style: none; padding-left: 0;">
-          ${listaFormaciones}
-        </ul>
-        
-        <p style="margin-top: 20px;">Accedé a tus formaciones desde el campus:</p>
-        <p>
-          <a href="https://estudiante.ineeoficial.com/" style="display: inline-block; padding: 12px 24px; background-color: #00a650; color: white; text-decoration: none; border-radius: 5px; margin-top: 10px;">
-            👉 https://estudiante.ineeoficial.com/
-          </a>
-        </p>
-      </div>
-    `,
+const sendAssignmentEmail = async (params: SendAssignmentEmailParams): Promise<void> => {
+  await sendResourceAvailableEmail({
+    userEmail: params.userEmail,
+    userName: params.userName,
+    resourceType: params.resourceType,
+    resourceTitles: params.resourceTitles,
   });
-
-  if (error) {
-    console.error('Error al enviar email:', error);
-  }
 };
 
 export const getUserProfile = async (req: any, res: Response) => {
@@ -737,14 +683,9 @@ export const createUser = async (req: Request, res: Response) => {
       console.error('Error al verificar login:', loginTestError.message);
     }
 
-    // Enviar email al usuario creado (no crítico si falla)
+    // Enviar email de bienvenida al usuario creado (no crítico si falla)
     try {
-      await resend.emails.send({
-        from: "INEE Oficial <contacto@ineeoficial.com>",
-        to: userRecord.email || "",
-        subject: "Bienvenido a INEE",
-        html: `<p>Bienvenido a INEE ${nombre} ${apellido}! Te informamos que has sido registrado en INEE.</p>`,
-      });
+      await sendWelcomeEmail(userRecord.email || "", nombre);
     } catch (emailError: any) {
       console.error('Error enviando email de bienvenida:', emailError);
     }
