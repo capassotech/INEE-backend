@@ -660,6 +660,10 @@ const resolveOrderItemsForEmail = async (items: any[]): Promise<{
             continue;
         }
 
+        // Excluir avales del cuerpo del email: no se listan en el mail de recurso disponible
+        const avalDoc = await firestore.collection('avales').doc(productId).get();
+        if (avalDoc.exists) continue;
+
         byType.curso.push(fallbackTitle);
     }
 
