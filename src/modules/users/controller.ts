@@ -5,6 +5,23 @@ import { normalizeText } from '../../utils/utils';
 import { sendWelcomeEmail } from '../auth/controller';
 import { sendResourceAvailableEmail } from '../emails/resourceAvailableEmail';
 
+
+const deleteUserFromAuthByEmail = async (email: string): Promise<boolean> => {
+  try {
+    const userRecord = await firebaseAuth.getUserByEmail(email);
+    await firebaseAuth.deleteUser(userRecord.uid);
+    console.log(`[deleteUserFromAuthByEmail] Usuario eliminado de Auth: ${email}`);
+    return true;
+  } catch (error: any) {
+    if (error.code === 'auth/user-not-found') {
+      // El usuario no existe, no hay nada que hacer
+      return false;
+    }
+    console.error('[deleteUserFromAuthByEmail] Error eliminando usuario de Auth:', error);
+    throw error;
+  }
+};
+
 const sendAssignmentEmail = async (params: SendAssignmentEmailParams): Promise<void> => {
   await sendResourceAvailableEmail({
     userEmail: params.userEmail,
@@ -186,10 +203,25 @@ export const deleteUser = async (req: any, res: Response) => {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
+    const userData = userDoc.data();
+    const userEmail = userData?.email;
+
+    if (!userEmail) {
+      return res.status(400).json({ error: 'Email del usuario no encontrado' });
+    }
+
     await userDoc.ref.delete();
 
+    try {
+      await deleteUserFromAuthByEmail(userEmail);
+      console.log(`[deleteUser] Usuario eliminado de Firebase Auth: ${userEmail}`);
+    } catch (authError) {
+      console.error('[deleteUser] Error eliminando de Auth (continuando):', authError);
+      // No fallar si el usuario no existe en Auth
+    }
+
     return res.status(200).json({
-      message: 'Usuario eliminado correctamente'
+      message: 'Usuario eliminado correctamente de Firestore y Firebase Auth'
     });
   } catch (error) {
     console.error('Error deleting user:', error);
@@ -571,19 +603,17 @@ export const createUser = async (req: Request, res: Response) => {
       });
     }
 
-    // Verificar si el email ya existe en Firebase Auth
+    // Verificar si el email ya existe en Firebase Auth y eliminarlo si existe
     try {
-      await firebaseAuth.getUserByEmail(email);
-      // Si llegamos aquí, el usuario ya existe
-      return res.status(409).json({
-        error: 'Ya existe un usuario registrado con este email',
-      });
-    } catch (error: any) {
-      // Si el error es 'auth/user-not-found', el usuario no existe, continuar
-      if (error.code !== 'auth/user-not-found') {
-        console.error('Error verificando email:', error);
-        throw error;
+      const existed = await deleteUserFromAuthByEmail(email);
+      if (existed) {
+        console.log(`Usuario con email ${email} existía en Auth y fue eliminado. Continuando con creación.`);
       }
+    } catch (error: any) {
+      return res.status(500).json({
+        error: 'Error verificando usuario en Firebase Auth',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      });
     }
 
     // Verificar si el DNI ya existe
