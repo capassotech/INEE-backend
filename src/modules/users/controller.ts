@@ -5,10 +5,7 @@ import { normalizeText } from '../../utils/utils';
 import { sendWelcomeEmail } from '../auth/controller';
 import { sendResourceAvailableEmail } from '../emails/resourceAvailableEmail';
 
-/**
- * Elimina un usuario de Firebase Auth por su email.
- * Devuelve true si existía y fue eliminado, false si no existía.
- */
+
 const deleteUserFromAuthByEmail = async (email: string): Promise<boolean> => {
   try {
     const userRecord = await firebaseAuth.getUserByEmail(email);
@@ -206,10 +203,25 @@ export const deleteUser = async (req: any, res: Response) => {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
+    const userData = userDoc.data();
+    const userEmail = userData?.email;
+
+    if (!userEmail) {
+      return res.status(400).json({ error: 'Email del usuario no encontrado' });
+    }
+
     await userDoc.ref.delete();
 
+    try {
+      await deleteUserFromAuthByEmail(userEmail);
+      console.log(`[deleteUser] Usuario eliminado de Firebase Auth: ${userEmail}`);
+    } catch (authError) {
+      console.error('[deleteUser] Error eliminando de Auth (continuando):', authError);
+      // No fallar si el usuario no existe en Auth
+    }
+
     return res.status(200).json({
-      message: 'Usuario eliminado correctamente'
+      message: 'Usuario eliminado correctamente de Firestore y Firebase Auth'
     });
   } catch (error) {
     console.error('Error deleting user:', error);
