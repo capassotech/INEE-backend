@@ -111,16 +111,13 @@ export const CourseSchema = z.object({
     ]),
     id_modulos: z.array(z.string()
         .min(1, "Los IDs de módulos no pueden estar vacíos"))
-        .max(50, "No puede tener más de 50 módulos")
-        .default([]),
+        .max(50, "No puede tener más de 50 módulos"),
     tags: z.array(z.string()
         .min(1, "Los tags no pueden estar vacíos"))
-        .max(20, "No puede tener más de 20 tags")
-        .default([]),
+        .max(20, "No puede tener más de 20 tags"),
     id_avales: z.array(z.string()
         .min(1, "Los IDs de avales no pueden estar vacíos"))
         .max(50, "No puede tener más de 50 avales")
-        .default([])
         .optional(),
     // Campo legacy para compatibilidad
     descripcion: z.string().optional(),
