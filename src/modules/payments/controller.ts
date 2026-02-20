@@ -27,6 +27,8 @@ export const createPreference = async (req: Request, res: Response) => {
       }
   
       const { items, metadata } = req.body;
+
+      console.log(req.body)
   
       if (
         !metadata?.userId ||
@@ -229,6 +231,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
           const payment = await paymentClient.get({ id: paymentId });
   
           console.log(`💳 Pago ${paymentId} - Status: ${payment.status}`);
+          console.log(`📦 Metadata del pago:`, payment.metadata);
   
           let ordersSnapshot = await firestore
               .collection("orders")
@@ -297,8 +300,11 @@ export const handleWebhook = async (req: Request, res: Response) => {
                       throw new Error('WEBHOOK_ALREADY_PROCESSED');
                   }
                   
+                  // Extraer discountCode del metadata si existe
+                  const discountCode = payment.metadata?.discountCode || payment.metadata?.discount_code || null;
+                  
                   // Actualizar la orden con un flag de procesamiento
-                  transaction.update(orderRef, {
+                  const updateData: any = {
                       status: newStatus,
                       paymentStatus: payment.status,
                       paymentId,
@@ -311,7 +317,15 @@ export const handleWebhook = async (req: Request, res: Response) => {
                       },
                       updatedAt: new Date(),
                       webhookProcessedAt: new Date()
-                  });
+                  };
+
+                  // Agregar discountCode si existe
+                  if (discountCode) {
+                      updateData.discountCode = discountCode;
+                      console.log(`💰 Código de descuento aplicado: ${discountCode}`);
+                  }
+
+                  transaction.update(orderRef, updateData);
               });
               
               // Solo si la transacción fue exitosa, procesar el pago
