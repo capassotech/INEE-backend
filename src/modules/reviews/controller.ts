@@ -181,10 +181,22 @@ export const reminderReview = async (req: Request, res: Response) => {
             from: "INEE Oficial <contacto@ineeoficial.com>",
             to: email,
             subject: `¿Nos contás tu experiencia en ${courseTitle}?`,
-            html: `<div>
-              <p>¡Hola ${userName}! Felicitaciones y muchas gracias por completar el curso. ¿Podrías dejarnos una reseña para que otros usuarios puedan conocer tu opinión?</p>
-              <a href="${frontendUrl}/course/${courseId}/review?mail=true">Dejar mi reseña</a>
-             </div>
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6; color: #333;">
+                <p>Hola ${userName},</p>
+                
+                <p>Felicidades por completar la formación <strong>${courseTitle}</strong>.</p>
+                
+                <p>Tu experiencia puede orientar a otros profesionales que están evaluando formarse en INEE®.</p>
+                
+                <p>Dejá tu reseña desde acá: <a href="${frontendUrl}/course/${courseId}/review?mail=true" style="color: #1a73e8; text-decoration: none;">[Link al formulario]</a></p>
+                
+                <p style="margin-top: 28px; margin-bottom: 4px;"><strong>Equipo INEE®</strong></p>
+                
+                <div style="margin-top: 30px;">
+                  <img src="https://firebasestorage.googleapis.com/v0/b/inee-admin.firebasestorage.app/o/Imagenes%2Flogo.png?alt=media&token=e46d276c-06d9-4b52-9d7e-33d85845cbb4" alt="INEE Logo" style="max-width: 150px;" />
+                </div>
+              </div>
             `,
           });
 

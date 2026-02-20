@@ -614,9 +614,6 @@ export const googleAuth = async (req: Request, res: Response) => {
 
       console.log(`[GOOGLE AUTH] Proveedores actuales:`, providers);
 
-      // ============================================================
-      // CASO 1.A: Usuario tiene AMBOS proveedores (vinculación automática de Firebase)
-      // ============================================================
       if (hasPasswordProvider && hasGoogleProvider) {
         console.log(`[GOOGLE AUTH] Usuario ya tiene ambos proveedores vinculados automáticamente por Firebase`);
 
@@ -746,16 +743,9 @@ export const googleAuth = async (req: Request, res: Response) => {
         });
       }
 
-      // ============================================================
-      // CASO 1.B: Usuario tiene password pero NO tiene Google vinculado
-      // ============================================================
       if (hasPasswordProvider && !hasGoogleProvider) {
         console.log(`[GOOGLE AUTH] Usuario tiene password, necesita vincular Google`);
 
-        // IMPORTANTE: Si llegamos acá, Firebase NO vinculó automáticamente
-        // Esto significa que el usuario rechazó la vinculación o hay configuración especial
-        
-        // Eliminar el usuario de Google que se creó automáticamente (si es diferente)
         if (googleUid !== existingAuthUser.uid) {
           try {
             await firebaseAuth.deleteUser(googleUid);
@@ -774,9 +764,6 @@ export const googleAuth = async (req: Request, res: Response) => {
         });
       }
 
-      // ============================================================
-      // CASO 1.C: Usuario solo tiene Google (login normal)
-      // ============================================================
       console.log(`[GOOGLE AUTH] Usuario ya tiene Google, login normal`);
 
       const userDoc = await firestore.collection("users").doc(existingAuthUser.uid).get();
@@ -1606,23 +1593,24 @@ export const sendWelcomeEmail = async (email: string, nombre: string) => {
     await resend.emails.send({
       from: "INEE Oficial <contacto@ineeoficial.com>",
       to: email,
-      subject: "Bienvenida a INEE®. Acceso al campus virtual",
+      subject: "Mail de Bienvenida a INEE®. Acceso al campus virtual",
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6;">
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6; color: #333;">
           <p>Hola ${nombre},</p>
           
-          <p>Te damos la bienvenida a <strong>INEE® – Instituto de Negocios Emprendedor Empresarial</strong>.<br>
-          Tu inscripción fue confirmada y ya tenés acceso al campus de formación.</p>
+          <p>Te damos la bienvenida a <strong>INEE – Instituto de Negocios Emprendedor Empresarial ®</strong>.</p>
           
-          <p>INEE® es un espacio de formación profesional orientado a la consultoría estratégica, el liderazgo y el desarrollo emprendedor. Las formaciones están diseñadas para fortalecer criterio profesional, capacidad de análisis y toma de decisiones con método.</p>
+          <p>Tu inscripción fue confirmada y ya tenés acceso al campus educativo de autogestión. Allí encontrarás contenidos con base conceptual sólida y aplicación práctica, organizados a partir del método <strong>DAACRE®</strong>, nuestro marco de intervención profesional.</p>
           
-          <p>En el campus vas a encontrar contenidos con base conceptual sólida y aplicación práctica, organizados a partir del <strong>método DAACRE®</strong>, nuestro marco de intervención profesional.</p>
+          <p>Ingresá al campus desde acá: <a href="https://estudiante.ineeoficial.com" style="color: #1a73e8; text-decoration: none;">https://estudiante.ineeoficial.com</a></p>
           
-          <p><strong>Ingresá al campus desde acá:</strong><br>
-          <a href="https://estudiante.ineeoficial.com" style="display: inline-block; padding: 12px 24px; background-color: #00a650; color: white; text-decoration: none; border-radius: 5px; margin-top: 10px;">Ingresar a INEE®</a></p>
+          <p>¡Éxitos en tu cursada!</p>
           
-          <p style="margin-top: 30px;"><strong>Felicitaciones por formar parte de INEE®.</strong><br>
-          Nos alegra acompañarte en este recorrido.</p>
+          <p>Nos alegra acompañarte en este recorrido.</p>
+          
+          <div style="margin-top: 30px;">
+            <img src="https://firebasestorage.googleapis.com/v0/b/inee-admin.firebasestorage.app/o/Imagenes%2Flogo.png?alt=media&token=e46d276c-06d9-4b52-9d7e-33d85845cbb4" alt="INEE Logo" style="max-width: 150px;" />
+          </div>
         </div>
       `,
     });
