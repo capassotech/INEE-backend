@@ -69,11 +69,20 @@ export const createPreference = async (req: Request, res: Response) => {
         });
       }
   
+      const discountCodeString = metadata.discountCode 
+        ? (typeof metadata.discountCode === 'string' 
+            ? metadata.discountCode 
+            : metadata.discountCode.codigo)
+        : undefined;
+
+
       const { orderId, orderNumber } = await createOrder(
         metadata.userId,
         items,
-        transactionAmount,
-        "pending"
+        transactionAmount, 
+        "pending",
+        discountCodeString, 
+        total
       );
   
       const isProduction = process.env.FIREBASE_PROJECT_ID === 'inee-admin';
@@ -136,8 +145,6 @@ export const createPreference = async (req: Request, res: Response) => {
       const pendingUrl = `${frontendUrl}/checkout/pending?order=${orderNumber}`;
       const failureUrl = `${frontendUrl}/checkout/failure?order=${orderNumber}`;
 
-      console.log("metadata original: ", metadata);
-      console.log("transactionAmount calculado con descuentos: ", transactionAmount);
   
       const preferenceBody: any = {
         items: mpItems,
@@ -156,18 +163,10 @@ export const createPreference = async (req: Request, res: Response) => {
           orderId,
           orderNumber,
           items,
-          finalAmount: transactionAmount, // Monto final con descuentos aplicados
+          finalAmount: transactionAmount, 
+          discountCode: discountCodeString,
         },
       };
-  
-      console.log("🧾 Creando preferencia de Mercado Pago Checkout PRO:", {
-        orderId,
-        orderNumber,
-        transactionAmount,
-        items: mpItems.length,
-        frontendUrl,
-        webhookUrl,
-      });
   
       const preference = await preferenceClient.create({ body: preferenceBody });
   
@@ -229,9 +228,15 @@ export const handleWebhook = async (req: Request, res: Response) => {
   
           const paymentClient = new Payment(mpClient);
           const payment = await paymentClient.get({ id: paymentId });
-  
+
           console.log(`💳 Pago ${paymentId} - Status: ${payment.status}`);
-          console.log(`📦 Metadata del pago:`, payment.metadata);
+          console.log(`📦 Metadata del pago completo:`, JSON.stringify(payment.metadata, null, 2));
+          console.log(`💰 Monto de transacción: ${payment.transaction_amount}`);
+          console.log(`🔍 Buscando discountCode en metadata:`, {
+              discountCode: payment.metadata?.discountCode,
+              discount_code: payment.metadata?.discount_code,
+              metadataKeys: payment.metadata ? Object.keys(payment.metadata) : []
+          });
   
           let ordersSnapshot = await firestore
               .collection("orders")
@@ -300,8 +305,34 @@ export const handleWebhook = async (req: Request, res: Response) => {
                       throw new Error('WEBHOOK_ALREADY_PROCESSED');
                   }
                   
-                  // Extraer discountCode del metadata si existe
-                  const discountCode = payment.metadata?.discountCode || payment.metadata?.discount_code || null;
+                  // Extraer discountCode del metadata de múltiples formas posibles
+                  // MP puede normalizar las claves a snake_case
+                  let discountCodeFromMetadata = null;
+                  
+                  if (payment.metadata) {
+                      // Buscar en diferentes variantes de la clave
+                      discountCodeFromMetadata = 
+                          payment.metadata.discountCode || 
+                          payment.metadata.discount_code ||
+                          payment.metadata.discountcode ||
+                          null;
+                      
+                      // Si el valor es un objeto (no debería serlo después de nuestro fix, pero por si acaso)
+                      if (discountCodeFromMetadata && typeof discountCodeFromMetadata === 'object') {
+                          discountCodeFromMetadata = discountCodeFromMetadata.codigo || null;
+                      }
+                  }
+                  
+                  // Log para debugging del discountCode
+                  console.log(`🔍 Código de descuento en webhook:`, {
+                      fromMetadata: discountCodeFromMetadata,
+                      fromOrderData: currentOrderData?.discountCode,
+                      metadataRaw: payment.metadata,
+                      willUse: discountCodeFromMetadata || currentOrderData?.discountCode || null
+                  });
+
+                  // Usar el código del metadata si existe, sino el que ya tenía la orden
+                  const finalDiscountCode = discountCodeFromMetadata || currentOrderData?.discountCode || null;
                   
                   // Actualizar la orden con un flag de procesamiento
                   const updateData: any = {
@@ -320,10 +351,21 @@ export const handleWebhook = async (req: Request, res: Response) => {
                   };
 
                   // Agregar discountCode si existe
-                  if (discountCode) {
-                      updateData.discountCode = discountCode;
-                      console.log(`💰 Código de descuento aplicado: ${discountCode}`);
+                  if (finalDiscountCode) {
+                      updateData.discountCode = finalDiscountCode;
+                      console.log(`💰 Código de descuento guardado en orden: ${finalDiscountCode}`);
+                  } else {
+                      console.log(`⚠️ No se encontró código de descuento en metadata ni en orden inicial`);
                   }
+
+                  console.log(`📝 Datos que se guardarán en la orden:`, {
+                      orderId,
+                      status: updateData.status,
+                      paymentStatus: updateData.paymentStatus,
+                      totalPaid: updateData.totalPaid,
+                      discountCode: updateData.discountCode || 'NO DISCOUNT',
+                      originalPrice: currentOrderData?.originalPrice || 'NO ORIGINAL PRICE'
+                  });
 
                   transaction.update(orderRef, updateData);
               });
@@ -348,6 +390,39 @@ export const handleWebhook = async (req: Request, res: Response) => {
                   }
 
                   console.log("orderData actualizado: ", updatedOrderData);
+
+                  // Registrar el uso del código de descuento si existe
+                  if (updatedOrderData.discountCode) {
+                      console.log(`🎟️ Registrando uso del código de descuento: ${updatedOrderData.discountCode}`);
+                      try {
+                          const originalAmount = updatedOrderData.originalPrice || updatedOrderData.totalPrice || payment.transaction_amount || 0;
+                          const discountedAmount = payment.transaction_amount || 0;
+                          
+                          console.log(`💵 Montos para registro de descuento:`, {
+                              originalPrice_fromOrder: updatedOrderData.originalPrice,
+                              totalPrice_fromOrder: updatedOrderData.totalPrice,
+                              totalPaid_fromOrder: updatedOrderData.totalPaid,
+                              transaction_amount_fromPayment: payment.transaction_amount,
+                              originalAmount_calculated: originalAmount,
+                              discountedAmount_calculated: discountedAmount,
+                              savedAmount: originalAmount - discountedAmount
+                          });
+                          
+                          await registerDiscountCodeUsage(
+                              updatedOrderData.discountCode,
+                              updatedOrderData.userId,
+                              orderId,
+                              updatedOrderData.orderNumber,
+                              originalAmount,
+                              discountedAmount
+                          );
+                      } catch (discountError) {
+                          console.error('❌ Error registrando uso del código de descuento:', discountError);
+                          // No fallar el proceso por esto, solo loggear
+                      }
+                  } else {
+                      console.log('ℹ️ No hay código de descuento para registrar');
+                  }
   
                   try {
                       await sendPaymentConfirmationEmail(
@@ -415,6 +490,58 @@ const validateWebhookSignature = (body: any, signature: string, requestId: strin
     const calculatedHash = hmac.digest('hex');
 
     return calculatedHash === hash;
+};
+
+/**
+ * Registra el uso de un código de descuento
+ * Guarda la información del uso en la colección discount_code_usage
+ */
+const registerDiscountCodeUsage = async (
+    discountCode: string,
+    userId: string,
+    orderId: string,
+    orderNumber: string,
+    originalAmount: number,
+    discountedAmount: number
+): Promise<void> => {
+    try {
+        console.log(`📝 Registrando uso del código de descuento: ${discountCode}`);
+        
+        // Buscar el código de descuento para obtener su ID
+        const discountCodeSnapshot = await firestore
+            .collection('discount_codes')
+            .where('codigo', '==', discountCode.toUpperCase().trim())
+            .limit(1)
+            .get();
+
+        if (discountCodeSnapshot.empty) {
+            console.warn(`⚠️ Código de descuento ${discountCode} no encontrado en la BD`);
+            return;
+        }
+
+        const discountCodeDoc = discountCodeSnapshot.docs[0];
+        const discountCodeId = discountCodeDoc.id;
+        const discountData = discountCodeDoc.data();
+
+        // Registrar el uso en la colección discount_code_usage
+        await firestore.collection('discount_code_usage').add({
+            discountCodeId,
+            discountCode: discountCode.toUpperCase().trim(),
+            discountPercentage: discountData.porcentaje || 0,
+            userId,
+            orderId,
+            orderNumber,
+            originalAmount,
+            discountedAmount,
+            savedAmount: originalAmount - discountedAmount,
+            usedAt: new Date(),
+            createdAt: new Date()
+        });
+
+        console.log(`✅ Uso del código ${discountCode} registrado exitosamente para usuario ${userId}`);
+    } catch (error) {
+        console.error(`❌ Error al registrar uso del código de descuento:`, error);
+    }
 };
 
 const calculateTotalPrice = async (items: any[]): Promise<number> => {
