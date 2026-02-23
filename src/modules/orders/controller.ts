@@ -41,9 +41,10 @@ export const getOrders = async (req: Request, res: Response) => {
         const lastId = req.query.lastId as string | undefined;
         const pageQuery = req.query.page as string | undefined;
         const page = pageQuery ? Math.max(parseInt(pageQuery, 10) || 1, 1) : undefined;
-        const search = req.query.search as string | undefined;  
+        const search = req.query.search as string | undefined;
+        const discountCode = req.query.discountCode as string | undefined;
         
-        const shouldCache = !search && !lastId && !page;
+        const shouldCache = !search && !lastId && !page && !discountCode;
         
         if (shouldCache) {
             const cacheKey = cache.generateKey(CACHE_KEYS.ORDERS, { limit });
@@ -53,11 +54,70 @@ export const getOrders = async (req: Request, res: Response) => {
             }
         }
         
-        const queryLimit = search && search.trim() ? limit * 3 : limit; 
+        const queryLimit = (search && search.trim()) || discountCode ? limit * 3 : limit; 
         
         let snapshot: FirebaseFirestore.QuerySnapshot<FirebaseFirestore.DocumentData>;
         
-        if (page && page > 1) {
+        // Si hay discountCode, filtrar por ese campo
+        if (discountCode) {
+            console.log(`🔍 Filtrando órdenes por discountCode: ${discountCode}`);
+            
+            if (page && page > 1) {
+                const skipCount = (page - 1) * limit;
+                
+                if (skipCount <= 50 * limit) {
+                    let currentQuery = collection
+                        .where('discountCode', '==', discountCode)
+                        .orderBy('createdAt', 'desc')
+                        .limit(skipCount);
+                    let skipSnapshot = await currentQuery.get();
+                    
+                    if (skipSnapshot.docs.length === skipCount) {
+                        const lastDocForPagination = skipSnapshot.docs[skipSnapshot.docs.length - 1];
+                        const extendedQuery = collection
+                            .where('discountCode', '==', discountCode)
+                            .orderBy('createdAt', 'desc')
+                            .startAfter(lastDocForPagination)
+                            .limit(queryLimit + 1);
+                        snapshot = await extendedQuery.get();
+                    } else {
+                        const emptyQuery = collection
+                            .where('discountCode', '==', discountCode)
+                            .orderBy('createdAt', 'desc')
+                            .limit(0);
+                        snapshot = await emptyQuery.get();
+                    }
+                } else {
+                    const emptyQuery = collection
+                        .where('discountCode', '==', discountCode)
+                        .orderBy('createdAt', 'desc')
+                        .limit(0);
+                    snapshot = await emptyQuery.get();
+                }
+            } else if (lastId) {
+                const lastDoc = await collection.doc(lastId).get();
+                if (lastDoc.exists) {
+                    const extendedQuery = collection
+                        .where('discountCode', '==', discountCode)
+                        .orderBy('createdAt', 'desc')
+                        .startAfter(lastDoc)
+                        .limit(queryLimit + 1);
+                    snapshot = await extendedQuery.get();
+                } else {
+                    const emptyQuery = collection
+                        .where('discountCode', '==', discountCode)
+                        .orderBy('createdAt', 'desc')
+                        .limit(0);
+                    snapshot = await emptyQuery.get();
+                }
+            } else {
+                const extendedQuery = collection
+                    .where('discountCode', '==', discountCode)
+                    .orderBy('createdAt', 'desc')
+                    .limit(queryLimit + 1);
+                snapshot = await extendedQuery.get();
+            }
+        } else if (page && page > 1) {
             const skipCount = (page - 1) * limit;
             
             if (skipCount <= 50 * limit) {

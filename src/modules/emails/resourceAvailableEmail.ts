@@ -61,12 +61,6 @@ const resourceTypeLabels: Record<ResourceTypeEmail, {
   },
 };
 
-const FIRMA_HTML = `
-        <p style="margin-top: 28px; margin-bottom: 4px;"><strong>Equipo INEE®</strong></p>
-        <p style="margin: 0; color: #555; font-size: 14px;">Instituto de Negocios Emprendedor Empresarial</p>
-      </div>
-`;
-
 /** Items agrupados por tipo para compras mixtas (formación + evento + ebook). */
 export interface ItemsByType {
   curso?: string[];
@@ -155,16 +149,18 @@ export const sendResourceAvailableEmail = async ({
       : resourceTitles[0] ?? '';
 
   const textoIntro = isSingle
-    ? `${labels.articulo} ${labels.singular.charAt(0).toUpperCase() + labels.singular.slice(1)} <strong>${primerTitulo}</strong> ya fue ${labels.participioSingular} a tu perfil en INEE® y se encuentra disponible en el campus.`
-    : `${labels.articuloPlural} siguientes ${labels.plural} ya están disponibles en tu perfil en INEE® y se encuentran en el campus:`;
+    ? `${labels.articulo} ${labels.singular.charAt(0).toUpperCase() + labels.singular.slice(1)} <strong>${primerTitulo}</strong> ya fue ${labels.participioSingular} a tu perfil en INEE® y se encuentra disponible en el campus de autogestión.`
+    : useListaPorTipo
+    ? `Los siguientes recursos ya están disponibles en tu perfil en INEE® y se encuentran en el<br><br>Campus de autogestión:`
+    : `Las siguientes ${labels.plural} ya están disponibles en tu perfil en INEE® y se encuentran en<br><br>el campus de autogestión:`;
 
   const listaHtml = useListaPorTipo
     ? renderListaPorTipo(itemsByType!)
     : `<ul style="list-style: none; padding-left: 0;">${renderListaItems(resourceTitles)}</ul>`;
 
-  const textoAcceso = isSingle
-    ? `Accedé a la ${labels.singular} desde el campus:`
-    : `Accedé a tus ${labels.accesoLabel} desde el campus:`;
+  const textoAcceso = useListaPorTipo
+    ? 'Accedé desde acá:'
+    : 'Podés acceder desde acá:';
 
   const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6; color: #333;">
@@ -174,13 +170,14 @@ export const sendResourceAvailableEmail = async ({
         
         ${isSingle ? '' : listaHtml}
         
-        <p style="margin-top: 20px;">${textoAcceso}</p>
-        <p>
-          <a href="https://estudiante.ineeoficial.com/" style="display: inline-block; padding: 12px 24px; background-color: #00a650; color: white; text-decoration: none; border-radius: 5px; margin-top: 10px;">
-            Ingresar a INEE®
-          </a>
-        </p>
-${FIRMA_HTML}
+        <p style="margin-top: 20px;">${textoAcceso} <a href="https://estudiante.ineeoficial.com/" style="color: #1a73e8; text-decoration: none;">https://estudiante.ineeoficial.com/</a></p>
+        
+        <p style="margin-top: 28px; margin-bottom: 4px;"><strong>Equipo INEE®</strong></p>
+        
+        <div style="margin-top: 30px;">
+          <img src="https://firebasestorage.googleapis.com/v0/b/inee-admin.firebasestorage.app/o/Imagenes%2Flogo.png?alt=media&token=e46d276c-06d9-4b52-9d7e-33d85845cbb4" alt="INEE Logo" style="max-width: 150px;" />
+        </div>
+      </div>
   `;
 
   const { error } = await resend.emails.send({

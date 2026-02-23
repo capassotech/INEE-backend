@@ -33,13 +33,32 @@ export const subscribeNewsletter = async (req: Request, res: Response) => {
         fecha_suscripcion: newDate,
     });
 
+    // Obtener el nombre del usuario (si existe en la DB)
+    const userSnapshot = await firestore.collection('users').where('email', '==', email).get();
+    const userName = !userSnapshot.empty ? userSnapshot.docs[0].data()?.nombre || 'Nombre' : 'Nombre';
     
     // Email enviado al usuario
     await resend.emails.send({
         from: "INEE Oficial <contacto@ineeoficial.com>",
         to: email,
         subject: "¡Te has suscrito a la newsletter de INEE!",
-        html: "<p>¡Te has suscrito a la newsletter de INEE!</p>",
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6; color: #333;">
+            <p>Hola ${userName},</p>
+            
+            <p>Tu suscripción a la newsletter de INEE® fue confirmada.</p>
+            
+            <p>A partir de ahora vas a recibir contenidos vinculados a consultoría, liderazgo y desarrollo emprendedor.</p>
+            
+            <p>Gracias por formar parte de nuestra comunidad.</p>
+            
+            <p style="margin-top: 28px; margin-bottom: 4px;"><strong>Equipo INEE®</strong></p>
+            
+            <div style="margin-top: 30px;">
+              <img src="https://firebasestorage.googleapis.com/v0/b/inee-admin.firebasestorage.app/o/Imagenes%2Flogo.png?alt=media&token=e46d276c-06d9-4b52-9d7e-33d85845cbb4" alt="INEE Logo" style="max-width: 150px;" />
+            </div>
+          </div>
+        `,
     });
 
     // Email enviado a INEE
