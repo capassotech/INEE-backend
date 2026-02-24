@@ -151,8 +151,8 @@ export const sendResourceAvailableEmail = async ({
   const textoIntro = isSingle
     ? `${labels.articulo} ${labels.singular.charAt(0).toUpperCase() + labels.singular.slice(1)} <strong>${primerTitulo}</strong> ya fue ${labels.participioSingular} a tu perfil en INEE® y se encuentra disponible en el campus de autogestión.`
     : useListaPorTipo
-    ? `Los siguientes recursos ya están disponibles en tu perfil en INEE® y se encuentran en el<br><br>Campus de autogestión:`
-    : `Las siguientes ${labels.plural} ya están disponibles en tu perfil en INEE® y se encuentran en<br><br>el campus de autogestión:`;
+    ? `Los siguientes recursos ya están disponibles en tu perfil en INEE® y se encuentran en el<br>campus de autogestión:`
+    : `Las siguientes ${labels.plural} ya están disponibles en tu perfil en INEE® y se encuentran en el<br>campus de autogestión:`;
 
   const listaHtml = useListaPorTipo
     ? renderListaPorTipo(itemsByType!)
