@@ -166,7 +166,7 @@ export const sendPurchaseNotificationAdminEmail = async ({
   try {
     const { error } = await resend.emails.send({
       from: 'INEE Sistema <sistema@ineeoficial.com>',
-      to: 'admin@ineeoficial.com',
+      to: 'administracion@ineeoficial.com',
       subject,
       html,
     });
