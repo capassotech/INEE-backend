@@ -6,7 +6,8 @@ export const AvalCreateSchema = z.object({
   descripcion: z.string().optional(),
   precio: z.number()
     .min(0, "El precio no puede ser negativo")
-    .max(9999999, "El precio no puede exceder $9.999.999"),
+    .max(9999999, "El precio no puede exceder $9.999.999")
+    .optional(),
   archivo: z.string()
     .min(1, "La URL del archivo es obligatoria")
     .max(2000, "La URL no puede exceder 2000 caracteres")
@@ -24,7 +25,7 @@ export interface Aval {
   id: string;
   nombre: string;
   descripcion?: string;
-  precio: number;
+  precio?: number;
   archivo: string;
   codigo?: string;
   activo?: boolean;
