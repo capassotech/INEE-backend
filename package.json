@@ -7,7 +7,8 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "postinstall": "npm run build && npx puppeteer browsers install chrome"
+    "postinstall": "npm run build && npx puppeteer browsers install chrome",
+    "sync:prod-to-qa": "ts-node --transpile-only src/scripts/sync-prod-to-qa.ts"
   },
   "engines": {
     "node": ">=18.0.0",
@@ -42,6 +43,7 @@
     "@types/express": "^5.0.3",
     "@types/mercadopago": "^1.5.11",
     "@types/pdfkit": "^0.17.4",
+    "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0"
   }
 }
