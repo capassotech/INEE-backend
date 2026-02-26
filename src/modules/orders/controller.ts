@@ -5,18 +5,39 @@ import { cache, CACHE_KEYS } from "../../utils/cache";
 
 const collection = firestore.collection('orders');
 
-export const createOrder = async (userId: string, items: any[], totalPrice: number, status: string) => {
+export const createOrder = async (
+    userId: string, 
+    items: any[], 
+    totalPrice: number, 
+    status: string, 
+    discountCode?: string,
+    originalPrice?: number
+) => {
     const year = new Date().getFullYear();
     const orderNumber = `ORD-${year}-${Date.now().toString().slice(-6)}`;
     
-    const order = await collection.add({
+    const orderData: any = {
         userId,
         items,
         totalPrice,
         createdAt: new Date(),
         status,
         orderNumber
-    });
+    };
+
+    // Si hay código de descuento, guardarlo
+    if (discountCode) {
+        orderData.discountCode = discountCode;
+        console.log(`✅ Orden creada con código de descuento: ${discountCode}`);
+    }
+
+    // Si hay precio original (sin descuento), guardarlo también
+    if (originalPrice && originalPrice !== totalPrice) {
+        orderData.originalPrice = originalPrice;
+        console.log(`💰 Precio original: ${originalPrice}, Precio con descuento: ${totalPrice}`);
+    }
+    
+    const order = await collection.add(orderData);
     cache.invalidatePattern(`${CACHE_KEYS.ORDERS}:`);
     
     return { orderId: order.id, orderNumber };
