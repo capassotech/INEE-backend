@@ -32,6 +32,7 @@ import discountCodesRoutes from "./modules/discount-codes/routes";
 import examenesRoutes from "./modules/examenes/routes";
 import avalesRoutes from "./modules/avales/routes";
 import examenesRealizadosRoutes from "./modules/examenes-realizados/routes";
+import recomendacionesRoutes from "./modules/recomendaciones/routes";
 
 
 const app = express();
@@ -68,6 +69,7 @@ app.use("/api/discount-codes", discountCodesRoutes);
 app.use("/api/examenes", examenesRoutes);
 app.use("/api/avales", avalesRoutes);
 app.use("/api/examenes-realizados", examenesRealizadosRoutes);
+app.use("/api/recomendaciones", recomendacionesRoutes);
 
 app.get("/", (_, res) => {
   res.json({
