@@ -207,14 +207,41 @@ export const getOrders = async (req: Request, res: Response) => {
         
         const lastDoc = docs[docs.length - 1];
         const hasMore = snapshot.docs.length > queryLimit;
+
+        // Enriquecer las órdenes con información de uso de código de descuento
+        const ordersWithDiscountInfo = await Promise.all(orders.map(async (order: any) => {
+            // Buscar si existe un registro de uso de código de descuento para esta orden
+            const discountCodeUsageSnapshot = await firestore
+                .collection('discount_code_usage')
+                .where('orderId', '==', order.id)
+                .limit(1)
+                .get();
+            
+            if (!discountCodeUsageSnapshot.empty) {
+                const discountUsageData = discountCodeUsageSnapshot.docs[0].data();
+                // Agregar la información del descuento a la orden
+                return {
+                    ...order,
+                    discountInfo: {
+                        discountedAmount: discountUsageData.discountedAmount,
+                        originalAmount: discountUsageData.originalAmount,
+                        savedAmount: discountUsageData.savedAmount,
+                        discountPercentage: discountUsageData.discountPercentage,
+                        usedAt: discountUsageData.usedAt
+                    }
+                };
+            }
+            
+            return order;
+        }));
         
         const response = {
-            orders,
+            orders: ordersWithDiscountInfo,
             pagination: {
                 hasMore,
                 lastId: lastDoc?.id,
                 limit,
-                count: orders.length,
+                count: ordersWithDiscountInfo.length,
                 ...(page && { page, totalPages: hasMore ? page + 1 : page })
             }
         };
@@ -240,7 +267,31 @@ export const getOrderById = async (req: Request, res: Response) => {
             return res.status(404).json({ error: "Orden no encontrada" });
         }
         
-        return res.json({ id: order.id, ...order.data() });
+        const orderData = { id: order.id, ...order.data() };
+        
+        // Buscar si existe un registro de uso de código de descuento para esta orden
+        const discountCodeUsageSnapshot = await firestore
+            .collection('discount_code_usage')
+            .where('orderId', '==', orderId)
+            .limit(1)
+            .get();
+        
+        if (!discountCodeUsageSnapshot.empty) {
+            const discountUsageData = discountCodeUsageSnapshot.docs[0].data();
+            // Agregar la información del descuento a la orden
+            return res.json({
+                ...orderData,
+                discountInfo: {
+                    discountedAmount: discountUsageData.discountedAmount,
+                    originalAmount: discountUsageData.originalAmount,
+                    savedAmount: discountUsageData.savedAmount,
+                    discountPercentage: discountUsageData.discountPercentage,
+                    usedAt: discountUsageData.usedAt
+                }
+            });
+        }
+        
+        return res.json(orderData);
     } catch (error) {
         console.error('getOrderById error:', error);
         return res.status(500).json({ error: 'Error al obtener orden' });
