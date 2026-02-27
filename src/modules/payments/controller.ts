@@ -5,6 +5,7 @@ import { createOrder, updateOrderStatus, updatePreferenceId } from "../orders/co
 import crypto from 'crypto';
 import axios from 'axios';
 import { sendResourceAvailableEmail, type ResourceTypeEmail, type ItemsByType } from "../emails/resourceAvailableEmail";
+import { sendPurchaseNotificationAdminEmail } from "../emails/purchaseNotificationAdminEmail";
 
 
 const mpClient = new MercadoPagoConfig({
@@ -434,6 +435,38 @@ export const handleWebhook = async (req: Request, res: Response) => {
                       console.log(`📧 Email de confirmación enviado a ${updatedOrderData.userId}`);
                   } catch (emailError) {
                       console.error('Error enviando email:', emailError);
+                  }
+
+                  // Enviar notificación a administradores
+                  try {
+                      // Obtener información del usuario para el email de administradores
+                      const userDoc = await firestore.collection('users').doc(updatedOrderData.userId).get();
+                      const userData = userDoc.data();
+                      const userName = userData?.nombre || 'Usuario';
+                      const userEmail = userData?.email || 'N/A';
+
+                      // Obtener los datos de los productos igual que para el email al usuario
+                      const items = Array.isArray(updatedOrderData) ? updatedOrderData : (updatedOrderData.items || []);
+                      const { resourceType, resourceTitles, itemsByType } = await resolveOrderItemsForEmail(items);
+
+                      if (resourceTitles.length > 0) {
+                          await sendPurchaseNotificationAdminEmail({
+                              userName,
+                              userEmail,
+                              userId: updatedOrderData.userId,
+                              orderNumber: updatedOrderData.orderNumber,
+                              totalPaid: updatedOrderData.totalPaid || payment.transaction_amount || 0,
+                              originalPrice: updatedOrderData.originalPrice,
+                              discountCode: updatedOrderData.discountCode,
+                              resourceType: resourceType as any,
+                              resourceTitles,
+                              ...(itemsByType && { itemsByType }),
+                          });
+                          console.log(`📧 Email de notificación enviado a administradores`);
+                      }
+                  } catch (adminEmailError) {
+                      console.error('Error enviando email a administradores:', adminEmailError);
+                      // No fallar el proceso por esto
                   }
               }
               
