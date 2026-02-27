@@ -7,7 +7,8 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "postinstall": "npm run build && npx puppeteer browsers install chrome"
+    "postinstall": "npm run build && npx puppeteer browsers install chrome",
+    "add:testimonials": "ts-node scripts/add-testimonials.ts"
   },
   "engines": {
     "node": ">=18.0.0",
