@@ -8,6 +8,7 @@ import {
   deleteCourse,
   getUserCourses,
   checkCourseExists,
+  selectRandomFeaturedCourse
 } from "./controller";
 import { authMiddleware } from "../../middleware/authMiddleware";
 import { AuthenticatedRequest } from "../../middleware/authMiddleware";
@@ -21,9 +22,10 @@ import { Request, Response } from "express";
 
 const router = Router();
 
+// Rutas específicas DEBEN ir ANTES de las rutas con parámetros (:id)
 router.get("/", getAllCourses);
+router.get("/random-featured", selectRandomFeaturedCourse);
 router.get("/check/:id", checkCourseExists);
-router.get("/:id", getCourseById);
 router.get("/user/:id", getUserCourses);
 router.get("/:id", getCourseById);
 
