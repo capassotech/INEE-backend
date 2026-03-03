@@ -537,3 +537,80 @@ export const checkCourseExists = async (req: Request, res: Response) => {
   }
 };
 
+
+export const selectRandomFeaturedCourse = async (req: Request, res: Response) => {
+  try {
+    const activeSnapshot = await collection.where('estado', '==', 'activo').get();
+
+    if (activeSnapshot.empty) {
+      return res.status(404).json({ 
+        error: 'No hay formaciones activas disponibles' 
+      });
+    }
+
+    const currentFeaturedSnapshot = await collection
+      .where('esDestacado', '==', true)
+      .limit(1)
+      .get();
+
+    const currentFeaturedId = currentFeaturedSnapshot.empty 
+      ? null 
+      : currentFeaturedSnapshot.docs[0].id;
+
+    const availableCourses = activeSnapshot.docs
+      .filter(doc => doc.id !== currentFeaturedId)
+      .map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ref: doc.ref,
+          titulo: data.titulo || '',
+          descripcion_corta: data.descripcion_corta || '',
+          ...data
+        };
+      });
+
+    if (availableCourses.length === 0) {
+      return res.status(400).json({ 
+        error: 'No hay otras formaciones activas para destacar (solo hay una formación activa o ninguna diferente a la actual)' 
+      });
+    }
+
+    const randomIndex = Math.floor(Math.random() * availableCourses.length);
+    const selectedCourse = availableCourses[randomIndex];
+
+    const batch = firestore.batch();
+    
+    if (currentFeaturedId) {
+      const previousRef = collection.doc(currentFeaturedId);
+      batch.update(previousRef, { esDestacado: false });
+      console.log(`   ❌ Quitando destacado de: ${currentFeaturedId}`);
+    }
+    
+    batch.update(selectedCourse.ref, { esDestacado: true });
+
+    await batch.commit();
+
+    cache.invalidatePattern(`${CACHE_KEYS.COURSES}:`);
+
+    return res.json({
+      success: true,
+      message: 'Formación destacada seleccionada exitosamente',
+      previousFeatured: currentFeaturedId ? {
+        id: currentFeaturedId
+      } : null,
+      newFeatured: {
+        id: selectedCourse.id,
+        titulo: selectedCourse.titulo,
+        descripcion_corta: selectedCourse.descripcion_corta
+      }
+    });
+
+  } catch (err) {
+    console.error('❌ selectRandomFeaturedCourse error:', err);
+    return res.status(500).json({ 
+      error: 'Error al seleccionar formación destacada' 
+    });
+  }
+}; 
+
