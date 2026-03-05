@@ -54,16 +54,6 @@ export const getAllEvents = async (req: Request, res: Response) => {
             ...doc.data() 
         }));
         
-        // ✅ FILTRAR EVENTOS INACTIVOS: Solo mostrar eventos activos en la tienda
-        events = events.filter((event: any) => {
-            // Si el evento tiene estado "inactivo", excluirlo
-            if (event.estado === "inactivo") return false;
-            // Si el evento tiene isActive como false, excluirlo
-            if (event.isActive === false) return false;
-            // Si no tiene estado definido, asumir activo (compatibilidad con eventos antiguos)
-            return true;
-        });
-        
         // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
         if (search && search.trim()) {
             const searchNormalized = normalizeText(search);
@@ -412,15 +402,6 @@ export const getUserEvents = async (req: Request, res: Response) => {
                 id: doc.id,
                 ...doc.data()
             }))
-            // ✅ FILTRAR EVENTOS INACTIVOS: Solo mostrar eventos activos
-            .filter((event: any) => {
-                // Si el evento tiene estado "inactivo", excluirlo
-                if (event.estado === "inactivo") return false;
-                // Si el evento tiene isActive como false, excluirlo
-                if (event.isActive === false) return false;
-                // Si no tiene estado definido, asumir activo (compatibilidad con eventos antiguos)
-                return true;
-            });
         // Eliminar duplicados por ID (por si acaso)
         let uniqueEvents = eventsData.filter((event, index, self) =>
             index === self.findIndex((e) => e.id === event.id)
