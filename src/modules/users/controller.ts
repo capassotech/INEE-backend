@@ -248,10 +248,13 @@ export const updateUser = async (req: any, res: Response) => {
     
     // Si el frontend envía los datos dentro de un objeto 'user', extraerlos
     const datosUsuario = bodyData.user || bodyData;
+    
+    // Email puede venir en la raíz (bodyData.email) o dentro de user (datosUsuario.email)
+    const newEmail = (bodyData.email ?? datosUsuario.email)?.trim?.()?.toLowerCase?.();
 
     // Copiar todos los campos válidos al updateData
-    // Excluir campos que no deben actualizarse directamente
-    const camposExcluidos = ['id', 'uid', 'fechaRegistro', 'email', 'fechaActualizacion'];
+    // Excluir campos: id, uid, fechaRegistro; email se maneja aparte (Firestore + Auth)
+    const camposExcluidos = ['id', 'uid', 'fechaRegistro', 'fechaActualizacion', 'email'];
     
     for (const [key, value] of Object.entries(datosUsuario)) {
       // No incluir campos excluidos
@@ -284,6 +287,50 @@ export const updateUser = async (req: any, res: Response) => {
     
     // Asegurar que fechaActualizacion siempre sea un Date nuevo
     updateData.fechaActualizacion = new Date();
+
+    // Si se envía un nuevo email, actualizar en Firestore y en Firebase Auth
+    if (newEmail && typeof newEmail === 'string' && newEmail.length > 0) {
+      const currentData = userDoc.data();
+      const currentEmail = (currentData?.email ?? '').toString().trim().toLowerCase();
+      
+      if (currentEmail !== newEmail) {
+        // Validar formato básico de email
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(newEmail)) {
+          return res.status(400).json({
+            error: 'Formato de email inválido',
+          });
+        }
+        
+        // Verificar que el nuevo email no esté en uso por otro usuario
+        try {
+          const existingByEmail = await firebaseAuth.getUserByEmail(newEmail);
+          if (existingByEmail.uid !== uid) {
+            return res.status(409).json({
+              error: 'Ya existe un usuario registrado con este email',
+            });
+          }
+        } catch (err: any) {
+          if (err.code !== 'auth/user-not-found') {
+            console.error('[updateUser] Error verificando email:', err);
+            return res.status(500).json({ error: 'Error verificando disponibilidad del email' });
+          }
+        }
+        
+        updateData.email = newEmail;
+        
+        // Actualizar el email en Firebase Authentication (para que persista al recargar)
+        try {
+          await firebaseAuth.updateUser(uid, { email: newEmail });
+        } catch (authErr: any) {
+          console.error('[updateUser] Error actualizando email en Firebase Auth:', authErr);
+          return res.status(500).json({
+            error: 'Error actualizando el email en la autenticación',
+            details: process.env.NODE_ENV === 'development' ? authErr.message : undefined,
+          });
+        }
+      }
+    }
 
     // Actualizar en Firestore
     await userDoc.ref.update(updateData);
