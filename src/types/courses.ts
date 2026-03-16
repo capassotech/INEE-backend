@@ -80,7 +80,7 @@ export const CourseSchema = z.object({
     estado: z.enum(["activo", "inactivo"], {
         message: "Selecciona un estado válido",
     }),
-    esDestacado: z.boolean(),
+    esDestacado: z.boolean().optional(),
     precio: z.number()
         .min(0, "El precio no puede ser negativo")
         .max(9999999, "El precio no puede exceder $9.999.999"),
