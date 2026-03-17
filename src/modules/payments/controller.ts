@@ -1,25 +1,24 @@
 import { Request, Response } from "express";
 import { firestore } from "../../config/firebase";
-import { MercadoPagoConfig, Payment, PaymentMethod, Preference } from "mercadopago";
+import { MercadoPagoConfig, Payment, Preference } from "mercadopago";
 import { createOrder, updateOrderStatus, updatePreferenceId } from "../orders/controller";
 import crypto from 'crypto';
 import axios from 'axios';
 import { sendResourceAvailableEmail, type ResourceTypeEmail, type ItemsByType } from "../emails/resourceAvailableEmail";
 import { sendPurchaseNotificationAdminEmail } from "../emails/purchaseNotificationAdminEmail";
+import { getActiveMpAccessToken } from "../mercado-pago-accounts/controller";
 
-
-const mpClient = new MercadoPagoConfig({
-  accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN || "",
-  options: {
-    timeout: 5000,
-  },
-});
-
-const preferenceClient = new Preference(mpClient);
+const getMpClient = async () => {
+  const accessToken = await getActiveMpAccessToken();
+  return new MercadoPagoConfig({
+    accessToken: accessToken || process.env.MERCADO_PAGO_ACCESS_TOKEN || "",
+    options: { timeout: 5000 },
+  });
+};
 
 export const createPreference = async (req: Request, res: Response) => {
     try {
-      if (!process.env.MERCADO_PAGO_ACCESS_TOKEN) {
+      if (!process.env.MERCADO_PAGO_ACCESS_TOKEN && !process.env.MERCADO_PAGO_ACCESS_TOKEN_ROCIO) {
         console.error("❌ MERCADO_PAGO_ACCESS_TOKEN no configurado");
         return res.status(500).json({
           success: false,
@@ -169,6 +168,8 @@ export const createPreference = async (req: Request, res: Response) => {
         },
       };
   
+      const mpClient = await getMpClient();
+      const preferenceClient = new Preference(mpClient);
       const preference = await preferenceClient.create({ body: preferenceBody });
   
       if (preference.id) await updatePreferenceId(orderId, preference.id)
@@ -227,6 +228,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
               return res.sendStatus(200);
           }
   
+          const mpClient = await getMpClient();
           const paymentClient = new Payment(mpClient);
           const payment = await paymentClient.get({ id: paymentId });
 

@@ -16,24 +16,10 @@ export const getAllMercadoPagoAccounts = async (
     });
   }
 
-  try {
-    const snapshot = await collection.get();
-
-    const accounts = snapshot.docs.map((doc) => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        titulo: data.titulo || data.nombreFantasia || "",
-        activo: data.activo ?? false,
-      };
-    });
-
-    return res.json(accounts);
-  } catch (error) {
-    console.error("getAllMercadoPagoAccounts error:", error);
-    return res.status(500).json({
-      error: "Error al obtener las cuentas de Mercado Pago",
-    });
+  const accounts = await MpAccountToUse()
+  if (accounts) res.json(accounts);
+  else {
+    res.status(500).json({ error: "Hubo un error al obtener las cuentas" })
   }
 };
 
@@ -90,5 +76,54 @@ export const updateMercadoPagoAccountActivo = async (
     return res.status(500).json({
       error: "Error al actualizar la cuenta de Mercado Pago",
     });
+  }
+};
+
+
+const MpAccountToUse = async () => {
+  try {
+    const snapshot = await collection.get();
+
+    const accounts = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        titulo: data.titulo || data.nombreFantasia || "",
+        activo: data.activo ?? false,
+      };
+    });
+
+    return accounts;
+  } catch (error) {
+    console.error("MpAccountToUse error:", error);
+    throw new Error("Error al obtener cuentas de Mercado Pago");
+  }
+};
+
+const TITULO_TO_ENV_ACCESS_TOKEN: Record<string, string> = {
+  "Cuenta INEE": "MERCADO_PAGO_ACCESS_TOKEN",
+  "Cuenta Rocio": "MERCADO_PAGO_ACCESS_TOKEN_ROCIO",
+};
+
+export const getActiveMpAccessToken = async (): Promise<string> => {
+  try {
+    const snapshot = await collection.where("activo", "==", true).limit(1).get();
+
+    if (!snapshot.empty) {
+      const data = snapshot.docs[0].data();
+      const titulo = (data.titulo || data.nombreFantasia || "").trim();
+
+      const envKey = TITULO_TO_ENV_ACCESS_TOKEN[titulo];
+      if (envKey && process.env[envKey]) {
+        return process.env[envKey]!;
+      }
+
+      console.warn(`⚠️ Titulo "${titulo}" no tiene mapeo en TITULO_TO_ENV_ACCESS_TOKEN, usando MERCADO_PAGO_ACCESS_TOKEN`);
+    }
+
+    return process.env.MERCADO_PAGO_ACCESS_TOKEN || "";
+  } catch (error) {
+    console.error("getActiveMpAccessToken error:", error);
+    return process.env.MERCADO_PAGO_ACCESS_TOKEN || "";
   }
 };
