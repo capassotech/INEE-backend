@@ -33,6 +33,7 @@ import examenesRoutes from "./modules/examenes/routes";
 import avalesRoutes from "./modules/avales/routes";
 import examenesRealizadosRoutes from "./modules/examenes-realizados/routes";
 import recomendacionesRoutes from "./modules/recomendaciones/routes";
+import mercadoPagoAccountsRoutes from "./modules/mercado-pago-accounts/routes";
 
 
 const app = express();
@@ -70,6 +71,7 @@ app.use("/api/examenes", examenesRoutes);
 app.use("/api/avales", avalesRoutes);
 app.use("/api/examenes-realizados", examenesRealizadosRoutes);
 app.use("/api/recomendaciones", recomendacionesRoutes);
+app.use("/api/mercado-pago-accounts", mercadoPagoAccountsRoutes);
 
 app.get("/", (_, res) => {
   res.json({
