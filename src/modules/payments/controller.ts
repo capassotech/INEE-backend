@@ -1,95 +1,32 @@
 import { Request, Response } from "express";
 import { firestore } from "../../config/firebase";
-import { MercadoPagoConfig, Payment, PaymentMethod, Preference } from "mercadopago";
+import { MercadoPagoConfig, Payment, Preference } from "mercadopago";
 import { createOrder, updateOrderStatus, updatePreferenceId } from "../orders/controller";
 import crypto from 'crypto';
 import axios from 'axios';
 import { sendResourceAvailableEmail, type ResourceTypeEmail, type ItemsByType } from "../emails/resourceAvailableEmail";
 import { sendPurchaseNotificationAdminEmail } from "../emails/purchaseNotificationAdminEmail";
+import { getActiveMpAccessToken } from "../mercado-pago-accounts/controller";
 
-
-const mpClient = new MercadoPagoConfig({
-  accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN || "",
-  options: {
-    timeout: 5000,
-  },
-});
-
-const preferenceClient = new Preference(mpClient);
-
-/**
- * Normaliza los items para comparación (id + quantity)
- */
-const normalizeItemsForComparison = (items: any[]): string => {
-    const normalized = items
-        .map((item: any) => {
-            const id = String(item.id || item.productId || '');
-            const qty = Number(item.quantity || 1);
-            return `${id}:${qty}`;
-        })
-        .filter((s: string) => s !== ':1' && s !== ':')
-        .sort()
-        .join('|');
-    return normalized;
-};
-
-/**
- * Valida si el usuario ya tiene una orden pendiente con los mismos items.
- * @returns { orderId, orderNumber } si existe, o { orderId: null, orderNumber: null } si no
- */
-const userAlreadyHasPendingOrder = async (
-    userId: string,
-    items: any[]
-): Promise<{ orderId: string | null; orderNumber: string | null }> => {
-    try {
-        const itemsSignature = normalizeItemsForComparison(items);
-
-        const pendingOrdersSnapshot = await firestore
-            .collection('orders')
-            .where('userId', '==', userId)
-            .where('status', '==', 'pending')
-            .limit(20)
-            .get();
-
-        if (pendingOrdersSnapshot.empty) {
-            return { orderId: null, orderNumber: null };
-        }
-
-        for (const doc of pendingOrdersSnapshot.docs) {
-            const orderData = doc.data();
-            const orderItems = orderData.items || [];
-
-            if (orderItems.length === 0) continue;
-
-            const orderItemsSignature = normalizeItemsForComparison(orderItems);
-
-            if (orderItemsSignature === itemsSignature) {
-                console.log(`📋 Orden pendiente existente encontrada: ${orderData.orderNumber}`);
-                return {
-                    orderId: doc.id,
-                    orderNumber: orderData.orderNumber || null
-                };
-            }
-        }
-
-        return { orderId: null, orderNumber: null };
-    } catch (error) {
-        console.error('❌ Error en userAlreadyHasPendingOrder:', error);
-        return { orderId: null, orderNumber: null };
-    }
+const getMpClient = async () => {
+  const accessToken = await getActiveMpAccessToken();
+  return new MercadoPagoConfig({
+    accessToken: accessToken || process.env.MERCADO_PAGO_ACCESS_TOKEN || "",
+    options: { timeout: 5000 },
+  });
 };
 
 export const createPreference = async (req: Request, res: Response) => {
     try {
-        if (!process.env.MERCADO_PAGO_ACCESS_TOKEN) {
-            console.error("❌ MERCADO_PAGO_ACCESS_TOKEN no configurado");
-            return res.status(500).json({
-                success: false,
-                error: "Error de configuración del servidor",
-            });
-        }
-    
-        const { items, metadata } = req.body;
+      if (!process.env.MERCADO_PAGO_ACCESS_TOKEN && !process.env.MERCADO_PAGO_ACCESS_TOKEN_ROCIO) {
+        console.error("❌ MERCADO_PAGO_ACCESS_TOKEN no configurado");
+        return res.status(500).json({
+          success: false,
+          error: "Error de configuración del servidor",
+        });
+      }
+  
+      const { items, metadata } = req.body;
 
         console.log(req.body)
   
@@ -244,9 +181,11 @@ export const createPreference = async (req: Request, res: Response) => {
             },
         };
   
-        const preference = await preferenceClient.create({ body: preferenceBody });
-    
-        if (preference.id) await updatePreferenceId(orderId, preference.id)
+      const mpClient = await getMpClient();
+      const preferenceClient = new Preference(mpClient);
+      const preference = await preferenceClient.create({ body: preferenceBody });
+  
+      if (preference.id) await updatePreferenceId(orderId, preference.id)
   
         return res.json({
             success: true,
@@ -302,6 +241,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
               return res.sendStatus(200);
           }
   
+          const mpClient = await getMpClient();
           const paymentClient = new Payment(mpClient);
           const payment = await paymentClient.get({ id: paymentId });
 
