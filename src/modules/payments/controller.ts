@@ -16,6 +16,70 @@ const getMpClient = async () => {
   });
 };
 
+type ComparableItem = {
+  id?: string | number;
+  productId?: string | number;
+  quantity?: number;
+};
+
+const normalizeItemsForComparison = (items: ComparableItem[]): string => {
+  return items
+    .map((item) => {
+      const rawId = item.id ?? item.productId ?? "";
+      const id = String(rawId).trim();
+      const qty = Number(item.quantity ?? 1);
+      return { id, qty };
+    })
+    .filter((item) => item.id.length > 0)
+    .map((item) => `${item.id}:${item.qty}`)
+    .sort()
+    .join("|");
+};
+
+const userAlreadyHasPendingOrder = async (
+  userId: string,
+  items: ComparableItem[]
+): Promise<{ orderId: string | null; orderNumber: string | null }> => {
+  try {
+    const itemsSignature = normalizeItemsForComparison(items);
+
+    const pendingOrdersSnapshot = await firestore
+      .collection("orders")
+      .where("userId", "==", userId)
+      .where("status", "==", "pending")
+      .limit(20)
+      .get();
+
+    if (pendingOrdersSnapshot.empty) {
+      return { orderId: null, orderNumber: null };
+    }
+
+    for (const doc of pendingOrdersSnapshot.docs) {
+      const orderData = doc.data();
+      const orderItems = (orderData.items ?? []) as ComparableItem[];
+
+      if (orderItems.length === 0) {
+        continue;
+      }
+
+      const orderItemsSignature = normalizeItemsForComparison(orderItems);
+
+      if (orderItemsSignature === itemsSignature) {
+        console.log(`📋 Orden pendiente existente encontrada: ${orderData.orderNumber}`);
+        return {
+          orderId: doc.id,
+          orderNumber: orderData.orderNumber || null,
+        };
+      }
+    }
+
+    return { orderId: null, orderNumber: null };
+  } catch (error) {
+    console.error("❌ Error en userAlreadyHasPendingOrder:", error);
+    return { orderId: null, orderNumber: null };
+  }
+};
+
 export const createPreference = async (req: Request, res: Response) => {
     try {
       if (!process.env.MERCADO_PAGO_ACCESS_TOKEN && !process.env.MERCADO_PAGO_ACCESS_TOKEN_ROCIO) {
