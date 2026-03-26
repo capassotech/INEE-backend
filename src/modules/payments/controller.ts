@@ -1,25 +1,88 @@
 import { Request, Response } from "express";
 import { firestore } from "../../config/firebase";
-import { MercadoPagoConfig, Payment, PaymentMethod, Preference } from "mercadopago";
+import { MercadoPagoConfig, Payment, Preference } from "mercadopago";
 import { createOrder, updateOrderStatus, updatePreferenceId } from "../orders/controller";
 import crypto from 'crypto';
 import axios from 'axios';
 import { sendResourceAvailableEmail, type ResourceTypeEmail, type ItemsByType } from "../emails/resourceAvailableEmail";
 import { sendPurchaseNotificationAdminEmail } from "../emails/purchaseNotificationAdminEmail";
+import { getActiveMpAccessToken } from "../mercado-pago-accounts/controller";
 
+const getMpClient = async () => {
+  const accessToken = await getActiveMpAccessToken();
+  return new MercadoPagoConfig({
+    accessToken: accessToken || process.env.MERCADO_PAGO_ACCESS_TOKEN || "",
+    options: { timeout: 5000 },
+  });
+};
 
-const mpClient = new MercadoPagoConfig({
-  accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN || "",
-  options: {
-    timeout: 5000,
-  },
-});
+type ComparableItem = {
+  id?: string | number;
+  productId?: string | number;
+  quantity?: number;
+};
 
-const preferenceClient = new Preference(mpClient);
+const normalizeItemsForComparison = (items: ComparableItem[]): string => {
+  return items
+    .map((item) => {
+      const rawId = item.id ?? item.productId ?? "";
+      const id = String(rawId).trim();
+      const qty = Number(item.quantity ?? 1);
+      return { id, qty };
+    })
+    .filter((item) => item.id.length > 0)
+    .map((item) => `${item.id}:${item.qty}`)
+    .sort()
+    .join("|");
+};
+
+const userAlreadyHasPendingOrder = async (
+  userId: string,
+  items: ComparableItem[]
+): Promise<{ orderId: string | null; orderNumber: string | null }> => {
+  try {
+    const itemsSignature = normalizeItemsForComparison(items);
+
+    const pendingOrdersSnapshot = await firestore
+      .collection("orders")
+      .where("userId", "==", userId)
+      .where("status", "==", "pending")
+      .limit(20)
+      .get();
+
+    if (pendingOrdersSnapshot.empty) {
+      return { orderId: null, orderNumber: null };
+    }
+
+    for (const doc of pendingOrdersSnapshot.docs) {
+      const orderData = doc.data();
+      const orderItems = (orderData.items ?? []) as ComparableItem[];
+
+      if (orderItems.length === 0) {
+        continue;
+      }
+
+      const orderItemsSignature = normalizeItemsForComparison(orderItems);
+
+      if (orderItemsSignature === itemsSignature) {
+        console.log(`📋 Orden pendiente existente encontrada: ${orderData.orderNumber}`);
+        return {
+          orderId: doc.id,
+          orderNumber: orderData.orderNumber || null,
+        };
+      }
+    }
+
+    return { orderId: null, orderNumber: null };
+  } catch (error) {
+    console.error("❌ Error en userAlreadyHasPendingOrder:", error);
+    return { orderId: null, orderNumber: null };
+  }
+};
 
 export const createPreference = async (req: Request, res: Response) => {
     try {
-      if (!process.env.MERCADO_PAGO_ACCESS_TOKEN) {
+      if (!process.env.MERCADO_PAGO_ACCESS_TOKEN && !process.env.MERCADO_PAGO_ACCESS_TOKEN_ROCIO) {
         console.error("❌ MERCADO_PAGO_ACCESS_TOKEN no configurado");
         return res.status(500).json({
           success: false,
@@ -29,166 +92,181 @@ export const createPreference = async (req: Request, res: Response) => {
   
       const { items, metadata } = req.body;
 
-      console.log(req.body)
+        console.log(req.body)
   
-      if (
-        !metadata?.userId ||
-        !Array.isArray(items) ||
-        items.length === 0 ||
-        !metadata.totalAmount
-      ) {
-        return res.status(400).json({
-          success: false,
-          error:
-            "Faltan datos de la orden (userId, items, totalAmount) para crear la preferencia",
-        });
-      }
-  
-      const userRef = firestore.collection("users").doc(metadata.userId);
-      const userSnap = await userRef.get();
-  
-      if (!userSnap.exists) {
-        return res.status(400).json({ success: false, error: "Usuario no encontrado" });
-      }
-  
-      if (!(await validateProds(items))) {
-        return res
-          .status(400)
-          .json({ success: false, error: "Productos no encontrados" });
-      }
-  
-      const total = await calculateTotalPrice(items);
-      const transactionAmount = (metadata?.discountAmount && metadata.discountAmount > 0) 
-          ? metadata.totalAmount 
-          : (total || metadata.totalAmount);
-  
-      if (isNaN(transactionAmount) || transactionAmount <= 0) {
-        return res.status(400).json({
-          success: false,
-          error: "El monto de la transacción es inválido",
-          details: `Monto calculado: ${total}, Monto metadata: ${metadata.totalAmount}`,
-        });
-      }
-  
-      const discountCodeString = metadata.discountCode 
-        ? (typeof metadata.discountCode === 'string' 
-            ? metadata.discountCode 
-            : metadata.discountCode.codigo)
-        : undefined;
-
-
-      const { orderId, orderNumber } = await createOrder(
-        metadata.userId,
-        items,
-        transactionAmount, 
-        "pending",
-        discountCodeString, 
-        total
-      );
-  
-      const isProduction = process.env.FIREBASE_PROJECT_ID === 'inee-admin';
-      console.log("Variable de comparacion: ", isProduction);
-      const baseUrl = isProduction ? 'https://inee-backend.onrender.com' : 'https://inee-backend-qa.onrender.com';
-      const webhookUrl = `${baseUrl}/api/payments/mercadopago/webhook`;
-  
-      const frontendUrl = isProduction ? 'https://ineeoficial.com' : 'https://tienda-qa.ineeoficial.com';
-  
-      const itemsTotal = items.reduce((sum, item) => {
-        const rawUnitPrice = item.unit_price !== undefined && item.unit_price !== null
-          ? item.unit_price
-          : item.precio ?? item.price ?? 0;
-        return sum + (Number(rawUnitPrice) * Number(item.quantity || 1));
-      }, 0);
-  
-      let adjustedItems = items;
-      if (metadata?.discountAmount && metadata.discountAmount > 0 && Math.abs(itemsTotal - transactionAmount) > 0.01) {
-        const discountRatio = transactionAmount / itemsTotal;
-        adjustedItems = items.map((item: any) => {
-          const rawUnitPrice = item.unit_price !== undefined && item.unit_price !== null
-            ? item.unit_price
-            : item.precio ?? item.price ?? 0;
-          return {
-            ...item,
-            unit_price: Number((Number(rawUnitPrice) * discountRatio).toFixed(2))
-          };
-        });
-      }
-  
-      const mpItems = adjustedItems.map((item: any) => {
-        const rawUnitPrice =
-          item.unit_price !== undefined && item.unit_price !== null
-            ? item.unit_price
-            : item.precio ?? item.price ?? 0;
-  
-        const unitPrice = Number(rawUnitPrice);
-  
-        if (isNaN(unitPrice) || unitPrice <= 0) {
-          console.warn("⚠️ unit_price inválido en item, será 0 (MP lo rechazará):", {
-            item,
-            rawUnitPrice,
-          });
+        if (
+            !metadata?.userId ||
+            !Array.isArray(items) ||
+            items.length === 0 ||
+            !metadata.totalAmount
+        ) {
+            return res.status(400).json({
+                success: false,
+                error:
+                    "Faltan datos de la orden (userId, items, totalAmount) para crear la preferencia",
+            });
         }
   
-        return {
-          id: String(item.id || ""),
-          title: String(item.nombre || item.title || "Producto"),
-          description: String(
-            item.description || `Producto: ${item.nombre || item.title}`
-          ),
-          category_id: "education",
-          quantity: Number(item.quantity || 1),
-          unit_price: unitPrice,
-          currency_id: "ARS",
-        };
-      });
+        const userRef = firestore.collection("users").doc(metadata.userId);
+        const userSnap = await userRef.get();
+    
+        if (!userSnap.exists) {
+            return res.status(400).json({ success: false, error: "Usuario no encontrado" });
+        }
   
-      const successUrl = `${frontendUrl}/checkout/success?order=${orderNumber}`;
-      const pendingUrl = `${frontendUrl}/checkout/pending?order=${orderNumber}`;
-      const failureUrl = `${frontendUrl}/checkout/failure?order=${orderNumber}`;
+        if (!(await validateProds(items))) {
+            return res
+            .status(400)
+            .json({ success: false, error: "Productos no encontrados" });
+        }
+  
+        const total = await calculateTotalPrice(items);
+        const transactionAmount = (metadata?.discountAmount && metadata.discountAmount > 0) 
+            ? metadata.totalAmount 
+            : (total || metadata.totalAmount);
+    
+        if (isNaN(transactionAmount) || transactionAmount <= 0) {
+            return res.status(400).json({
+                success: false,
+                error: "El monto de la transacción es inválido",
+                details: `Monto calculado: ${total}, Monto metadata: ${metadata.totalAmount}`,
+            });
+        }
+    
+        const discountCodeString = metadata.discountCode 
+            ? (typeof metadata.discountCode === 'string' 
+                ? metadata.discountCode 
+                : metadata.discountCode.codigo)
+            : undefined;
+        
+        let orderId: string;
+        let orderNumber: string;
+
+        const pendingOrder = await userAlreadyHasPendingOrder(metadata.userId, items);
+        
+        if (pendingOrder.orderId && pendingOrder.orderNumber) {
+            orderId = pendingOrder.orderId;
+            orderNumber = pendingOrder.orderNumber;
+            console.log(`📋 Usando orden pendiente existente: ${orderNumber}`);
+        } else {
+            const created = await createOrder(
+                metadata.userId,
+                items,
+                transactionAmount, 
+                "pending",
+                discountCodeString, 
+                total
+            );
+            orderId = created.orderId;
+            orderNumber = created.orderNumber;
+            console.log(`📋 Nueva orden creada: ${orderNumber}`);
+        }
+  
+        const isProduction = process.env.FIREBASE_PROJECT_ID === 'inee-admin';
+        console.log("Variable de comparacion: ", isProduction);
+        const baseUrl = isProduction ? 'https://inee-backend.onrender.com' : 'https://inee-backend-qa.onrender.com';
+        const webhookUrl = `${baseUrl}/api/payments/mercadopago/webhook`;
+  
+        const frontendUrl = isProduction ? 'https://ineeoficial.com' : 'https://tienda-qa.ineeoficial.com';
+    
+        const itemsTotal = items.reduce((sum, item) => {
+            const rawUnitPrice = item.unit_price !== undefined && item.unit_price !== null
+            ? item.unit_price
+            : item.precio ?? item.price ?? 0;
+            return sum + (Number(rawUnitPrice) * Number(item.quantity || 1));
+        }, 0);
+  
+        let adjustedItems = items;
+        if (metadata?.discountAmount && metadata.discountAmount > 0 && Math.abs(itemsTotal - transactionAmount) > 0.01) {
+            const discountRatio = transactionAmount / itemsTotal;
+            adjustedItems = items.map((item: any) => {
+            const rawUnitPrice = item.unit_price !== undefined && item.unit_price !== null
+                ? item.unit_price
+                : item.precio ?? item.price ?? 0;
+            return {
+                ...item,
+                unit_price: Number((Number(rawUnitPrice) * discountRatio).toFixed(2))
+            };
+            });
+        }
+  
+        const mpItems = adjustedItems.map((item: any) => {
+            const rawUnitPrice =
+            item.unit_price !== undefined && item.unit_price !== null
+                ? item.unit_price
+                : item.precio ?? item.price ?? 0;
+    
+            const unitPrice = Number(rawUnitPrice);
+    
+            if (isNaN(unitPrice) || unitPrice <= 0) {
+            console.warn("⚠️ unit_price inválido en item, será 0 (MP lo rechazará):", {
+                item,
+                rawUnitPrice,
+            });
+            }
+  
+            return {
+                id: String(item.id || ""),
+                title: String(item.nombre || item.title || "Producto"),
+                description: String(
+                    item.description || `Producto: ${item.nombre || item.title}`
+                ),
+                category_id: "education",
+                quantity: Number(item.quantity || 1),
+                unit_price: unitPrice,
+                currency_id: "ARS",
+            };
+        });
+  
+        const successUrl = `${frontendUrl}/checkout/success?order=${orderNumber}`;
+        const pendingUrl = `${frontendUrl}/checkout/pending?order=${orderNumber}`;
+        const failureUrl = `${frontendUrl}/checkout/failure?order=${orderNumber}`;
 
   
-      const preferenceBody: any = {
-        items: mpItems,
-        external_reference: orderNumber,
-        statement_descriptor: "INEE",
-        notification_url: webhookUrl,
-        back_urls: {
-          success: successUrl,
-          pending: pendingUrl,
-          failure: failureUrl,
-        },
-        auto_return: "approved", 
-        metadata: {
-          ...metadata,
-          userId: metadata.userId,
-          orderId,
-          orderNumber,
-          items,
-          finalAmount: transactionAmount, 
-          discountCode: discountCodeString,
-        },
-      };
+        const preferenceBody: any = {
+            items: mpItems,
+            external_reference: orderNumber,
+            statement_descriptor: "INEE",
+            notification_url: webhookUrl,
+            back_urls: {
+                success: successUrl,
+                pending: pendingUrl,
+                failure: failureUrl,
+            },
+            auto_return: "approved", 
+            metadata: {
+                ...metadata,
+                userId: metadata.userId,
+                orderId,
+                orderNumber,
+                items,
+                finalAmount: transactionAmount, 
+                discountCode: discountCodeString,
+            },
+        };
   
+      const mpClient = await getMpClient();
+      const preferenceClient = new Preference(mpClient);
       const preference = await preferenceClient.create({ body: preferenceBody });
   
       if (preference.id) await updatePreferenceId(orderId, preference.id)
   
-      return res.json({
-        success: true,
-        message: "Preferencia creada correctamente",
-        preferenceId: preference.id,
-        initPoint: (preference as any).init_point,
-        sandboxInitPoint: (preference as any).sandbox_init_point,
-        orderId,
-        orderNumber,
-      });
+        return res.json({
+            success: true,
+            message: "Preferencia creada correctamente",
+            preferenceId: preference.id,
+            initPoint: (preference as any).init_point,
+            sandboxInitPoint: (preference as any).sandbox_init_point,
+            orderId,
+            orderNumber,
+        });
     } catch (err: any) {
-      console.error("❌ Error al crear preferencia de Mercado Pago:", err);
-      return res.status(500).json({
-        success: false,
-        error: "Error al crear la preferencia de pago",
-        details: err?.message || "Error inesperado",
-      });
+        console.error("❌ Error al crear preferencia de Mercado Pago:", err);
+        return res.status(500).json({
+            success: false,
+            error: "Error al crear la preferencia de pago",
+            details: err?.message || "Error inesperado",
+        });
     }
 };
   
@@ -227,6 +305,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
               return res.sendStatus(200);
           }
   
+          const mpClient = await getMpClient();
           const paymentClient = new Payment(mpClient);
           const payment = await paymentClient.get({ id: paymentId });
 
