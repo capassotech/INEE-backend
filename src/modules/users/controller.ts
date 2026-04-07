@@ -1,5 +1,6 @@
+import { randomUUID } from 'crypto';
 import { Request, Response } from 'express';
-import { firestore, firebaseAuth } from '../../config/firebase';
+import { firestore, firebaseAuth, storage } from '../../config/firebase';
 import type { UserRegistrationData, UserProfile, SendAssignmentEmailParams } from '../../types/user';
 import { normalizeText } from '../../utils/utils';
 import { sendWelcomeEmail } from '../auth/controller';
@@ -354,6 +355,90 @@ export const updateUser = async (req: any, res: Response) => {
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
 }
+
+const MIME_TO_EXT: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+};
+
+const buildStorageDownloadUrl = (bucketName: string, objectPath: string, downloadToken: string) => {
+  const encoded = encodeURIComponent(objectPath);
+  return `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encoded}?alt=media&token=${downloadToken}`;
+};
+
+export const uploadProfilePhoto = async (req: any, res: Response) => {
+  try {
+    const uid = req.params.id;
+    const requesterUid = req.user?.uid as string | undefined;
+
+    if (!requesterUid || requesterUid !== uid) {
+      return res.status(403).json({ error: 'No podés actualizar la foto de perfil de otro usuario' });
+    }
+
+    const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+    const file =
+      files?.photo?.[0] ||
+      files?.file?.[0] ||
+      (req.file as Express.Multer.File | undefined);
+
+    if (!file?.buffer?.length) {
+      return res.status(400).json({
+        error: 'Archivo requerido',
+        details: 'Enviá la imagen como multipart con el campo "photo" o "file"',
+      });
+    }
+
+    const mime = (file.mimetype || '').toLowerCase();
+    if (!MIME_TO_EXT[mime]) {
+      return res.status(400).json({ error: 'Tipo de archivo no permitido. Usá JPEG, PNG, GIF o WebP' });
+    }
+
+    const userDoc = await firestore.collection('users').doc(uid).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    const bucket = storage.bucket();
+    const ext = MIME_TO_EXT[mime];
+    const objectPath = `profile-photos/${uid}/${randomUUID()}.${ext}`;
+    const downloadToken = randomUUID();
+
+    const storageFile = bucket.file(objectPath);
+    await storageFile.save(file.buffer, {
+      resumable: false,
+      metadata: {
+        contentType: mime,
+        metadata: {
+          firebaseStorageDownloadTokens: downloadToken,
+        },
+      },
+    });
+
+    const photoURL = buildStorageDownloadUrl(bucket.name, objectPath, downloadToken);
+
+    await userDoc.ref.update({
+      photoURL,
+      fechaActualizacion: new Date(),
+    });
+
+    try {
+      await firebaseAuth.updateUser(uid, { photoURL });
+    } catch (authErr) {
+      console.error('[uploadProfilePhoto] Error actualizando photoURL en Firebase Auth:', authErr);
+    }
+
+    return res.status(200).json({
+      message: 'Foto de perfil actualizada correctamente',
+      photoURL,
+    });
+  } catch (error) {
+    console.error('[uploadProfilePhoto]', error);
+    return res.status(500).json({ error: 'Error al subir la foto de perfil' });
+  }
+};
 
 export const asignCourseToUser = async (req: any, res: Response) => {
   const { id_curso } = req.body;
