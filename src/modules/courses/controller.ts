@@ -7,6 +7,12 @@ import { cache, CACHE_KEYS } from "../../utils/cache";
 
 const collection = firestore.collection("courses");
 
+const mapCourseResponse = (id: string, data: FirebaseFirestore.DocumentData | undefined) => ({
+  id,
+  ...(data || {}),
+  precioUSD: data?.precioUSD ?? null,
+});
+
 export const getAllCourses = async (req: Request, res: Response) => {
   try {
     const limit = Math.min(parseInt(req.query.limit as string || '20'), 100); // Máximo 100
@@ -83,13 +89,7 @@ export const getAllCourses = async (req: Request, res: Response) => {
 
     // Tomar solo los primeros 'limit' documentos
     const docs = snapshot.docs.slice(0, limit);
-    let courses = docs.map((doc) => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        ...data,
-      };
-    });
+    let courses = docs.map((doc) => mapCourseResponse(doc.id, doc.data()));
     
     // Aplicar filtros adicionales en memoria (ya que Firestore tiene limitaciones con múltiples where())
     // Aplicar todos los filtros que no se aplicaron en la query de Firestore
@@ -253,10 +253,7 @@ export const getUserCourses = async (req: Request, res: Response) => {
         if (!data) {
           return { id: doc.id };
         }
-        return {
-          id: doc.id,
-          ...data
-        };
+        return mapCourseResponse(doc.id, data);
       });
     
     // Eliminar duplicados por ID (por si acaso)
@@ -318,7 +315,7 @@ export const getCourseById = async (req: Request, res: Response) => {
 
     const data = doc.data();
 
-    return res.json({ id: doc.id, ...data });
+    return res.json(mapCourseResponse(doc.id, data));
   } catch (err) {
     console.error("getCourseById error:", err);
     return res.status(500).json({ error: "Error al obtener formacion" });
@@ -387,7 +384,11 @@ export const createCourse = async (
       }
     }
 
-    const docRef = await collection.add({ ...courseData });
+    const newCourse = {
+      ...courseData,
+      precioUSD: courseData.precioUSD ?? null,
+    };
+    const docRef = await collection.add(newCourse);
 
     // ✅ CACHÉ: Invalidar caché de formaciones al crear uno nuevo
     cache.invalidatePattern(`${CACHE_KEYS.COURSES}:`);
@@ -395,7 +396,7 @@ export const createCourse = async (
     return res.status(201).json({
       id: docRef.id,
       message: "Formacion creada exitosamente",
-      ...courseData,
+      ...newCourse,
     });
   } catch (err) {
     console.error("createCourse error:", err);
@@ -479,7 +480,7 @@ export const updateCourse = async (
 
     // Obtener la formacion actualizado para devolverlo con los saltos de línea preservados
     const updatedDoc = await collection.doc(id).get();
-    const updatedData = updatedDoc.exists ? { id: updatedDoc.id, ...updatedDoc.data() } : null;
+    const updatedData = updatedDoc.exists ? mapCourseResponse(updatedDoc.id, updatedDoc.data()) : null;
 
     return res.json({
       message: "Formacion actualizada exitosamente",

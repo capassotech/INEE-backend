@@ -7,6 +7,12 @@ import { cache, CACHE_KEYS } from "../../utils/cache";
 
 const collection = firestore.collection('events');
 
+const mapEventResponse = (id: string, data: FirebaseFirestore.DocumentData | undefined) => ({
+    id,
+    ...(data || {}),
+    precioUSD: data?.precioUSD ?? null,
+});
+
 
 export const getAllEvents = async (req: Request, res: Response) => {
     try {
@@ -49,10 +55,7 @@ export const getAllEvents = async (req: Request, res: Response) => {
 
         // Tomar solo los primeros 'queryLimit' documentos
         const docs = snapshot.docs.slice(0, queryLimit);
-        let events = docs.map((doc) => ({ 
-            id: doc.id, 
-            ...doc.data() 
-        }));
+        let events = docs.map((doc) => mapEventResponse(doc.id, doc.data()));
         
         // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
         if (search && search.trim()) {
@@ -100,7 +103,7 @@ export const getEventById = async (req: Request, res: Response) => {
         if (!event.exists) {
             return res.status(404).json({ error: 'Evento no encontrado' });
         }
-        return res.json({ id: event.id, ...event.data() });
+        return res.json(mapEventResponse(event.id, event.data()));
     } catch (error) {
         console.error('getEventById error:', error);
         return res.status(500).json({ error: 'Error al obtener evento' });
@@ -120,6 +123,7 @@ export const createEvent = async (req: AuthenticatedRequest, res: Response) => {
 
     const newEvent: any = {
       ...eventData,
+      precioUSD: eventData.precioUSD ?? null,
     };
 
     // MEMBRESÍAS DESACTIVADAS - Comentado para posible reactivación futura
@@ -135,8 +139,7 @@ export const createEvent = async (req: AuthenticatedRequest, res: Response) => {
     cache.invalidatePattern(`${CACHE_KEYS.EVENTS}:`);
 
     return res.status(201).json({
-      id: createdDoc.id,
-      ...createdDoc.data(),
+      ...mapEventResponse(createdDoc.id, createdDoc.data()),
       message: "Evento creado exitosamente",
     });
   } catch (err) {
@@ -176,9 +179,11 @@ export const updateEvent = async (req: AuthenticatedRequest, res: Response) => {
         // ✅ CACHÉ: Invalidar caché de eventos al actualizar
         cache.invalidatePattern(`${CACHE_KEYS.EVENTS}:`);
         
+        const updatedDoc = await collection.doc(eventId).get();
         return res.json({
             message: "Evento actualizado exitosamente",
             id: eventId,
+            event: mapEventResponse(updatedDoc.id, updatedDoc.data()),
         });
     } catch (err) {
         console.error('updateEvent error:', err);
@@ -398,10 +403,7 @@ export const getUserEvents = async (req: Request, res: Response) => {
         const eventsData = allDocs
             .flat()
             .filter(doc => doc.exists) // Filtrar documentos que no existen
-            .map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }))
+            .map(doc => mapEventResponse(doc.id, doc.data()))
         // Eliminar duplicados por ID (por si acaso)
         let uniqueEvents = eventsData.filter((event, index, self) =>
             index === self.findIndex((e) => e.id === event.id)
