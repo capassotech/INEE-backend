@@ -8,6 +8,12 @@ import { cache, CACHE_KEYS } from "../../utils/cache";
 
 const collection = firestore.collection("ebooks");
 
+const mapEbookResponse = (id: string, data: FirebaseFirestore.DocumentData | undefined) => ({
+  id,
+  ...(data || {}),
+  precioUSD: data?.precioUSD ?? null,
+});
+
 // ✅ Obtener todos los ebooks
 export const getAllEbooks = async (req: Request, res: Response) => {
   try {
@@ -53,10 +59,7 @@ export const getAllEbooks = async (req: Request, res: Response) => {
 
     // Tomar solo los primeros 'queryLimit' documentos
     const docs = snapshot.docs.slice(0, queryLimit);
-    let ebooks = docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    let ebooks = docs.map((doc) => mapEbookResponse(doc.id, doc.data()));
 
     // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
     if (search && search.trim()) {
@@ -116,7 +119,7 @@ export const getEbookById = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Ebook no encontrado" });
     }
 
-    return res.json({ id: ebook.id, ...ebook.data() });
+    return res.json(mapEbookResponse(ebook.id, ebook.data()));
   } catch (err) {
     console.error("getEbookById error:", err);
     return res.status(500).json({ error: "Error al obtener ebook" });
@@ -138,7 +141,10 @@ export const createEbook = async (req: AuthenticatedRequest, res: Response) => {
     // Filtrar campos undefined para no guardarlos en Firestore
     // Pero permitir null explícitamente (especialmente para cuotas)
     const newEbook: any = Object.fromEntries(
-      Object.entries(ebookData).filter(([_, value]) => value !== undefined)
+      Object.entries({
+        ...ebookData,
+        precioUSD: ebookData.precioUSD ?? null,
+      }).filter(([_, value]) => value !== undefined)
     );
 
     const docRef = await collection.add(newEbook);
@@ -148,8 +154,7 @@ export const createEbook = async (req: AuthenticatedRequest, res: Response) => {
     cache.invalidatePattern(`${CACHE_KEYS.EBOOKS}:`);
 
     return res.status(201).json({
-      id: createdDoc.id,
-      ...createdDoc.data(),
+      ...mapEbookResponse(createdDoc.id, createdDoc.data()),
       message: "Ebook creado exitosamente",
     });
   } catch (err) {
@@ -262,10 +267,7 @@ export const updateEbook = async (req: AuthenticatedRequest, res: Response) => {
     return res.json({
       message: "Ebook actualizado exitosamente",
       id: ebookId,
-      ebook: {
-        id: updatedDoc.id,
-        ...updatedData,
-      },
+      ebook: mapEbookResponse(updatedDoc.id, updatedData),
     });
   } catch (err) {
     console.error("❌ [UPDATE EBOOK ERROR]:", err);
@@ -371,10 +373,7 @@ export const getUserEbooks = async (req: Request, res: Response) => {
     const ebooksData = allDocs
       .flat()
       .filter((doc) => doc.exists) // Filtrar documentos que no existen
-      .map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+      .map((doc) => mapEbookResponse(doc.id, doc.data()));
 
     // Eliminar duplicados por ID (por si acaso)
     let uniqueEbooks = ebooksData.filter(

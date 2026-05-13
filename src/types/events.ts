@@ -7,6 +7,7 @@ export interface Event {
   hora?: string;
   modalidad: "presencial" | "virtual" | "hibrida";
   precio: number;
+  precioUSD?: number | null;
   precio_anterior?: number;
   cuotas?: {
     monto_cuota: number;
@@ -34,6 +35,11 @@ export const EventCreateSchema = z.object({
   precio: z.number()
     .min(0, "El precio no puede ser negativo")
     .max(9999999, "El precio no puede exceder $9.999.999"),
+  precioUSD: z
+    .number()
+    .min(0, "El precio en USD no puede ser negativo")
+    .nullable()
+    .optional(),
   precio_anterior: z.number()
     .min(0, "El precio anterior no puede ser negativo")
     .max(9999999, "El precio anterior no puede exceder $9.999.999")
