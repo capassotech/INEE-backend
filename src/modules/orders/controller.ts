@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { firestore } from '../../config/firebase';
 import { normalizeText } from "../../utils/utils";
 import { cache, CACHE_KEYS } from "../../utils/cache";
+import { CreatePaypalOrderSchema } from "../../types/orders";
 
 const collection = firestore.collection('orders');
 
@@ -295,5 +296,67 @@ export const getOrderById = async (req: Request, res: Response) => {
     } catch (error) {
         console.error('getOrderById error:', error);
         return res.status(500).json({ error: 'Error al obtener orden' });
+    }
+}
+
+export const createPaypalOrder = async (req: Request, res: Response) => {
+    try {
+        const validationResult = CreatePaypalOrderSchema.safeParse(req.body);
+        
+        if (!validationResult.success) {
+            const errors = validationResult.error.issues.map((err: any) => ({
+                field: err.path.join('.'),
+                message: err.message
+            }));
+            
+            return res.status(400).json({ 
+                error: 'Datos de validación inválidos',
+                details: errors
+            });
+        }
+        
+        const { userId, items, totalPrice, discountCode, originalPrice } = validationResult.data;
+        
+        const year = new Date().getFullYear();
+        const orderNumber = `ORD-${year}-${Date.now().toString().slice(-6)}`;
+        
+        const orderData: any = {
+            userId,
+            items,
+            totalPrice,
+            createdAt: new Date(),
+            status: 'awaiting_paypal_proof',
+            paymentMethod: 'paypal_manual',
+            orderNumber
+        };
+        
+        if (discountCode) {
+            orderData.discountCode = discountCode;
+            console.log(`✅ Orden PayPal creada con código de descuento: ${discountCode}`);
+        }
+        
+        if (originalPrice && originalPrice !== totalPrice) {
+            orderData.originalPrice = originalPrice;
+            console.log(`💰 Precio original: ${originalPrice}, Precio con descuento: ${totalPrice}`);
+        }
+        
+        const order = await collection.add(orderData);
+        cache.invalidatePattern(`${CACHE_KEYS.ORDERS}:`);
+        
+        console.log(`📦 Orden PayPal creada exitosamente: ${orderNumber} (ID: ${order.id})`);
+        
+        return res.status(201).json({ 
+            success: true,
+            message: 'Orden de PayPal creada exitosamente',
+            orderId: order.id,
+            orderNumber: orderNumber,
+            status: 'awaiting_paypal_proof'
+        });
+        
+    } catch (error) {
+        console.error('createPaypalOrder error:', error);
+        return res.status(500).json({ 
+            error: 'Error al crear la orden de PayPal' 
+        });
     }
 }
