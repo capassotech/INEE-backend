@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const PaypalOrderItemSchema = z.object({
     description: z.string()
         .min(1, "La descripción es obligatoria")
-        .max(500, "La descripción no puede exceder 500 caracteres")
+        .max(1000, "La descripción no puede exceder 500 caracteres")
         .trim(),
     id: z.string()
         .min(1, "El ID del producto es obligatorio")
