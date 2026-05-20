@@ -195,6 +195,30 @@ export const schedulePaypalProofReminderJob = (reminderId: string, sendAt: Date)
     scheduledJobs.set(reminderId, job);
 };
 
+export const cancelActivePaypalProofReminders = async (
+    userId: string,
+    orderNumber: string,
+    reason = 'proof_submitted'
+): Promise<void> => {
+    const snapshot = await firestore
+        .collection(COLLECTION)
+        .where('userId', '==', userId)
+        .where('orderNumber', '==', orderNumber)
+        .where('status', '==', 'active')
+        .get();
+
+    await Promise.all(
+        snapshot.docs.map(async (doc) => {
+            stopScheduledJob(doc.id);
+            await doc.ref.update({
+                status: 'completed',
+                completedAt: new Date(),
+                completionReason: reason,
+            });
+        })
+    );
+};
+
 export const restoreActivePaypalProofReminders = async () => {
     if (!process.env.RESEND_API_KEY) {
         console.warn('RESEND_API_KEY no configurada: no se restauran recordatorios PayPal');
