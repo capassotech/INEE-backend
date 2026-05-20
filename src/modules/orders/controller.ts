@@ -1,8 +1,17 @@
 import { Request, Response } from "express";
 import { firestore } from '../../config/firebase';
-import { normalizeText } from "../../utils/utils";
+import { normalizeText, validateUser } from "../../utils/utils";
 import { cache, CACHE_KEYS } from "../../utils/cache";
-import { CreatePaypalOrderSchema } from "../../types/orders";
+import {
+    AssignPaypalOrderProductsSchema,
+    CreatePaypalOrderSchema,
+    UpdatePaypalOrderStatusSchema,
+} from "../../types/orders";
+import { AuthenticatedRequest } from "../../middleware/authMiddleware";
+import { enrichOrderResponse } from "../../utils/orderEnrichment";
+import { isPaypalManualOrder, PAYMENT_METHOD_MERCADOPAGO } from "../../utils/orderPaymentMethod";
+import { assignProductsToUser } from "../../services/assignProductsToUser";
+import { registerDiscountCodeUsage } from "../../services/discountCodeUsage";
 
 const collection = firestore.collection('orders');
 
@@ -12,7 +21,8 @@ export const createOrder = async (
     totalPrice: number, 
     status: string, 
     discountCode?: string,
-    originalPrice?: number
+    originalPrice?: number,
+    paymentMethod: string = PAYMENT_METHOD_MERCADOPAGO
 ) => {
     const year = new Date().getFullYear();
     const orderNumber = `ORD-${year}-${Date.now().toString().slice(-6)}`;
@@ -23,7 +33,8 @@ export const createOrder = async (
         totalPrice,
         createdAt: new Date(),
         status,
-        orderNumber
+        orderNumber,
+        paymentMethod,
     };
 
     // Si hay código de descuento, guardarlo
@@ -236,13 +247,17 @@ export const getOrders = async (req: Request, res: Response) => {
             return order;
         }));
         
+        const enrichedOrders = ordersWithDiscountInfo.map((order) =>
+            enrichOrderResponse(order as Record<string, unknown>)
+        );
+
         const response = {
-            orders: ordersWithDiscountInfo,
+            orders: enrichedOrders,
             pagination: {
                 hasMore,
                 lastId: lastDoc?.id,
                 limit,
-                count: ordersWithDiscountInfo.length,
+                count: enrichedOrders.length,
                 ...(page && { page, totalPages: hasMore ? page + 1 : page })
             }
         };
@@ -268,7 +283,7 @@ export const getOrderById = async (req: Request, res: Response) => {
             return res.status(404).json({ error: "Orden no encontrada" });
         }
         
-        const orderData = { id: order.id, ...order.data() };
+        const rawOrderData = { id: order.id, ...order.data() } as Record<string, unknown>;
         
         // Buscar si existe un registro de uso de código de descuento para esta orden
         const discountCodeUsageSnapshot = await firestore
@@ -279,20 +294,21 @@ export const getOrderById = async (req: Request, res: Response) => {
         
         if (!discountCodeUsageSnapshot.empty) {
             const discountUsageData = discountCodeUsageSnapshot.docs[0].data();
-            // Agregar la información del descuento a la orden
-            return res.json({
-                ...orderData,
-                discountInfo: {
-                    discountedAmount: discountUsageData.discountedAmount,
-                    originalAmount: discountUsageData.originalAmount,
-                    savedAmount: discountUsageData.savedAmount,
-                    discountPercentage: discountUsageData.discountPercentage,
-                    usedAt: discountUsageData.usedAt
-                }
-            });
+            return res.json(
+                enrichOrderResponse({
+                    ...rawOrderData,
+                    discountInfo: {
+                        discountedAmount: discountUsageData.discountedAmount,
+                        originalAmount: discountUsageData.originalAmount,
+                        savedAmount: discountUsageData.savedAmount,
+                        discountPercentage: discountUsageData.discountPercentage,
+                        usedAt: discountUsageData.usedAt,
+                    },
+                })
+            );
         }
         
-        return res.json(orderData);
+        return res.json(enrichOrderResponse(rawOrderData));
     } catch (error) {
         console.error('getOrderById error:', error);
         return res.status(500).json({ error: 'Error al obtener orden' });
@@ -360,3 +376,206 @@ export const createPaypalOrder = async (req: Request, res: Response) => {
         });
     }
 }
+
+const requireAdmin = async (req: AuthenticatedRequest, res: Response): Promise<boolean> => {
+    const isAuthorized = await validateUser(req);
+    if (!isAuthorized) {
+        res.status(403).json({
+            error: 'No autorizado. Se requieren permisos de administrador.',
+        });
+        return false;
+    }
+    return true;
+};
+
+const requirePaypalOrder = (
+    orderData: Record<string, unknown>,
+    res: Response
+): boolean => {
+    if (!isPaypalManualOrder(orderData)) {
+        res.status(400).json({
+            error: 'Esta acción solo está disponible para órdenes con método de pago PayPal (paypal_manual)',
+            paymentMethod: orderData.paymentMethod ?? 'mercadopago',
+        });
+        return false;
+    }
+    return true;
+};
+
+export const updatePaypalOrderStatus = async (
+    req: AuthenticatedRequest,
+    res: Response
+) => {
+    if (!(await requireAdmin(req, res))) return;
+
+    try {
+        const { orderId } = req.params;
+        const validationResult = UpdatePaypalOrderStatusSchema.safeParse(req.body);
+
+        if (!validationResult.success) {
+            const details = validationResult.error.issues.map((err) => ({
+                field: err.path.join('.'),
+                message: err.message,
+            }));
+            return res.status(400).json({
+                error: 'Datos de validación inválidos',
+                details,
+            });
+        }
+
+        const orderDoc = await collection.doc(orderId).get();
+        if (!orderDoc.exists) {
+            return res.status(404).json({ error: 'Orden no encontrada' });
+        }
+
+        const orderData = orderDoc.data() as Record<string, unknown>;
+        if (!requirePaypalOrder(orderData, res)) return;
+
+        const { status } = validationResult.data;
+        const previousStatus = orderData.status;
+
+        await orderDoc.ref.update({
+            status,
+            statusUpdatedAt: new Date(),
+            statusUpdatedBy: req.user.uid,
+            updatedAt: new Date(),
+        });
+
+        cache.invalidatePattern(`${CACHE_KEYS.ORDERS}:`);
+
+        const updatedDoc = await orderDoc.ref.get();
+        const updated = enrichOrderResponse({
+            id: updatedDoc.id,
+            ...updatedDoc.data(),
+        } as Record<string, unknown>);
+
+        return res.json({
+            success: true,
+            message: 'Estado de la orden actualizado correctamente',
+            previousStatus,
+            order: updated,
+        });
+    } catch (error) {
+        console.error('updatePaypalOrderStatus error:', error);
+        return res.status(500).json({ error: 'Error al actualizar el estado de la orden' });
+    }
+};
+
+export const assignPaypalOrderProducts = async (
+    req: AuthenticatedRequest,
+    res: Response
+) => {
+    if (!(await requireAdmin(req, res))) return;
+
+    try {
+        const { orderId } = req.params;
+        const validationResult = AssignPaypalOrderProductsSchema.safeParse(req.body ?? {});
+
+        if (!validationResult.success) {
+            const details = validationResult.error.issues.map((err) => ({
+                field: err.path.join('.'),
+                message: err.message,
+            }));
+            return res.status(400).json({
+                error: 'Datos de validación inválidos',
+                details,
+            });
+        }
+
+        const { force = false } = validationResult.data;
+
+        const orderDoc = await collection.doc(orderId).get();
+        if (!orderDoc.exists) {
+            return res.status(404).json({ error: 'Orden no encontrada' });
+        }
+
+        const orderData = orderDoc.data() as Record<string, unknown> & {
+            userId?: string;
+            items?: any[];
+            orderNumber?: string;
+            discountCode?: string;
+            totalPrice?: number;
+            originalPrice?: number;
+            productsAssignedAt?: unknown;
+        };
+
+        if (!requirePaypalOrder(orderData, res)) return;
+
+        if (orderData.productsAssignedAt && !force) {
+            return res.status(409).json({
+                error: 'Los productos de esta orden ya fueron asignados',
+                productsAssignedAt: orderData.productsAssignedAt,
+                hint: 'Enviá force: true en el body para volver a ejecutar la asignación',
+            });
+        }
+
+        const userId = orderData.userId;
+        const items = orderData.items;
+
+        if (!userId) {
+            return res.status(400).json({ error: 'La orden no tiene usuario asociado' });
+        }
+
+        if (!Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ error: 'La orden no tiene productos para asignar' });
+        }
+
+        const assignmentResult = await assignProductsToUser(
+            userId,
+            items,
+            `paypal-order-${orderId}`,
+            'approved',
+            'paypal_manual'
+        );
+
+        if (orderData.discountCode) {
+            const originalAmount = Number(
+                orderData.originalPrice ?? orderData.totalPrice ?? 0
+            );
+            const discountedAmount = Number(orderData.totalPrice ?? 0);
+            await registerDiscountCodeUsage(
+                orderData.discountCode,
+                userId,
+                orderId,
+                orderData.orderNumber || orderId,
+                originalAmount,
+                discountedAmount
+            );
+        }
+
+        const assignmentRecord = {
+            assignedAt: new Date(),
+            assignedBy: req.user.uid,
+            summary: assignmentResult,
+        };
+
+        await orderDoc.ref.update({
+            productsAssignedAt: assignmentRecord.assignedAt,
+            productsAssignedBy: assignmentRecord.assignedBy,
+            productsAssignment: assignmentRecord,
+            updatedAt: new Date(),
+        });
+
+        cache.invalidatePattern(`${CACHE_KEYS.ORDERS}:`);
+
+        const updatedDoc = await orderDoc.ref.get();
+        const updated = enrichOrderResponse({
+            id: updatedDoc.id,
+            ...updatedDoc.data(),
+        } as Record<string, unknown>);
+
+        return res.json({
+            success: true,
+            message: 'Productos asignados al usuario correctamente',
+            assignment: assignmentRecord,
+            order: updated,
+        });
+    } catch (error) {
+        console.error('assignPaypalOrderProducts error:', error);
+        const message =
+            error instanceof Error
+                ? error.message
+                : 'Error al asignar productos de la orden';
+        return res.status(500).json({ error: message });
+    }
+};

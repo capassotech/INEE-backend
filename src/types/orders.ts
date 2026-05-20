@@ -50,3 +50,27 @@ export const CreatePaypalOrderSchema = z.object({
 
 export type PaypalOrderItem = z.infer<typeof PaypalOrderItemSchema>;
 export type CreatePaypalOrderDto = z.infer<typeof CreatePaypalOrderSchema>;
+
+export const ORDER_STATUSES = [
+    'pending',
+    'awaiting_paypal_proof',
+    'awaiting_verification',
+    'paid',
+    'approved',
+    'cancelled',
+    'rejected',
+] as const;
+
+export const UpdatePaypalOrderStatusSchema = z.object({
+    status: z.enum(ORDER_STATUSES, {
+        message: 'Estado de orden inválido',
+    }),
+});
+
+export const AssignPaypalOrderProductsSchema = z.object({
+    force: z.boolean().optional(),
+    notifyUser: z.boolean().optional(),
+});
+
+export type UpdatePaypalOrderStatusDto = z.infer<typeof UpdatePaypalOrderStatusSchema>;
+export type AssignPaypalOrderProductsDto = z.infer<typeof AssignPaypalOrderProductsSchema>;
