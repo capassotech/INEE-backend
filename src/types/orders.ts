@@ -50,3 +50,15 @@ export const CreatePaypalOrderSchema = z.object({
 
 export type PaypalOrderItem = z.infer<typeof PaypalOrderItemSchema>;
 export type CreatePaypalOrderDto = z.infer<typeof CreatePaypalOrderSchema>;
+
+export const SubmitPaypalProofSchema = z.object({
+    orderId: z.string()
+        .min(1, "El ID de la orden es obligatorio")
+        .max(100, "El ID de la orden no puede exceder 100 caracteres")
+        .trim(),
+});
+
+export type SubmitPaypalProofDto = z.infer<typeof SubmitPaypalProofSchema>;
+
+export const AWAITING_PAYPAL_PROOF_STATUS = 'awaiting_paypal_proof';
+export const AWAITING_VERIFICATION_STATUS = 'awaiting_verification';
