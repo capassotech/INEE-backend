@@ -15,19 +15,22 @@ router.get("/", getOrders)
 
 router.post("/paypal", createPaypalOrder)
 
-router.patch(
-    "/:orderId/status",
+const updateStatusHandlers = [
     authMiddleware,
     (req: Request, res: Response) =>
-        updatePaypalOrderStatus(req as AuthenticatedRequest, res)
-)
+        updatePaypalOrderStatus(req as AuthenticatedRequest, res),
+];
 
-router.post(
-    "/:orderId/asignar-productos",
+const assignProductsHandlers = [
     authMiddleware,
     (req: Request, res: Response) =>
-        assignPaypalOrderProducts(req as AuthenticatedRequest, res)
-)
+        assignPaypalOrderProducts(req as AuthenticatedRequest, res),
+];
+
+router.patch("/:orderId/status", ...updateStatusHandlers)
+
+router.post("/:orderId/assign-products", ...assignProductsHandlers)
+router.post("/:orderId/asignar-productos", ...assignProductsHandlers)
 
 router.get("/:orderId", getOrderById)
 
