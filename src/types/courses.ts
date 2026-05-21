@@ -1,5 +1,6 @@
 
 import { z } from 'zod';
+import { optionalCuotasSchema } from './cuotas';
 
 export interface Course {
     titulo: string;
@@ -93,15 +94,7 @@ export const CourseSchema = z.object({
         .min(0, "El precio anterior no puede ser negativo")
         .max(9999999, "El precio anterior no puede exceder $9.999.999")
         .optional(),
-    cuotas: z.object({
-        cantidad_cuotas: z.number()
-            .int("La cantidad de cuotas debe ser un número entero")
-            .min(1, "La cantidad de cuotas debe ser al menos 1")
-            .max(12, "La cantidad de cuotas no puede exceder 12"),
-        monto_cuota: z.number()
-            .min(0, "El monto por cuota no puede ser negativo")
-            .max(9999999, "El monto por cuota no puede exceder $9.999.999"),
-    }).optional(),
+    cuotas: optionalCuotasSchema,
     imagen: z.string().optional(),
     id_profesor: z.union([
         z.string()
