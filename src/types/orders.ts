@@ -51,6 +51,9 @@ export const CreatePaypalOrderSchema = z.object({
 export type PaypalOrderItem = z.infer<typeof PaypalOrderItemSchema>;
 export type CreatePaypalOrderDto = z.infer<typeof CreatePaypalOrderSchema>;
 
+export const AWAITING_PAYPAL_PROOF_STATUS = 'awaiting_paypal_proof';
+export const AWAITING_VERIFICATION_STATUS = 'awaiting_verification';
+
 export const ORDER_STATUSES = [
     'pending',
     'awaiting_paypal_proof',
@@ -72,5 +75,13 @@ export const AssignPaypalOrderProductsSchema = z.object({
     notifyUser: z.boolean().optional(),
 });
 
+export const SubmitPaypalProofSchema = z.object({
+    orderId: z.string()
+        .min(1, "El ID de la orden es obligatorio")
+        .max(100, "El ID de la orden no puede exceder 100 caracteres")
+        .trim(),
+});
+
 export type UpdatePaypalOrderStatusDto = z.infer<typeof UpdatePaypalOrderStatusSchema>;
 export type AssignPaypalOrderProductsDto = z.infer<typeof AssignPaypalOrderProductsSchema>;
+export type SubmitPaypalProofDto = z.infer<typeof SubmitPaypalProofSchema>;

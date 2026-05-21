@@ -4,7 +4,10 @@ import { normalizeText, validateUser } from "../../utils/utils";
 import { cache, CACHE_KEYS } from "../../utils/cache";
 import {
     AssignPaypalOrderProductsSchema,
+    AWAITING_PAYPAL_PROOF_STATUS,
+    AWAITING_VERIFICATION_STATUS,
     CreatePaypalOrderSchema,
+    SubmitPaypalProofSchema,
     UpdatePaypalOrderStatusSchema,
 } from "../../types/orders";
 import { AuthenticatedRequest } from "../../middleware/authMiddleware";
@@ -12,8 +15,22 @@ import { enrichOrderResponse } from "../../utils/orderEnrichment";
 import { isPaypalManualOrder, PAYMENT_METHOD_MERCADOPAGO } from "../../utils/orderPaymentMethod";
 import { assignProductsToUser } from "../../services/assignProductsToUser";
 import { registerDiscountCodeUsage } from "../../services/discountCodeUsage";
+import { uploadPaypalProofToStorage } from "../../utils/paypalProofStorage";
+import { sendPaypalProofSubmittedAdminEmail } from "../emails/paypalProofSubmittedAdminEmail";
+import { cancelActivePaypalProofReminders } from "../recordatorios/paypalProofReminderScheduler";
+import { getPaypalProofFileFromRequest } from "./paypalProofUpload";
 
 const collection = firestore.collection('orders');
+
+const getAdminOrderDetailUrl = (orderId: string): string => {
+    const isProduction = process.env.FIREBASE_PROJECT_ID === 'inee-admin';
+    const adminPanelUrl =
+        process.env.ADMIN_PANEL_URL ||
+        (isProduction ? 'https://admin.ineeoficial.com' : 'https://admin-qa.ineeoficial.com');
+    const orderPath = process.env.ADMIN_ORDER_DETAIL_PATH || '/orders';
+    const normalizedPath = orderPath.startsWith('/') ? orderPath : `/${orderPath}`;
+    return `${adminPanelUrl.replace(/\/$/, '')}${normalizedPath}/${orderId}`;
+};
 
 export const createOrder = async (
     userId: string, 
@@ -341,7 +358,7 @@ export const createPaypalOrder = async (req: Request, res: Response) => {
             items,
             totalPrice,
             createdAt: new Date(),
-            status: 'awaiting_paypal_proof',
+            status: AWAITING_PAYPAL_PROOF_STATUS,
             paymentMethod: 'paypal_manual',
             orderNumber
         };
@@ -366,7 +383,7 @@ export const createPaypalOrder = async (req: Request, res: Response) => {
             message: 'Orden de PayPal creada exitosamente',
             orderId: order.id,
             orderNumber: orderNumber,
-            status: 'awaiting_paypal_proof'
+            status: AWAITING_PAYPAL_PROOF_STATUS
         });
         
     } catch (error) {
@@ -458,6 +475,155 @@ export const updatePaypalOrderStatus = async (
     } catch (error) {
         console.error('updatePaypalOrderStatus error:', error);
         return res.status(500).json({ error: 'Error al actualizar el estado de la orden' });
+    }
+};
+
+export const submitPaypalProof = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        if (!process.env.RESEND_API_KEY) {
+            return res.status(500).json({ error: 'Configuración de email inválida' });
+        }
+
+        const validationResult = SubmitPaypalProofSchema.safeParse(req.body);
+
+        if (!validationResult.success) {
+            const details = validationResult.error.issues.map((err) => ({
+                field: err.path.join('.'),
+                message: err.message,
+            }));
+            return res.status(400).json({
+                error: 'Datos de validación inválidos',
+                details,
+            });
+        }
+
+        const file = getPaypalProofFileFromRequest(req);
+        if (!file?.buffer?.length) {
+            return res.status(400).json({
+                error: 'Comprobante requerido',
+                details: 'Enviá el archivo como multipart con el campo "proof", "file" o "comprobante"',
+            });
+        }
+
+        const { orderId } = validationResult.data;
+        const userId = req.user.uid;
+
+        const orderDoc = await collection.doc(orderId).get();
+        if (!orderDoc.exists) {
+            return res.status(404).json({ error: 'Orden no encontrada' });
+        }
+
+        const orderData = orderDoc.data() as {
+            userId?: string;
+            orderNumber?: string;
+            status?: string;
+            totalPrice?: number;
+            originalPrice?: number;
+            discountCode?: string;
+            items?: Array<{
+                title?: string;
+                description?: string;
+                quantity?: number;
+                unit_price?: number;
+            }>;
+        };
+
+        if (orderData.userId !== userId) {
+            return res.status(403).json({ error: 'No tenés permiso para enviar comprobante de esta orden' });
+        }
+
+        if (orderData.status === AWAITING_VERIFICATION_STATUS) {
+            return res.status(200).json({
+                success: true,
+                message: 'El comprobante ya fue enviado y la orden está en verificación',
+                orderId,
+                orderNumber: orderData.orderNumber,
+                status: AWAITING_VERIFICATION_STATUS,
+                redirectTo: '/',
+            });
+        }
+
+        if (orderData.status !== AWAITING_PAYPAL_PROOF_STATUS) {
+            return res.status(400).json({
+                error: 'La orden no está pendiente de comprobante PayPal',
+                currentStatus: orderData.status,
+            });
+        }
+
+        const userDoc = await firestore.collection('users').doc(userId).get();
+        if (!userDoc.exists) {
+            return res.status(404).json({ error: 'Usuario no encontrado' });
+        }
+
+        const userData = userDoc.data() as {
+            email?: string;
+            nombre?: string;
+            apellido?: string;
+        };
+
+        const userEmail = userData.email || req.user.email || '';
+        if (!userEmail) {
+            return res.status(400).json({ error: 'El usuario no tiene email registrado' });
+        }
+
+        const userName = [userData.nombre, userData.apellido].filter(Boolean).join(' ').trim()
+            || userData.nombre
+            || 'Usuario';
+
+        const orderNumber = orderData.orderNumber || orderId;
+        const proofUrl = await uploadPaypalProofToStorage(orderId, file);
+
+        await sendPaypalProofSubmittedAdminEmail({
+            userName,
+            userEmail,
+            userId,
+            orderId,
+            orderNumber,
+            totalPrice: Number(orderData.totalPrice ?? 0),
+            originalPrice: orderData.originalPrice,
+            discountCode: orderData.discountCode,
+            proofUrl,
+            adminOrderDetailUrl: getAdminOrderDetailUrl(orderId),
+            items: orderData.items,
+        });
+
+        await orderDoc.ref.update({
+            status: AWAITING_VERIFICATION_STATUS,
+            proofUrl,
+            proofSubmittedAt: new Date(),
+            updatedAt: new Date(),
+        });
+
+        cache.invalidatePattern(`${CACHE_KEYS.ORDERS}:`);
+
+        if (orderNumber) {
+            await cancelActivePaypalProofReminders(userId, orderNumber, 'proof_submitted');
+        }
+
+        console.log(`✅ Comprobante PayPal enviado - orden ${orderNumber} (${orderId})`);
+
+        return res.status(200).json({
+            success: true,
+            message: 'Comprobante enviado correctamente. Revisaremos tu pago a la brevedad.',
+            orderId,
+            orderNumber,
+            status: AWAITING_VERIFICATION_STATUS,
+            redirectTo: '/',
+        });
+    } catch (error) {
+        console.error('submitPaypalProof error:', error);
+        const message =
+            error instanceof Error ? error.message : 'Error al enviar el comprobante de pago';
+
+        if (
+            message.includes('no permitido') ||
+            message.includes('tamaño máximo') ||
+            message.includes('vacío')
+        ) {
+            return res.status(400).json({ error: message });
+        }
+
+        return res.status(500).json({ error: message });
     }
 };
 
