@@ -5,6 +5,8 @@ import {
     getOrderById,
     createPaypalOrder,
     submitPaypalProof,
+    updatePaypalOrderStatus,
+    assignPaypalOrderProducts,
 } from "./controller";
 import { paypalProofUpload } from "./paypalProofUpload";
 
@@ -25,6 +27,22 @@ router.post("/paypal/proof", ...submitPaypalProofHandlers)
 
 router.post("/paypal", createPaypalOrder)
 
+const updateStatusHandlers = [
+    authMiddleware,
+    (req: Request, res: Response) =>
+        updatePaypalOrderStatus(req as AuthenticatedRequest, res),
+];
+
+const assignProductsHandlers = [
+    authMiddleware,
+    (req: Request, res: Response) =>
+        assignPaypalOrderProducts(req as AuthenticatedRequest, res),
+];
+
+router.patch("/:orderId/status", ...updateStatusHandlers)
+
+router.post("/:orderId/assign-products", ...assignProductsHandlers)
+router.post("/:orderId/asignar-productos", ...assignProductsHandlers)
 router.get("/:orderId", getOrderById)
 
 export default router;

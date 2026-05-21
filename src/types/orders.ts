@@ -51,6 +51,30 @@ export const CreatePaypalOrderSchema = z.object({
 export type PaypalOrderItem = z.infer<typeof PaypalOrderItemSchema>;
 export type CreatePaypalOrderDto = z.infer<typeof CreatePaypalOrderSchema>;
 
+export const AWAITING_PAYPAL_PROOF_STATUS = 'awaiting_paypal_proof';
+export const AWAITING_VERIFICATION_STATUS = 'awaiting_verification';
+
+export const ORDER_STATUSES = [
+    'pending',
+    'awaiting_paypal_proof',
+    'awaiting_verification',
+    'paid',
+    'approved',
+    'cancelled',
+    'rejected',
+] as const;
+
+export const UpdatePaypalOrderStatusSchema = z.object({
+    status: z.enum(ORDER_STATUSES, {
+        message: 'Estado de orden inválido',
+    }),
+});
+
+export const AssignPaypalOrderProductsSchema = z.object({
+    force: z.boolean().optional(),
+    notifyUser: z.boolean().optional(),
+});
+
 export const SubmitPaypalProofSchema = z.object({
     orderId: z.string()
         .min(1, "El ID de la orden es obligatorio")
@@ -58,7 +82,6 @@ export const SubmitPaypalProofSchema = z.object({
         .trim(),
 });
 
+export type UpdatePaypalOrderStatusDto = z.infer<typeof UpdatePaypalOrderStatusSchema>;
+export type AssignPaypalOrderProductsDto = z.infer<typeof AssignPaypalOrderProductsSchema>;
 export type SubmitPaypalProofDto = z.infer<typeof SubmitPaypalProofSchema>;
-
-export const AWAITING_PAYPAL_PROOF_STATUS = 'awaiting_paypal_proof';
-export const AWAITING_VERIFICATION_STATUS = 'awaiting_verification';
