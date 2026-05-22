@@ -1,4 +1,3 @@
-import cron, { ScheduledTask } from 'node-cron';
 import { firestore } from '../../config/firebase';
 import { sendPaypalProofReminderEmail } from '../emails/paypalProofReminderEmail';
 
@@ -6,31 +5,57 @@ const COLLECTION = 'paypal_proof_reminders';
 const AWAITING_PAYPAL_STATUS = 'awaiting_paypal_proof';
 
 const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
-const scheduledJobs = new Map<string, ScheduledTask>();
+const MIN_SCHEDULE_DELAY_MS = 5 * 1000;
 
-const timezone = process.env.TZ || 'America/Argentina/Buenos_Aires';
-
-const isProduction = process.env.NODE_ENV === 'production';
-const storeUrl = isProduction ? 'https://ineeoficial.com' : 'https://tienda-qa.ineeoficial.com';
 const proofEmail = process.env.PAYPAL_PROOF_EMAIL || 'administracion@ineeoficial.com';
+const LOG_TIMEZONE = process.env.TZ || 'America/Argentina/Buenos_Aires';
 
-const toCronExpression = (date: Date): string => {
-    const minute = date.getMinutes();
-    const hour = date.getHours();
-    const dayOfMonth = date.getDate();
-    const month = date.getMonth() + 1;
-    return `${minute} ${hour} ${dayOfMonth} ${month} *`;
+const formatScheduleTime = (date: Date): string =>
+    date.toLocaleString('es-AR', {
+        timeZone: LOG_TIMEZONE,
+        dateStyle: 'short',
+        timeStyle: 'medium',
+    });
+
+const describeDelay = (emailsSent: number): string => {
+    if (emailsSent === 0) return '30 min desde creación del recordatorio';
+    if (emailsSent === 1) return '2 h desde el email anterior';
+    return '24 h desde el email anterior';
 };
 
-const getUploadUrl = (orderNumber: string): string =>
-    `${storeUrl}/checkout/pending?order=${encodeURIComponent(orderNumber)}`;
+const logScheduledSend = (params: {
+    reminderId: string;
+    orderNumber?: string;
+    emailNumber: number;
+    runAt: Date;
+    delayMs: number;
+    reason: string;
+}) => {
+    const { reminderId, orderNumber, emailNumber, runAt, delayMs, reason } = params;
+    const orderLabel = orderNumber ? `orden ${orderNumber}` : `reminder ${reminderId}`;
+    console.log(
+        `[PayPal Reminder] Programado email #${emailNumber} | ${orderLabel} | ` +
+        `en ${Math.round(delayMs / 60000)} min | ` +
+        `horario: ${formatScheduleTime(runAt)} (${LOG_TIMEZONE}) | ` +
+        `ISO: ${runAt.toISOString()} | motivo: ${reason}`
+    );
+};
+
+interface ReminderTimer {
+    stop: () => void;
+}
+
+const scheduledJobs = new Map<string, ReminderTimer>();
 
 interface OrderRecord {
     id: string;
     status?: string;
+    items?: unknown[];
 }
 
 const findOrder = async (userId: string, orderNumber: string): Promise<OrderRecord | null> => {
@@ -45,7 +70,11 @@ const findOrder = async (userId: string, orderNumber: string): Promise<OrderReco
 
     const doc = snapshot.docs[0];
     const data = doc.data();
-    return { id: doc.id, status: data.status as string | undefined };
+    return {
+        id: doc.id,
+        status: data.status as string | undefined,
+        items: Array.isArray(data.items) ? data.items : [],
+    };
 };
 
 const isOrderAwaitingPaypalProof = async (userId: string, orderNumber: string): Promise<boolean> => {
@@ -100,14 +129,13 @@ const completeReminder = async (
     });
 };
 
-const executePaypalProofReminder = async (reminderId: string, job: ScheduledTask) => {
+const executePaypalProofReminder = async (reminderId: string) => {
     const reminderRef = firestore.collection(COLLECTION).doc(reminderId);
 
     try {
         const reminderDoc = await reminderRef.get();
         if (!reminderDoc.exists) {
-            job.stop();
-            scheduledJobs.delete(reminderId);
+            stopScheduledJob(reminderId);
             return;
         }
 
@@ -121,8 +149,7 @@ const executePaypalProofReminder = async (reminderId: string, job: ScheduledTask
         };
 
         if (reminder.status !== 'active') {
-            job.stop();
-            scheduledJobs.delete(reminderId);
+            stopScheduledJob(reminderId);
             return;
         }
 
@@ -136,8 +163,8 @@ const executePaypalProofReminder = async (reminderId: string, job: ScheduledTask
             userName: reminder.userName || '',
             userEmail: reminder.email,
             orderNumber: reminder.orderNumber,
-            uploadUrl: getUploadUrl(reminder.orderNumber),
             proofEmail,
+            items: order.items ?? [],
         });
 
         const emailsSent = (reminder.emailsSent ?? 0) + 1;
@@ -149,21 +176,28 @@ const executePaypalProofReminder = async (reminderId: string, job: ScheduledTask
         });
 
         console.log(
-            `📧 Recordatorio PayPal #${emailsSent} enviado - orden ${reminder.orderNumber} (${reminderId})`
+            `[PayPal Reminder] Email #${emailsSent} ENVIADO | orden ${reminder.orderNumber} | ` +
+            `${formatScheduleTime(lastSentAt)} (${LOG_TIMEZONE})`
         );
 
-        job.stop();
-        scheduledJobs.delete(reminderId);
+        stopScheduledJob(reminderId);
 
         const stillAwaiting = await isOrderAwaitingPaypalProof(reminder.userId, reminder.orderNumber);
         if (!stillAwaiting) {
+            console.log(
+                `[PayPal Reminder] Secuencia finalizada | orden ${reminder.orderNumber} | la orden ya no está en awaiting_paypal_proof`
+            );
             await completeReminder(reminderRef, 'order_status_changed_after_send');
             return;
         }
 
         const nextSendAt = new Date(lastSentAt.getTime() + getDelayForNextEmail(emailsSent));
         await reminderRef.update({ nextSendAt });
-        schedulePaypalProofReminderJob(reminderId, nextSendAt);
+        schedulePaypalProofReminderJob(reminderId, nextSendAt, {
+            orderNumber: reminder.orderNumber,
+            emailNumber: emailsSent + 1,
+            emailsSent,
+        });
     } catch (error) {
         console.error(`Error al ejecutar recordatorio PayPal (${reminderId}):`, error);
         await reminderRef.update({
@@ -171,28 +205,43 @@ const executePaypalProofReminder = async (reminderId: string, job: ScheduledTask
             errorAt: new Date(),
             error: String(error),
         });
-        job.stop();
-        scheduledJobs.delete(reminderId);
+        stopScheduledJob(reminderId);
     }
 };
 
-export const schedulePaypalProofReminderJob = (reminderId: string, sendAt: Date) => {
+
+export const schedulePaypalProofReminderJob = (
+    reminderId: string,
+    sendAt: Date,
+    context?: { orderNumber?: string; emailNumber?: number; emailsSent?: number }
+) => {
     stopScheduledJob(reminderId);
 
     const now = Date.now();
-    const effectiveSendAt = sendAt.getTime() <= now
-        ? new Date(now + 60 * 1000)
-        : sendAt;
+    const delayMs = Math.max(sendAt.getTime() - now, MIN_SCHEDULE_DELAY_MS);
+    const runAt = new Date(now + delayMs);
+    const emailNumber = context?.emailNumber ?? (context?.emailsSent ?? 0) + 1;
+    const delayLabel = describeDelay(context?.emailsSent ?? 0);
 
-    const cronExpr = toCronExpression(effectiveSendAt);
+    const timeoutId = setTimeout(() => {
+        scheduledJobs.delete(reminderId);
+        executePaypalProofReminder(reminderId);
+    }, delayMs);
 
-    const job = cron.schedule(
-        cronExpr,
-        () => executePaypalProofReminder(reminderId, job),
-        { timezone }
-    );
+    const timer: ReminderTimer = {
+        stop: () => clearTimeout(timeoutId),
+    };
 
-    scheduledJobs.set(reminderId, job);
+    scheduledJobs.set(reminderId, timer);
+
+    logScheduledSend({
+        reminderId,
+        orderNumber: context?.orderNumber,
+        emailNumber,
+        runAt,
+        delayMs,
+        reason: delayLabel,
+    });
 };
 
 export const cancelActivePaypalProofReminders = async (
@@ -252,10 +301,17 @@ export const restoreActivePaypalProofReminders = async () => {
             continue;
         }
 
+        const emailsSent = reminder.emailsSent ?? 0;
         const nextSendAt = computeNextSendAt(reminder);
         await doc.ref.update({ nextSendAt });
-        schedulePaypalProofReminderJob(doc.id, nextSendAt);
+        schedulePaypalProofReminderJob(doc.id, nextSendAt, {
+            orderNumber: reminder.orderNumber,
+            emailNumber: emailsSent + 1,
+            emailsSent,
+        });
     }
 
-    console.log(`🔄 Recordatorios PayPal activos restaurados: ${snapshot.size}`);
+    console.log(
+        `[PayPal Reminder] Restauración al iniciar servidor: ${snapshot.size} recordatorio(s) activo(s)`
+    );
 };
