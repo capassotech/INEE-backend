@@ -60,7 +60,10 @@ export const EventCreateSchema = z.object({
   image: z.string().optional(),
 });
 
-export const EventUpdateSchema = EventCreateSchema.partial();
+export const EventUpdateSchema = EventCreateSchema
+    .omit({ cuotas: true })
+    .partial()
+    .extend({ cuotas: optionalCuotasSchema });
 
 export type ValidatedCreateEvent = z.infer<typeof EventCreateSchema>;
 export type ValidatedUpdateEvent = z.infer<typeof EventUpdateSchema>;

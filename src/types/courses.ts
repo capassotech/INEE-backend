@@ -139,7 +139,10 @@ export const CourseSchema = z.object({
     }).optional(),
 });
 
-export const UpdateCourseSchema = CourseSchema.partial();
+export const UpdateCourseSchema = CourseSchema
+    .omit({ cuotas: true })
+    .partial()
+    .extend({ cuotas: optionalCuotasSchema });
 
 export type ValidatedCourse = z.infer<typeof CourseSchema>;
 export type ValidatedUpdateCourse = z.infer<typeof UpdateCourseSchema>;
