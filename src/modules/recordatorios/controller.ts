@@ -92,7 +92,20 @@ export const createReminder = async (req: Request, res: Response) => {
             nextSendAt: sendAt,
         });
 
-        schedulePaypalProofReminderJob(reminderRef.id, sendAt);
+        schedulePaypalProofReminderJob(reminderRef.id, sendAt, {
+            orderNumber,
+            emailNumber: 1,
+            emailsSent: 0,
+        });
+
+        console.log(
+            `[PayPal Reminder] Recordatorio creado | orden ${orderNumber} | reminderId ${reminderRef.id} | ` +
+            `1er email programado: ${sendAt.toLocaleString('es-AR', {
+                timeZone: process.env.TZ || 'America/Argentina/Buenos_Aires',
+                dateStyle: 'short',
+                timeStyle: 'medium',
+            })}`
+        );
 
         return res.status(201).json({
             message: 'Recordatorio de comprobante PayPal programado',
