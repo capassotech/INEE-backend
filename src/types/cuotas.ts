@@ -10,27 +10,39 @@ const cuotasObjectSchema = z.object({
         .max(9999999, 'El monto por cuota no puede exceder $9.999.999'),
 });
 
+const coerceOptionalNumber = (val: unknown): number | undefined => {
+    if (val === undefined || val === null) return undefined;
+    if (typeof val === 'string' && val.trim() === '') return undefined;
+    if (typeof val === 'number' && !Number.isNaN(val)) return val;
+    if (typeof val === 'string') {
+        const parsed = Number(val.trim());
+        if (!Number.isNaN(parsed)) return parsed;
+    }
+    return undefined;
+};
+
 const normalizeCuotasInput = (val: unknown): unknown => {
     if (val === undefined) return undefined;
     if (val === null) return null;
+    if (val === '' || val === 'null') return null;
 
-    if (typeof val === 'object' && !Array.isArray(val)) {
-        const obj = val as Record<string, unknown>;
+    if (typeof val !== 'object' || Array.isArray(val)) return null;
 
-        if (Object.keys(obj).length === 0) return null;
+    const obj = val as Record<string, unknown>;
 
-        const cantidad = obj.cantidad_cuotas;
-        const monto = obj.monto_cuota;
-        const hasCantidad = cantidad !== undefined && cantidad !== null && cantidad !== '';
-        const hasMonto = monto !== undefined && monto !== null && monto !== '';
+    if (Object.keys(obj).length === 0) return null;
 
-        if (!hasCantidad && !hasMonto) return null;
-    }
+    const cantidad = coerceOptionalNumber(obj.cantidad_cuotas);
+    const monto = coerceOptionalNumber(obj.monto_cuota);
 
-    return val;
+    // Sin cuotas o datos incompletos → no exigir campos al editar/crear
+    if (cantidad === undefined && monto === undefined) return null;
+    if (cantidad === undefined || monto === undefined) return null;
+
+    return { cantidad_cuotas: cantidad, monto_cuota: monto };
 };
 
-/** Cuotas opcionales: acepta omitir, null, {} o campos vacíos sin error de validación. */
+
 export const optionalCuotasSchema = z.preprocess(
     normalizeCuotasInput,
     z.union([z.null(), cuotasObjectSchema]).optional().nullable()
