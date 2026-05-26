@@ -68,8 +68,6 @@ export const sendPaypalProofReminderEmail = async ({
         <a href="mailto:${proofEmail}" style="color: #1a73e8; text-decoration: none;"><strong>${escapeHtml(proofEmail)}</strong></a>,
         indicando tu número de orden (<strong>${escapeHtml(orderNumber)}</strong>).</p>
 
-      <p>También podés responder a este correo adjuntando el comprobante.</p>
-
       <p style="margin-top: 24px;">Si ya enviaste el comprobante, podés ignorar este mensaje. Lo revisaremos a la brevedad.</p>
 
       <p style="margin-top: 28px; margin-bottom: 4px;"><strong>Equipo INEE®</strong></p>
