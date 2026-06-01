@@ -34,6 +34,8 @@ import avalesRoutes from "./modules/avales/routes";
 import examenesRealizadosRoutes from "./modules/examenes-realizados/routes";
 import recomendacionesRoutes from "./modules/recomendaciones/routes";
 import mercadoPagoAccountsRoutes from "./modules/mercado-pago-accounts/routes";
+import remindersRoutes from "./modules/recordatorios/routes";
+import { restoreActivePaypalProofReminders } from "./modules/recordatorios/controller";
 
 
 const app = express();
@@ -72,6 +74,7 @@ app.use("/api/avales", avalesRoutes);
 app.use("/api/examenes-realizados", examenesRealizadosRoutes);
 app.use("/api/recomendaciones", recomendacionesRoutes);
 app.use("/api/mercado-pago-accounts", mercadoPagoAccountsRoutes);
+app.use("/api/reminders", remindersRoutes);
 
 app.get("/", (_, res) => {
   res.json({
@@ -92,6 +95,9 @@ app.get("/health", (_, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  restoreActivePaypalProofReminders().catch((error) => {
+    console.error('Error al restaurar recordatorios PayPal:', error);
+  });
 });
 
 export default app;

@@ -7,6 +7,8 @@ import axios from 'axios';
 import { sendResourceAvailableEmail, type ResourceTypeEmail, type ItemsByType } from "../emails/resourceAvailableEmail";
 import { sendPurchaseNotificationAdminEmail } from "../emails/purchaseNotificationAdminEmail";
 import { getActiveMpAccessToken } from "../mercado-pago-accounts/controller";
+import { assignProductsToUser } from "../../services/assignProductsToUser";
+import { registerDiscountCodeUsage } from "../../services/discountCodeUsage";
 
 const getMpClient = async () => {
   const accessToken = await getActiveMpAccessToken();
@@ -604,58 +606,6 @@ const validateWebhookSignature = (body: any, signature: string, requestId: strin
     return calculatedHash === hash;
 };
 
-/**
- * Registra el uso de un código de descuento
- * Guarda la información del uso en la colección discount_code_usage
- */
-const registerDiscountCodeUsage = async (
-    discountCode: string,
-    userId: string,
-    orderId: string,
-    orderNumber: string,
-    originalAmount: number,
-    discountedAmount: number
-): Promise<void> => {
-    try {
-        console.log(`📝 Registrando uso del código de descuento: ${discountCode}`);
-        
-        // Buscar el código de descuento para obtener su ID
-        const discountCodeSnapshot = await firestore
-            .collection('discount_codes')
-            .where('codigo', '==', discountCode.toUpperCase().trim())
-            .limit(1)
-            .get();
-
-        if (discountCodeSnapshot.empty) {
-            console.warn(`⚠️ Código de descuento ${discountCode} no encontrado en la BD`);
-            return;
-        }
-
-        const discountCodeDoc = discountCodeSnapshot.docs[0];
-        const discountCodeId = discountCodeDoc.id;
-        const discountData = discountCodeDoc.data();
-
-        // Registrar el uso en la colección discount_code_usage
-        await firestore.collection('discount_code_usage').add({
-            discountCodeId,
-            discountCode: discountCode.toUpperCase().trim(),
-            discountPercentage: discountData.porcentaje || 0,
-            userId,
-            orderId,
-            orderNumber,
-            originalAmount,
-            discountedAmount,
-            savedAmount: originalAmount - discountedAmount,
-            usedAt: new Date(),
-            createdAt: new Date()
-        });
-
-        console.log(`✅ Uso del código ${discountCode} registrado exitosamente para usuario ${userId}`);
-    } catch (error) {
-        console.error(`❌ Error al registrar uso del código de descuento:`, error);
-    }
-};
-
 const calculateTotalPrice = async (items: any[]): Promise<number> => {
     let totalPrice = 0;
     for (const item of items) {
@@ -725,147 +675,6 @@ const validateProds = async (items: any[]): Promise<boolean> => {
         return false;
     }
     return true;
-};
-
-const assignProductsToUser = async (
-    userId: string, 
-    items: any[], 
-    paymentId?: string, 
-    paymentStatus?: string
-): Promise<void> => {
-    try {
-        const userRef = firestore.collection('users').doc(userId);
-        const userDoc = await userRef.get();
-
-        if (!userDoc.exists) {
-            console.error(`Usuario ${userId} no encontrado`);
-            return;
-        }
-
-        const userData = userDoc.data();
-        const cursosAsignados = Array.isArray(userData?.cursos_asignados) ? userData.cursos_asignados : [];
-        const eventosAsignados = Array.isArray(userData?.eventos_asignados) ? userData.eventos_asignados : [];
-        const ebooksAsignados = Array.isArray(userData?.ebooks_asignados) ? userData.ebooks_asignados : [];
-        const inscripcionesCollection = firestore.collection('inscripciones_eventos');
-        
-        console.log(`📊 [USER DATA] Estado inicial del usuario:`, {
-            tieneCursosAsignados: cursosAsignados.length > 0,
-            tieneEventosAsignados: eventosAsignados.length > 0,
-            tieneEbooksAsignados: ebooksAsignados.length > 0,
-            cursosCount: cursosAsignados.length,
-            eventosCount: eventosAsignados.length,
-            ebooksCount: ebooksAsignados.length
-        });
-
-        for (const item of items) {
-            const productId = item.id || item.productId;
-            const precio = Number(item.precio || item.price || item.unit_price || 0);
-            
-            console.log(`🔍 [ITEM] Procesando item:`, {
-                productId: productId || 'NO ID',
-                precio: precio || 0,
-                itemCompleto: JSON.stringify(item, null, 2)
-            });
-            
-            if (!productId) {
-                console.error(`❌ [ITEM] Item sin ID válido:`, item);
-                continue; // Saltar este item si no tiene ID
-            }
-
-            // Verificar en qué colección está el producto
-            const courseDoc = await firestore.collection('courses').doc(productId).get();
-            if (courseDoc.exists && !cursosAsignados.includes(productId)) {
-                cursosAsignados.push(productId);
-                continue;
-            }
-
-            const eventDoc = await firestore.collection('events').doc(productId).get();
-            if (eventDoc.exists) {
-                
-                if (!eventosAsignados.includes(productId)) {
-                    eventosAsignados.push(productId);
-                    console.log(`✅ [EVENTO] Evento agregado a eventos_asignados`);
-                }
-                
-                // Datos de la inscripción
-                const nuevaInscripcion: any = {
-                    userId: userId,
-                    eventoId: productId,
-                    fechaInscripcion: new Date(),
-                    estado: 'activa',
-                    metodoPago: 'pago',
-                    precioPagado: precio || 0,
-                };
-                
-                if (paymentId) {
-                    nuevaInscripcion.paymentId = paymentId;
-                }
-                
-                if (paymentStatus) {
-                    nuevaInscripcion.paymentStatus = paymentStatus;
-                }
-
-                console.log(`📋 [INSCRIPCIÓN] Datos completos:`, JSON.stringify(nuevaInscripcion, null, 2));
-
-                // CREAR EN inscripciones_eventos
-                try {
-                    console.log(`🔄 [INSCRIPCIÓN] Creando en inscripciones_eventos...`);
-                    const inscripcionRef = await inscripcionesCollection.add(nuevaInscripcion);
-                    console.log(`✅✅✅ [INSCRIPCIÓN] EXITOSO en inscripciones_eventos - ID: ${inscripcionRef.id}`);
-                } catch (error: any) {
-                    console.error(`❌❌❌ [INSCRIPCIÓN] FALLO en inscripciones_eventos:`, {
-                        message: error?.message,
-                        code: error?.code,
-                        name: error?.name,
-                        stack: error?.stack
-                    });
-                }
-
-                console.log(`✅ [INSCRIPCIÓN] === PROCESO COMPLETADO ===`);
-                continue;
-            }
-
-            const ebookDoc = await firestore.collection('ebooks').doc(productId).get();
-            if (ebookDoc.exists && !ebooksAsignados.includes(productId)) {
-                ebooksAsignados.push(productId);
-                continue;
-            }
-
-            const avalDoc = await firestore.collection('avales').doc(productId).get();
-            if (avalDoc.exists) {
-                console.log(`📜 [AVAL] Aval ${productId} detectado - no se asigna directamente al usuario`);
-                continue;
-            }
-
-            // Si llegamos aquí, el producto no existe en ninguna colección
-            console.warn(`⚠️ [ITEM] Producto ${productId} no encontrado en ninguna colección (courses, events, ebooks, avales)`);
-        }
-
-        const updateData: any = {
-            cursos_asignados: Array.isArray(cursosAsignados) ? cursosAsignados : [],
-            eventos_asignados: Array.isArray(eventosAsignados) ? eventosAsignados : [],
-            ebooks_asignados: Array.isArray(ebooksAsignados) ? ebooksAsignados : [],
-            updatedAt: new Date()
-        };
-        
-        console.log(`💾 [UPDATE USER] Actualizando usuario ${userId} con:`, {
-            cursos: updateData.cursos_asignados.length,
-            eventos: updateData.eventos_asignados.length,
-            ebooks: updateData.ebooks_asignados.length
-        });
-        
-        await userRef.update(updateData);
-        console.log(`✅ [UPDATE USER] Usuario actualizado exitosamente`);
-
-        console.log(`Productos asignados al usuario ${userId}:`, {
-            cursos: cursosAsignados.length,
-            eventos: eventosAsignados.length,
-            ebooks: ebooksAsignados.length
-        });
-    } catch (error) {
-        console.error('Error al asignar productos al usuario:', error);
-        throw error; // Re-lanzar para que el webhook pueda manejarlo
-    }
 };
 
 /**
