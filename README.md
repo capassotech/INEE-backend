@@ -45,7 +45,9 @@ El backend debe configurarse con las credenciales de Firebase correspondientes a
 
 ## 🔐 Autenticación
 
-El frontend envía un `idToken` de Firebase en el header `Authorization: Bearer <token>`. El middleware `authMiddleware.ts` valida y decodifica el token.
+El frontend envía un `idToken` de Firebase en el header `Authorization: Bearer <token>`. El middleware `authMiddleware.ts` valida el token con Firebase Admin y verifica la **sesión server-side** (expiración a 24 h desde el login).
+
+Documentación completa: [docs/SESSION_EXPIRATION.md](./docs/SESSION_EXPIRATION.md)
 
 ## 🔥 Firestore
 
