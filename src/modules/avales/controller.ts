@@ -2,73 +2,47 @@ import { Request, Response } from "express";
 import { firestore } from "../../config/firebase";
 import { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { validateUser, normalizeText } from "../../utils/utils";
+import {
+  matchesSearch,
+  paginateByPage,
+  parseLimit,
+  parsePage,
+} from "../../utils/listQuery";
 import { ValidatedCreateAval, ValidatedUpdateAval } from "../../types/avales";
 
 const collection = firestore.collection("avales");
 
 export const getAllAvales = async (req: Request, res: Response) => {
   try {
-    const limit = Math.min(parseInt((req.query.limit as string) || "20"), 100); 
-    const lastId = req.query.lastId as string | undefined;
-    const search = req.query.search as string | undefined; 
+    const limit = parseLimit(req.query.limit as string, 10, 100);
+    const page = parsePage(req.query.page as string, 1);
+    const search = req.query.search as string | undefined;
 
-    const queryLimit = search && search.trim() ? limit * 3 : limit; 
-
-    let query = collection.orderBy("__name__");
-
-    if (lastId) {
-      const lastDoc = await collection.doc(lastId).get();
-      if (lastDoc.exists) {
-        query = query.startAfter(lastDoc);
-      }
-    }
-
-    const extendedQuery = query.limit(queryLimit + 1);
-    const snapshot = await extendedQuery.get();
-
-    if (snapshot.empty) {
-      return res.json({
-        avales: [],
-        pagination: {
-          hasMore: false,
-          lastId: null,
-          limit,
-          count: 0,
-        },
-      });
-    }
-
-    const docs = snapshot.docs.slice(0, queryLimit);
-    let avales = docs.map((doc) => ({
+    const snapshot = await collection.orderBy("__name__").get();
+    let avales = snapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
     }));
 
-    if (search && search.trim()) {
-      const searchNormalized = normalizeText(search);
-      avales = avales.filter((aval: any) => {
-        const nombre = normalizeText(aval.nombre || "");
-        const descripcion = normalizeText(aval.descripcion || "");
-        const codigo = normalizeText(aval.codigo || "");
-        return (
-          nombre.includes(searchNormalized) ||
-          descripcion.includes(searchNormalized) ||
-          codigo.includes(searchNormalized)
-        );
-      });
-      avales = avales.slice(0, limit);
-    }
+    avales = avales.filter((aval: Record<string, unknown>) =>
+      matchesSearch(search, [
+        String(aval.nombre || aval.titulo || ""),
+        String(aval.descripcion || ""),
+        String(aval.codigo || ""),
+      ])
+    );
 
-    const lastDoc = docs[docs.length - 1];
-    const hasMore = snapshot.docs.length > queryLimit;
+    const paginated = paginateByPage(avales, page, limit);
 
     return res.json({
-      avales,
+      avales: paginated.items,
       pagination: {
-        hasMore,
-        lastId: lastDoc?.id,
+        page,
+        totalPages: paginated.totalPages,
+        totalCount: paginated.total,
+        hasMore: paginated.hasMore,
         limit,
-        count: avales.length,
+        count: paginated.items.length,
       },
     });
   } catch (err) {
