@@ -14,11 +14,6 @@ dist-ssr
 
 # env files
 .env
-.env.local
-.env.example
-.env.development.local
-.env.test.local
-.env.production.local
 
 # Editor directories and files
 firebase-service-account.json

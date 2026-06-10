@@ -2,10 +2,27 @@ import type { Request, Response } from "express";
 import { firebaseAuth, firestore } from "../../config/firebase";
 import type { UserRegistrationData, UserProfile } from "../../types/user";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware";
+import {
+  buildSessionAuthPayload,
+  createUserSession,
+} from "../../services/userSession";
 import { Resend } from "resend";
 // Firebase Admin SDK ya está importado desde firebase config
 
 const resend = new Resend(process.env.RESEND_API_KEY);
+
+const respondWithSession = async (
+  res: Response,
+  uid: string,
+  statusCode: number,
+  body: Record<string, unknown>
+) => {
+  const session = await createUserSession(uid, res);
+  return res.status(statusCode).json({
+    ...body,
+    ...buildSessionAuthPayload(session),
+  });
+};
 
 export const registerUser = async (req: Request, res: Response) => {
   try {
@@ -93,7 +110,7 @@ export const registerUser = async (req: Request, res: Response) => {
     // Enviar email de bienvenida
     await sendWelcomeEmail(userRecord.email || "", nombre);
 
-    return res.status(201).json({
+    return respondWithSession(res, userRecord.uid, 201, {
       message: "Usuario registrado exitosamente",
       user: {
         uid: userRecord.uid,
@@ -197,7 +214,7 @@ export const linkPasswordProvider = async (req: Request, res: Response) => {
 
     const customToken = await firebaseAuth.createCustomToken(existingAuthUser.uid);
 
-    return res.json({
+    return respondWithSession(res, existingAuthUser.uid, 200, {
       message: "Contraseña agregada exitosamente a tu cuenta",
       token: customToken,
       user: {
@@ -321,7 +338,7 @@ export const linkGoogleProvider = async (req: Request, res: Response) => {
       const userDoc = await firestore.collection("users").doc(uid).get();
       const userData = userDoc.data();
 
-      return res.json({
+      return respondWithSession(res, uid, 200, {
         message: "Ya tenías Google vinculado. Sesión iniciada correctamente",
         token: customToken,
         user: {
@@ -382,7 +399,7 @@ export const linkGoogleProvider = async (req: Request, res: Response) => {
 
     console.log(`[LINK GOOGLE] Vinculación completada exitosamente`);
 
-    return res.json({
+    return respondWithSession(res, uid, 200, {
       message: "Cuenta de Google vinculada exitosamente",
       token: customToken,
       user: {
@@ -526,19 +543,16 @@ export const loginUser = async (req: Request, res: Response) => {
 
       const idToken = authResult.idToken;
 
-      return res.json({
+      return respondWithSession(res, uid, 200, {
         message: "Login exitoso",
-        idToken, // Cambiado de customToken a idToken
-        customToken: await firebaseAuth.createCustomToken(uid), // Mantener por compatibilidad
+        idToken,
+        customToken: await firebaseAuth.createCustomToken(uid),
         user: {
           uid,
           email: userData.email,
           nombre: userData.nombre,
           apellido: userData.apellido,
           role: userData.role,
-          // MEMBRESÍAS DESACTIVADAS
-          // id_membresia: userData.membresia_id,
-          ultimoLogin: new Date(),
         },
       });
     } catch (fetchError: any) {
@@ -654,7 +668,7 @@ export const googleAuth = async (req: Request, res: Response) => {
 
           const customToken = await firebaseAuth.createCustomToken(existingAuthUser.uid);
 
-          return res.json({
+          return respondWithSession(res, existingAuthUser.uid, 200, {
             message: "Login exitoso con Google",
             user: {
               uid: existingAuthUser.uid,
@@ -722,7 +736,7 @@ export const googleAuth = async (req: Request, res: Response) => {
         `,
           });
 
-          return res.status(201).json({
+          return respondWithSession(res, existingAuthUser.uid, 201, {
             message: "Usuario registrado exitosamente con Google",
             user: {
               uid: existingAuthUser.uid,
@@ -823,7 +837,7 @@ export const googleAuth = async (req: Request, res: Response) => {
         `,
           });
 
-          return res.status(201).json({
+          return respondWithSession(res, existingAuthUser.uid, 201, {
             message: "Usuario registrado exitosamente con Google",
             user: {
               uid: existingAuthUser.uid,
@@ -861,7 +875,7 @@ export const googleAuth = async (req: Request, res: Response) => {
 
       const customToken = await firebaseAuth.createCustomToken(existingAuthUser.uid);
 
-      return res.json({
+      return respondWithSession(res, existingAuthUser.uid, 200, {
         message: "Login exitoso con Google",
         user: {
           uid: existingAuthUser.uid,
@@ -888,7 +902,7 @@ export const googleAuth = async (req: Request, res: Response) => {
       const userData = existingUser.data();
       const customToken = await firebaseAuth.createCustomToken(googleUid);
 
-      return res.json({
+      return respondWithSession(res, googleUid, 200, {
         message: "Login exitoso con Google",
         user: {
           uid: googleUid,
@@ -965,7 +979,7 @@ export const googleAuth = async (req: Request, res: Response) => {
 
     console.log(`[GOOGLE AUTH] Usuario registrado exitosamente con Google`);
 
-    return res.status(201).json({
+    return respondWithSession(res, googleUid, 201, {
       message: "Usuario registrado exitosamente con Google",
       user: {
         uid: googleUid,
@@ -1383,7 +1397,7 @@ export const validateToken = async (req: Request, res: Response) => {
 
     console.log("[AUTH] Token validado y customToken generado exitosamente");
 
-    return res.json({
+    return respondWithSession(res, uid, 200, {
       message: "Token validado exitosamente",
       customToken,
       user: {
