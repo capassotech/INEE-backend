@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { authMiddleware, AuthenticatedRequest } from "../../middleware/authMiddleware";
 import {
     getOrders,
+    getOrdersCount,
     getOrderById,
     createPaypalOrder,
     submitPaypalProof,
@@ -19,6 +20,7 @@ const submitPaypalProofHandlers = [
     (req: Request, res: Response) => submitPaypalProof(req as AuthenticatedRequest, res),
 ];
 
+router.get("/count", authMiddleware, getOrdersCount)
 router.get("/", getOrders)
 
 // Alias en español (frontend) + ruta en inglés

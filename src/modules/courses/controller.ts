@@ -4,6 +4,15 @@ import { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { ValidatedCourse, ValidatedUpdateCourse } from "../../types/courses";
 import { validateUser, normalizeText } from "../../utils/utils";
 import { cache, CACHE_KEYS } from "../../utils/cache";
+import {
+  matchesCourseModalidad,
+  matchesSearch,
+  paginateByCursor,
+  parseLimit,
+  parseSortOrder,
+  sortByComparator,
+  toJsDate,
+} from "../../utils/listQuery";
 
 const collection = firestore.collection("courses");
 
@@ -15,158 +24,150 @@ const mapCourseResponse = (id: string, data: FirebaseFirestore.DocumentData | un
 
 export const getAllCourses = async (req: Request, res: Response) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit as string || '20'), 100); // Máximo 100
+    const limit = parseLimit(req.query.limit as string);
     const lastId = req.query.lastId as string | undefined;
-    
-    // Filtros opcionales
     const pilar = req.query.pilar as string | undefined;
     const type = req.query.type as string | undefined;
     const nivel = req.query.nivel as string | undefined;
-    const search = req.query.search as string | undefined; // Búsqueda de texto
-    
-    // ✅ CACHÉ: Solo cachear si no hay búsqueda ni paginación (consultas más comunes)
-    // Las búsquedas y paginación son más dinámicas y no se cachean
-    const shouldCache = !search && !lastId;
-    
-    if (shouldCache) {
-      const cacheKey = cache.generateKey(CACHE_KEYS.COURSES, {
-        limit,
-        pilar: pilar || 'all',
-        type: type || 'all',
-        nivel: nivel || 'all',
-      });
-      
-      const cached = cache.get(cacheKey);
-      if (cached) {
-        return res.json(cached);
-      }
-    }
-    
-    // Construir query base
-    // Nota: Firestore requiere índices compuestos cuando se usan where() con orderBy()
-    // Los índices están definidos en firestore.indexes.json para:
-    // - pilar + __name__
-    // - type + __name__
-    // - nivel + __name__
-    let query = collection.orderBy('__name__');
-    
-    // Aplicar filtros con where() - priorizar pilar, luego type, luego nivel
-    // Solo aplicamos un filtro en Firestore para usar los índices compuestos
-    // Los filtros adicionales se aplican en memoria después
-    if (pilar && pilar !== 'all') {
+    const search = req.query.search as string | undefined;
+    const status = req.query.status as string | undefined;
+    const modalidad = req.query.modalidad as string | undefined;
+    const sortBy = req.query.sortBy as string | undefined;
+    const esDestacado = req.query.esDestacado as string | undefined;
+    const duracion = req.query.duracion as string | undefined;
+
+    const sortOrder = parseSortOrder(
+      req.query.sortOrder as string | undefined,
+      sortBy === 'title' || sortBy === 'price' || sortBy === 'students' ? (sortBy === 'title' ? 'asc' : 'desc') : 'desc'
+    );
+
+    const hasAdvancedFilters = Boolean(
+      search?.trim() ||
+      status ||
+      modalidad ||
+      esDestacado !== undefined ||
+      sortBy ||
+      (pilar && pilar !== 'all') ||
+      (type && type !== 'all') ||
+      (nivel && nivel !== 'all') ||
+      (duracion && duracion !== 'all')
+    );
+
+    let query: FirebaseFirestore.Query = collection.orderBy('__name__');
+
+    if (status) {
+      query = query.where('estado', '==', status);
+    } else if (modalidad) {
+      const dbModalidad = modalidad.toUpperCase() === 'ON_DEMAND' ? 'on-demand' : modalidad.toLowerCase();
+      query = query.where('modalidad', '==', dbModalidad);
+    } else if (esDestacado === 'true') {
+      query = query.where('esDestacado', '==', true);
+    } else if (esDestacado === 'false') {
+      query = query.where('esDestacado', '==', false);
+    } else if (pilar && pilar !== 'all') {
       query = query.where('pilar', '==', pilar);
     } else if (type && type !== 'all') {
       query = query.where('type', '==', type);
     } else if (nivel && nivel !== 'all') {
-      // Normalizar nivel: "inicial" -> "principiante" para compatibilidad
       const normalizedNivel = nivel.toLowerCase() === 'inicial' ? 'principiante' : nivel.toLowerCase();
       query = query.where('nivel', '==', normalizedNivel);
     }
-    
-    // Aplicar paginación
-    if (lastId) {
-      const lastDoc = await collection.doc(lastId).get();
-      if (lastDoc.exists) {
-        query = query.startAfter(lastDoc);
-      }
-    }
-    
-    // Consultar limit + 1 para saber si hay más documentos
-    const extendedQuery = query.limit(limit + 1);
-    const snapshot = await extendedQuery.get();
 
-    if (snapshot.empty) {
-      return res.json({
-        courses: [],
-        pagination: {
-          hasMore: false,
-          lastId: null,
-          limit,
-          count: 0
-        }
-      });
-    }
+    let courses: Array<Record<string, unknown> & { id: string }> = hasAdvancedFilters
+      ? (await query.limit(1000).get()).docs.map((doc) =>
+          mapCourseResponse(doc.id, doc.data()) as Record<string, unknown> & { id: string }
+        )
+      : (await (lastId
+          ? query.startAfter(await collection.doc(lastId).get()).limit(limit + 1)
+          : query.limit(limit + 1)
+        ).get()).docs.map((doc) =>
+          mapCourseResponse(doc.id, doc.data()) as Record<string, unknown> & { id: string }
+        );
 
-    // Tomar solo los primeros 'limit' documentos
-    const docs = snapshot.docs.slice(0, limit);
-    let courses = docs.map((doc) => mapCourseResponse(doc.id, doc.data()));
-    
-    // Aplicar filtros adicionales en memoria (ya que Firestore tiene limitaciones con múltiples where())
-    // Aplicar todos los filtros que no se aplicaron en la query de Firestore
-    
-    // Filtro por pilar si no se aplicó en la query
+    if (status) {
+      courses = courses.filter((course: Record<string, unknown>) => course.estado === status);
+    }
+    if (modalidad) {
+      courses = courses.filter((course: Record<string, unknown>) =>
+        matchesCourseModalidad(course, modalidad)
+      );
+    }
+    if (esDestacado === 'true') {
+      courses = courses.filter((course: Record<string, unknown>) => course.esDestacado === true);
+    } else if (esDestacado === 'false') {
+      courses = courses.filter((course: Record<string, unknown>) => course.esDestacado !== true);
+    }
     if (pilar && pilar !== 'all') {
-      courses = courses.filter((course: any) => course.pilar === pilar);
+      courses = courses.filter((course: Record<string, unknown>) => course.pilar === pilar);
     }
-    
-    // Filtro por type si no se aplicó en la query
     if (type && type !== 'all') {
-      courses = courses.filter((course: any) => course.type === type);
+      courses = courses.filter((course: Record<string, unknown>) => course.type === type);
     }
-    
-    // Filtro por nivel si no se aplicó en la query
     if (nivel && nivel !== 'all') {
       const normalizedNivel = nivel.toLowerCase() === 'inicial' ? 'principiante' : nivel.toLowerCase();
-      courses = courses.filter((course: any) => {
-        const courseNivel = (course.nivel || '').toLowerCase();
-        return courseNivel === normalizedNivel;
-      });
+      courses = courses.filter((course: Record<string, unknown>) =>
+        String(course.nivel || '').toLowerCase() === normalizedNivel
+      );
     }
-    
-    // Filtro por duración en memoria (duración ahora en semanas)
-    const duracion = req.query.duracion as string | undefined;
     if (duracion && duracion !== 'all') {
-      courses = courses.filter((course: any) => {
+      courses = courses.filter((course: Record<string, unknown>) => {
         const courseDuration = course.duracion || 0;
-        const num = typeof courseDuration === "string" ? parseInt(courseDuration, 10) : courseDuration;
-        
-        if (duracion === "Menos de 1 mes") return num > 0 && num <= 4;    // <= 4 semanas
-        if (duracion === "1-3 meses") return num > 4 && num <= 12;         // 4-12 semanas
-        if (duracion === "3-6 meses") return num > 12 && num <= 26;        // 12-26 semanas
-        if (duracion === "6-12 meses") return num > 26 && num <= 52;       // 26-52 semanas
-        if (duracion === "+1 año") return num > 52;                        // > 52 semanas
+        const num = typeof courseDuration === 'string' ? parseInt(courseDuration, 10) : Number(courseDuration);
+        if (duracion === 'Menos de 1 mes') return num > 0 && num <= 4;
+        if (duracion === '1-3 meses') return num > 4 && num <= 12;
+        if (duracion === '3-6 meses') return num > 12 && num <= 26;
+        if (duracion === '6-12 meses') return num > 26 && num <= 52;
+        if (duracion === '+1 año') return num > 52;
         return true;
       });
     }
-    
-    // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
-    // Esto es mucho más eficiente que cargar todos los documentos en el frontend
-    if (search && search.trim()) {
-      const searchNormalized = normalizeText(search);
-      courses = courses.filter((course: any) => {
-        const titulo = normalizeText(course.titulo || '');
-        const descripcion = normalizeText(course.descripcion || course.sobre_curso || '');
-        const descripcionCorta = normalizeText(course.descripcion_corta || '');
-        return titulo.includes(searchNormalized) || descripcion.includes(searchNormalized) || descripcionCorta.includes(searchNormalized);
+
+    courses = courses.filter((course: Record<string, unknown>) =>
+      matchesSearch(search, [
+        String(course.titulo || ''),
+        String(course.descripcion || course.sobre_curso || ''),
+        String(course.descripcion_corta || ''),
+      ])
+    );
+
+    courses = sortByComparator(
+      courses,
+      sortBy,
+      sortOrder,
+      {
+        title: (a, b) => String(a.titulo || '').localeCompare(String(b.titulo || '')),
+        price: (a, b) => Number(a.precio ?? 0) - Number(b.precio ?? 0),
+        students: (a, b) => Number(a.estudiantes ?? 0) - Number(b.estudiantes ?? 0),
+        date: (a, b) =>
+          (toJsDate(a.createdAt)?.getTime() || 0) - (toJsDate(b.createdAt)?.getTime() || 0),
+      },
+      (a, b) => String(a.id).localeCompare(String(b.id))
+    );
+
+    if (hasAdvancedFilters) {
+      const paginated = paginateByCursor(courses, limit, lastId);
+      return res.json({
+        courses: paginated.items,
+        pagination: {
+          hasMore: paginated.hasMore,
+          lastId: paginated.lastId,
+          limit,
+          count: paginated.items.length,
+        },
       });
     }
-    
-    const lastDoc = docs[docs.length - 1];
-    // Si hay más documentos que el límite, entonces hay más páginas
-    const hasMore = snapshot.docs.length > limit;
 
-    const response = {
-      courses,
+    const hasMore = courses.length > limit;
+    const pageCourses = courses.slice(0, limit);
+    return res.json({
+      courses: pageCourses,
       pagination: {
         hasMore,
-        lastId: lastDoc?.id,
+        lastId: pageCourses[pageCourses.length - 1]?.id ?? null,
         limit,
-        count: courses.length
-      }
-    };
-    
-    // ✅ CACHÉ: Guardar en caché si corresponde
-    if (shouldCache) {
-      const cacheKey = cache.generateKey(CACHE_KEYS.COURSES, {
-        limit,
-        pilar: pilar || 'all',
-        type: type || 'all',
-        nivel: nivel || 'all',
-      });
-      cache.set(cacheKey, response, 300); // 5 minutos
-    }
-
-    return res.json(response);
+        count: pageCourses.length,
+      },
+    });
   } catch (err) {
     console.error("getAllCourses error:", err);
     return res.status(500).json({ error: "Error al obtener formaciones" });
