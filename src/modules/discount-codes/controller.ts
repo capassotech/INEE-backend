@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { firestore } from "../../config/firebase";
 import { AuthenticatedRequest } from "../../middleware/authMiddleware";
-import { validateUser } from "../../utils/utils";
+import { validateUser, normalizeText } from "../../utils/utils";
 import {
   ValidatedCreateDiscountCode,
   ValidatedUpdateDiscountCode,
@@ -11,14 +11,22 @@ const collection = firestore.collection("discount_codes");
 
 export const getAllDiscountCodes = async (req: Request, res: Response) => {
   try {
+    const search = req.query.search as string | undefined;
     const snapshot = await collection.orderBy("__name__").get();
 
-    const codes = snapshot.docs.map((doc) => ({
+    let codes = snapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
     }));
 
-    return res.json(codes);
+    if (search?.trim()) {
+      const searchNormalized = normalizeText(search);
+      codes = codes.filter((code: Record<string, unknown>) =>
+        normalizeText(String(code.codigo || "")).includes(searchNormalized)
+      );
+    }
+
+    return res.json({ codes });
   } catch (error) {
     console.error("getAllDiscountCodes error:", error);
     return res

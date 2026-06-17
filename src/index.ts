@@ -35,6 +35,7 @@ import examenesRealizadosRoutes from "./modules/examenes-realizados/routes";
 import recomendacionesRoutes from "./modules/recomendaciones/routes";
 import mercadoPagoAccountsRoutes from "./modules/mercado-pago-accounts/routes";
 import remindersRoutes from "./modules/recordatorios/routes";
+import dashboardRoutes from "./modules/dashboard/routes";
 import { restoreActivePaypalProofReminders } from "./modules/recordatorios/controller";
 
 
@@ -75,6 +76,7 @@ app.use("/api/examenes-realizados", examenesRealizadosRoutes);
 app.use("/api/recomendaciones", recomendacionesRoutes);
 app.use("/api/mercado-pago-accounts", mercadoPagoAccountsRoutes);
 app.use("/api/reminders", remindersRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 app.get("/", (_, res) => {
   res.json({

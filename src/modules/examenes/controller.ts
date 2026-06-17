@@ -1,61 +1,75 @@
 import { Request, Response } from "express";
 import { firestore } from "../../config/firebase";
 import { AuthenticatedRequest } from "../../middleware/authMiddleware";
-import { validateUser } from "../../utils/utils";
+import { validateUser, normalizeText } from "../../utils/utils";
+import {
+  paginateByPage,
+  parseLimit,
+  parsePage,
+  parseSortOrder,
+  sortByComparator,
+  toJsDate,
+} from "../../utils/listQuery";
 
 const collection = firestore.collection("examenes");
 
 // Obtener todos los exámenes con paginación y búsqueda
 export const getAllExamenes = async (req: Request, res: Response) => {
   try {
-    const {
-      page = "1",
-      limit = "10",
-      search = "",
-      id_formacion = "",
-      estado = "",
-    } = req.query;
+    const pageNumber = parsePage(req.query.page as string, 1);
+    const limitNumber = parseLimit(req.query.limit as string, 5, 100);
+    const search = req.query.search as string | undefined;
+    const id_formacion = req.query.id_formacion as string | undefined;
+    const estado = req.query.estado as string | undefined;
+    const sortBy = req.query.sortBy as string | undefined;
+    const sortOrder = parseSortOrder(
+      req.query.sortOrder as string | undefined,
+      sortBy === 'title' ? 'asc' : 'desc'
+    );
 
-    const pageNumber = parseInt(page as string, 10);
-    const limitNumber = parseInt(limit as string, 10);
-    const offset = (pageNumber - 1) * limitNumber;
+    let query: FirebaseFirestore.Query = collection.orderBy("createdAt", "desc");
 
-    let query = collection.orderBy("createdAt", "desc");
-
-    // Filtros
     if (id_formacion) {
-      query = query.where("id_formacion", "==", id_formacion) as any;
+      query = query.where("id_formacion", "==", id_formacion);
     }
-
     if (estado) {
-      query = query.where("estado", "==", estado) as any;
+      query = query.where("estado", "==", estado);
     }
 
-    const snapshot = await query.get();
-
-    let examenes = snapshot.docs.map((doc) => ({
+    let examenes = (await query.get()).docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
     }));
 
-    // Búsqueda por título
-    if (search) {
-      const searchLower = (search as string).toLowerCase();
-      examenes = examenes.filter((examen: any) =>
-        examen.titulo?.toLowerCase().includes(searchLower)
+    if (search?.trim()) {
+      const searchNormalized = normalizeText(search);
+      examenes = examenes.filter((examen: Record<string, unknown>) =>
+        normalizeText(String(examen.titulo || "")).includes(searchNormalized)
       );
     }
 
-    const total = examenes.length;
-    const paginatedExamenes = examenes.slice(offset, offset + limitNumber);
+    examenes = sortByComparator(
+      examenes as Array<Record<string, unknown> & { id: string }>,
+      sortBy,
+      sortOrder,
+      {
+        title: (a, b) => String(a.titulo || "").localeCompare(String(b.titulo || "")),
+        date: (a, b) =>
+          (toJsDate(a.createdAt)?.getTime() || 0) - (toJsDate(b.createdAt)?.getTime() || 0),
+      },
+      (a, b) =>
+        (toJsDate(b.createdAt)?.getTime() || 0) - (toJsDate(a.createdAt)?.getTime() || 0)
+    );
+
+    const paginated = paginateByPage(examenes, pageNumber, limitNumber);
 
     return res.json({
-      examenes: paginatedExamenes,
+      examenes: paginated.items,
       pagination: {
-        total,
+        total: paginated.total,
         page: pageNumber,
         limit: limitNumber,
-        totalPages: Math.ceil(total / limitNumber),
+        totalPages: paginated.totalPages,
       },
     });
   } catch (error: any) {

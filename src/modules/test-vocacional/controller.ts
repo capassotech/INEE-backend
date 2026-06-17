@@ -1,5 +1,6 @@
 import { firestore } from "../../config/firebase";
 import { Request, Response } from "express";
+import { normalizeText } from "../../utils/utils";
 
 
 
@@ -152,8 +153,18 @@ export const sendPartialResponse = async (req: Request, res: Response) => {
 
 export const getAllPreguntas = async (req: Request, res: Response) => {
     try {
+        const search = req.query.search as string | undefined;
         const preguntas = await firestore.collection('preguntas').get();
-        return res.json(preguntas.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+        let items = preguntas.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+        if (search?.trim()) {
+            const searchNormalized = normalizeText(search);
+            items = items.filter((pregunta: Record<string, unknown>) =>
+                normalizeText(String(pregunta.texto || '')).includes(searchNormalized)
+            );
+        }
+
+        return res.json(items);
     } catch (error) {
         console.error('getAllPreguntas error:', error);
         return res.status(500).json({ error: 'Error al obtener preguntas' });
@@ -290,8 +301,20 @@ export const getAllRespuestas = async (req: Request, res: Response) => {
 
 export const getPerfiles = async (req: Request, res: Response) => {
     try {
+        const search = req.query.search as string | undefined;
         const perfiles = await firestore.collection('rutas_aprendizaje').get();
-        return res.json(perfiles.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+        let items = perfiles.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+        if (search?.trim()) {
+            const searchNormalized = normalizeText(search);
+            items = items.filter((perfil: Record<string, unknown>) => {
+                const nombre = normalizeText(String(perfil.nombre || ''));
+                const descripcion = normalizeText(String(perfil.descripcion || ''));
+                return nombre.includes(searchNormalized) || descripcion.includes(searchNormalized);
+            });
+        }
+
+        return res.json(items);
     } catch (error) {
         console.error('getPerfiles error:', error);
         return res.status(500).json({ error: 'Error al obtener perfiles' });

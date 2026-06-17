@@ -5,6 +5,13 @@ import { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { validateUser, normalizeText } from "../../utils/utils";
 import { ValidatedCreateEbook, ValidatedUpdateEbook } from "../../types/ebooks";
 import { cache, CACHE_KEYS } from "../../utils/cache";
+import {
+  matchesSearch,
+  paginateByCursor,
+  parseLimit,
+  parseSortOrder,
+  sortByComparator,
+} from "../../utils/listQuery";
 
 const collection = firestore.collection("ebooks");
 
@@ -17,92 +24,83 @@ const mapEbookResponse = (id: string, data: FirebaseFirestore.DocumentData | und
 // ✅ Obtener todos los ebooks
 export const getAllEbooks = async (req: Request, res: Response) => {
   try {
-    const limit = Math.min(parseInt((req.query.limit as string) || "20"), 100); // Máximo 100
+    const limit = parseLimit(req.query.limit as string);
     const lastId = req.query.lastId as string | undefined;
-    const search = req.query.search as string | undefined; // Búsqueda de texto
+    const search = req.query.search as string | undefined;
+    const status = req.query.status as string | undefined;
+    const sortBy = req.query.sortBy as string | undefined;
+    const sortOrder = parseSortOrder(
+      req.query.sortOrder as string | undefined,
+      sortBy === 'title' || sortBy === 'author' ? 'asc' : 'asc'
+    );
 
-    // ✅ CACHÉ: Solo cachear si no hay búsqueda ni paginación
-    const shouldCache = !search && !lastId;
+    const hasAdvancedFilters = Boolean(search?.trim() || status || sortBy);
 
-    if (shouldCache) {
-      const cacheKey = cache.generateKey(CACHE_KEYS.EBOOKS, { limit });
-      const cached = cache.get(cacheKey);
-      if (cached) {
-        return res.json(cached);
-      }
+    let query: FirebaseFirestore.Query = collection.orderBy("__name__");
+    if (status) {
+      query = query.where("estado", "==", status);
     }
 
-    // Para búsquedas, necesitamos un límite mayor para tener más resultados después del filtrado
-    const queryLimit = search && search.trim() ? limit * 3 : limit; // 3x para búsquedas
+    let ebooks: Array<Record<string, unknown> & { id: string }> = hasAdvancedFilters
+      ? (await query.limit(1000).get()).docs.map((doc) =>
+          mapEbookResponse(doc.id, doc.data()) as Record<string, unknown> & { id: string }
+        )
+      : (await (lastId
+          ? query.startAfter(await collection.doc(lastId).get()).limit(limit + 1)
+          : query.limit(limit + 1)
+        ).get()).docs.map((doc) =>
+          mapEbookResponse(doc.id, doc.data()) as Record<string, unknown> & { id: string }
+        );
 
-    // Consultar limit + 1 para saber si hay más documentos
-    const extendedQuery = lastId
-      ? collection
-          .orderBy("__name__")
-          .startAfter(await collection.doc(lastId).get())
-          .limit(queryLimit + 1)
-      : collection.orderBy("__name__").limit(queryLimit + 1);
+    if (status) {
+      ebooks = ebooks.filter((ebook: Record<string, unknown>) => ebook.estado === status);
+    }
 
-    const snapshot = await extendedQuery.get();
+    ebooks = ebooks.filter((ebook: Record<string, unknown>) =>
+      matchesSearch(search, [
+        String(ebook.title || ebook.titulo || ""),
+        String(ebook.description || ebook.descripcion || ""),
+        String(ebook.author || ebook.autor || ""),
+      ])
+    );
 
-    if (snapshot.empty) {
+    ebooks = sortByComparator(
+      ebooks,
+      sortBy,
+      sortOrder,
+      {
+        title: (a, b) =>
+          String(a.title || a.titulo || "").localeCompare(String(b.title || b.titulo || "")),
+        author: (a, b) =>
+          String(a.author || a.autor || "").localeCompare(String(b.author || b.autor || "")),
+      },
+      (a, b) => String(a.id).localeCompare(String(b.id))
+    );
+
+    if (hasAdvancedFilters) {
+      const paginated = paginateByCursor(ebooks, limit, lastId);
       return res.json({
-        ebooks: [],
+        ebooks: paginated.items,
         pagination: {
-          hasMore: false,
-          lastId: null,
+          hasMore: paginated.hasMore,
+          lastId: paginated.lastId,
           limit,
-          count: 0,
+          count: paginated.items.length,
         },
       });
     }
 
-    // Tomar solo los primeros 'queryLimit' documentos
-    const docs = snapshot.docs.slice(0, queryLimit);
-    let ebooks = docs.map((doc) => mapEbookResponse(doc.id, doc.data()));
-
-    // ✅ BÚSQUEDA DE TEXTO: Filtrar en memoria sobre resultados paginados
-    if (search && search.trim()) {
-      const searchNormalized = normalizeText(search);
-      ebooks = ebooks.filter((ebook: any) => {
-        const title = normalizeText(ebook.title || ebook.titulo || "");
-        const description = normalizeText(
-          ebook.description ||
-          ebook.descripcion ||
-          ""
-        );
-        const author = normalizeText(ebook.author || ebook.autor || "");
-        return (
-          title.includes(searchNormalized) ||
-          description.includes(searchNormalized) ||
-          author.includes(searchNormalized)
-        );
-      });
-      // Limitar después del filtrado
-      ebooks = ebooks.slice(0, limit);
-    }
-
-    const lastDoc = docs[docs.length - 1];
-    // Si hay más documentos que el límite, entonces hay más páginas
-    const hasMore = snapshot.docs.length > queryLimit;
-
-    const response = {
-      ebooks,
+    const hasMore = ebooks.length > limit;
+    const pageEbooks = ebooks.slice(0, limit);
+    return res.json({
+      ebooks: pageEbooks,
       pagination: {
         hasMore,
-        lastId: lastDoc?.id,
+        lastId: pageEbooks[pageEbooks.length - 1]?.id ?? null,
         limit,
-        count: ebooks.length,
+        count: pageEbooks.length,
       },
-    };
-
-    // ✅ CACHÉ: Guardar en caché si corresponde
-    if (shouldCache) {
-      const cacheKey = cache.generateKey(CACHE_KEYS.EBOOKS, { limit });
-      cache.set(cacheKey, response, 300); // 5 minutos
-    }
-
-    return res.json(response);
+    });
   } catch (err) {
     console.error("getAllEbooks error:", err);
     return res.status(500).json({ error: "Error al obtener ebooks" });

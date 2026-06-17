@@ -8,7 +8,6 @@ export const SESSION_HEADER_NAME = 'x-session-id';
 export const SESSIONS_COLLECTION = 'user_sessions';
 
 const SESSION_DURATION_HOURS = Number(process.env.SESSION_DURATION_HOURS) || 24;
-//const SESSION_DURATION_HOURS =0.0054; // ~30 seg
 export const SESSION_DURATION_MS = SESSION_DURATION_HOURS * 60 * 60 * 1000;
 
 export interface UserSessionRecord {
