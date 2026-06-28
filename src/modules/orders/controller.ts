@@ -10,6 +10,11 @@ import {
   parsePage,
 } from "../../utils/listQuery";
 import {
+  isGroupedOrderStatusFilter,
+  orderMatchesStatusFilter,
+  sortOrdersByCreatedAtDesc,
+} from "../../utils/orderStatusFilter";
+import {
     AssignPaypalOrderProductsSchema,
     AWAITING_PAYPAL_PROOF_STATUS,
     AWAITING_VERIFICATION_STATUS,
@@ -134,48 +139,68 @@ export const getOrders = async (req: Request, res: Response) => {
         const status = req.query.status as string | undefined;
         const excludeStatus = req.query.excludeStatus as string | undefined;
 
-        const hasAdvancedFilters = Boolean(
-            search?.trim() || discountCode || status || excludeStatus || page
+        const hasSearch = Boolean(search?.trim());
+        const hasStatusFilter = Boolean(status);
+        const hasGroupedStatusFilter = isGroupedOrderStatusFilter(status);
+        const hasPostFetchFilters = Boolean(
+            hasSearch || excludeStatus || hasGroupedStatusFilter
         );
 
-        let query: FirebaseFirestore.Query = collection.orderBy('createdAt', 'desc');
+        let query: FirebaseFirestore.Query = collection;
 
         if (discountCode) {
             query = query.where('discountCode', '==', discountCode);
-        } else if (status) {
+        } else if (hasStatusFilter && !hasGroupedStatusFilter) {
+            // Filtro exacto en Firestore (sin orderBy: evita índice compuesto status + createdAt)
             query = query.where('status', '==', status);
+        } else {
+            query = query.orderBy('createdAt', 'desc');
         }
 
-        let orders: Array<Record<string, unknown> & { id: string }> = hasAdvancedFilters
-            ? (await query.limit(2000).get()).docs.map((doc) => ({
-                id: doc.id,
-                ...(doc.data() as Record<string, unknown>),
-            }))
-            : (await (lastId
-                ? query.startAfter(await collection.doc(lastId).get()).limit(limit + 1)
-                : query.limit(limit + 1)
-              ).get()).docs.map((doc) => ({
-                id: doc.id,
-                ...(doc.data() as Record<string, unknown>),
-            }));
+        const useInMemoryPipeline = Boolean(
+            hasPostFetchFilters ||
+            hasStatusFilter ||
+            discountCode ||
+            page
+        );
 
-        if (status) {
-            orders = orders.filter((order) => order.status === status);
+        const fetchLimit = useInMemoryPipeline ? 2000 : limit + 1;
+
+        let orders: Array<Record<string, unknown> & { id: string }> = (
+            await query.limit(fetchLimit).get()
+        ).docs.map((doc) => ({
+            id: doc.id,
+            ...(doc.data() as Record<string, unknown>),
+        }));
+
+        if (hasStatusFilter) {
+            orders = orders.filter((order) =>
+                orderMatchesStatusFilter(order.status, status!)
+            );
         }
         if (excludeStatus) {
-            orders = orders.filter((order) => order.status !== excludeStatus);
+            orders = orders.filter(
+                (order) => order.status !== excludeStatus
+            );
         }
         if (discountCode) {
-            orders = orders.filter((order) => order.discountCode === discountCode);
+            orders = orders.filter(
+                (order) => order.discountCode === discountCode
+            );
         }
-        if (search?.trim()) {
-            const searchNormalized = normalizeText(search);
+        if (hasSearch) {
+            const searchNormalized = normalizeText(search!);
             orders = orders.filter((order) => {
                 const orderNumber = normalizeText(String(order.orderNumber || ''));
                 const userId = normalizeText(String(order.userId || ''));
-                return orderNumber.includes(searchNormalized) || userId.includes(searchNormalized);
+                return (
+                    orderNumber.includes(searchNormalized) ||
+                    userId.includes(searchNormalized)
+                );
             });
         }
+
+        orders = sortOrdersByCreatedAtDesc(orders);
 
         let pageOrders = orders;
         let pagination: Record<string, unknown>;
@@ -191,7 +216,7 @@ export const getOrders = async (req: Request, res: Response) => {
                 limit,
                 count: paginated.items.length,
             };
-        } else if (hasAdvancedFilters) {
+        } else if (useInMemoryPipeline) {
             const paginated = paginateByCursor(
                 orders.map((order) => ({ ...order, id: String(order.id) })),
                 limit,
