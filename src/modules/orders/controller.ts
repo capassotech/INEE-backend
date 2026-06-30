@@ -175,7 +175,7 @@ export const getOrders = async (req: Request, res: Response) => {
 
         if (hasStatusFilter) {
             orders = orders.filter((order) =>
-                orderMatchesStatusFilter(order.status, status!)
+                orderMatchesStatusFilter(order, status!)
             );
         }
         if (excludeStatus) {
