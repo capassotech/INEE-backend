@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { firestore, firebaseAuth, storage } from '../../config/firebase';
 import type { UserRegistrationData, UserProfile, SendAssignmentEmailParams } from '../../types/user';
 import { normalizeText } from '../../utils/utils';
+import { validateImageBuffer } from '../../utils/imageFileValidator';
 import { sendWelcomeEmail } from '../auth/controller';
 import { sendResourceAvailableEmail } from '../emails/resourceAvailableEmail';
 
@@ -358,7 +359,6 @@ export const updateUser = async (req: any, res: Response) => {
 
 const MIME_TO_EXT: Record<string, string> = {
   'image/jpeg': 'jpg',
-  'image/jpg': 'jpg',
   'image/png': 'png',
   'image/gif': 'gif',
   'image/webp': 'webp',
@@ -391,10 +391,12 @@ export const uploadProfilePhoto = async (req: any, res: Response) => {
       });
     }
 
-    const mime = (file.mimetype || '').toLowerCase();
-    if (!MIME_TO_EXT[mime]) {
-      return res.status(400).json({ error: 'Tipo de archivo no permitido. Usá JPEG, PNG, GIF o WebP' });
+    const imageValidation = validateImageBuffer(file.buffer);
+    if (!imageValidation.valid) {
+      return res.status(400).json({ error: imageValidation.error });
     }
+
+    const mime = imageValidation.mime;
 
     const userDoc = await firestore.collection('users').doc(uid).get();
     if (!userDoc.exists) {
