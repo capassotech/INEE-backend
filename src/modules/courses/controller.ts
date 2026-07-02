@@ -146,6 +146,8 @@ export const getAllCourses = async (req: Request, res: Response) => {
 
     if (hasAdvancedFilters) {
       const paginated = paginateByCursor(courses, limit, lastId);
+      const total = courses.length;
+      const totalPages = Math.max(Math.ceil(total / limit), 1);
       return res.json({
         courses: paginated.items,
         pagination: {
@@ -153,6 +155,8 @@ export const getAllCourses = async (req: Request, res: Response) => {
           lastId: paginated.lastId,
           limit,
           count: paginated.items.length,
+          total,
+          totalPages,
         },
       });
     }
