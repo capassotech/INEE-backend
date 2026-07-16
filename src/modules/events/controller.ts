@@ -5,8 +5,10 @@ import { firestore } from "../../config/firebase";
 import { validateUser, normalizeText } from "../../utils/utils";
 import { cache, CACHE_KEYS } from "../../utils/cache";
 import {
+  buildEventFilterOptions,
   getEventDateTime,
   matchesSearch,
+  normalizeEventTipoFilter,
   paginateByCursor,
   parseLimit,
   parseSortOrder,
@@ -22,10 +24,17 @@ const mapEventResponse = (id: string, data: FirebaseFirestore.DocumentData | und
 });
 
 
-const mapEventTipo = (tipo: string): string => {
-    const normalized = tipo.toLowerCase();
-    if (normalized === 'hibrido') return 'hibrida';
-    return normalized;
+const mapEventTipo = (tipo: string): string => normalizeEventTipoFilter(tipo);
+
+const getEventFilterOptions = async () => {
+    const cacheKey = `${CACHE_KEYS.EVENTS}:filterOptions`;
+    const cached = cache.get<ReturnType<typeof buildEventFilterOptions>>(cacheKey);
+    if (cached) return cached;
+
+    const snap = await collection.select('modalidad', 'tipo', 'estado').limit(1000).get();
+    const options = buildEventFilterOptions(snap.docs.map((doc) => doc.data()));
+    cache.set(cacheKey, options, 300);
+    return options;
 };
 
 export const getAllEvents = async (req: Request, res: Response) => {
@@ -77,8 +86,8 @@ export const getAllEvents = async (req: Request, res: Response) => {
         if (tipo) {
             const mappedTipo = mapEventTipo(tipo);
             events = events.filter((event: Record<string, unknown>) => {
-                const eventTipo = String(event.tipo || event.modalidad || '').toLowerCase();
-                return eventTipo === mappedTipo || eventTipo === tipo.toLowerCase();
+                const eventTipo = mapEventTipo(String(event.tipo || event.modalidad || ''));
+                return eventTipo === mappedTipo;
             });
         }
         if (upcoming) {
@@ -109,6 +118,8 @@ export const getAllEvents = async (req: Request, res: Response) => {
             (a, b) => String(a.id).localeCompare(String(b.id))
         );
 
+        const filterOptions = await getEventFilterOptions();
+
         if (hasAdvancedFilters) {
             const paginated = paginateByCursor(events, limit, lastId);
             return res.json({
@@ -119,6 +130,7 @@ export const getAllEvents = async (req: Request, res: Response) => {
                     limit,
                     count: paginated.items.length,
                 },
+                filterOptions,
             });
         }
 
@@ -132,6 +144,7 @@ export const getAllEvents = async (req: Request, res: Response) => {
                 limit,
                 count: pageEvents.length,
             },
+            filterOptions,
         });
     } catch (error) {
         console.error('getAllEvents error:', error);

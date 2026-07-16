@@ -10,6 +10,7 @@ import {
   parsePage,
 } from "../../utils/listQuery";
 import {
+  buildOrderFilterOptions,
   isGroupedOrderStatusFilter,
   orderMatchesStatusFilter,
   sortOrdersByCreatedAtDesc,
@@ -33,6 +34,17 @@ import { cancelActivePaypalProofReminders } from "../recordatorios/paypalProofRe
 import { getPaypalProofFileFromRequest } from "./paypalProofUpload";
 
 const collection = firestore.collection('orders');
+
+const getOrderFilterOptions = async () => {
+    const cacheKey = `${CACHE_KEYS.ORDERS}:filterOptions`;
+    const cached = cache.get<ReturnType<typeof buildOrderFilterOptions>>(cacheKey);
+    if (cached) return cached;
+
+    const snap = await collection.select('status').limit(2000).get();
+    const options = buildOrderFilterOptions(snap.docs.map((doc) => doc.data()));
+    cache.set(cacheKey, options, 300);
+    return options;
+};
 
 const getAdminOrderDetailUrl = (orderId: string): string => {
     const isProduction = process.env.FIREBASE_PROJECT_ID === 'inee-admin';
@@ -241,10 +253,12 @@ export const getOrders = async (req: Request, res: Response) => {
         }
 
         const enrichedOrders = await enrichOrdersList(pageOrders as Array<Record<string, unknown>>);
+        const filterOptions = await getOrderFilterOptions();
 
         return res.json({
             orders: enrichedOrders,
             pagination,
+            filterOptions,
         });
     } catch (error) {
         console.error('getOrders error:', error);

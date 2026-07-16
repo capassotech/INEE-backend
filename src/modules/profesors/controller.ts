@@ -1,50 +1,98 @@
 import { firestore } from "../../config/firebase";
 import { Request, Response } from "express";
-
-
+import {
+    matchesSearch,
+    paginateByPage,
+    parseLimit,
+    parsePage,
+    sortByComparator,
+    toJsDate,
+} from "../../utils/listQuery";
 
 export const getProfesors = async (req: Request, res: Response) => {
     try {
-        const limit = Math.min(parseInt(req.query.limit as string || '20'), 100); // Máximo 100
+        const limit = parseLimit(req.query.limit as string, 20, 100);
         const lastId = req.query.lastId as string | undefined;
-        
-        // Consultar limit + 1 para saber si hay más documentos
-        const extendedQuery = lastId 
-            ? firestore.collection('profesores').orderBy('__name__').startAfter(await firestore.collection('profesores').doc(lastId).get()).limit(limit + 1)
-            : firestore.collection('profesores').orderBy('__name__').limit(limit + 1);
-        
-        const snapshot = await extendedQuery.get();
-        
-        if (snapshot.empty) {
+        const page = req.query.page ? parsePage(req.query.page as string) : undefined;
+        const search = req.query.search as string | undefined;
+        const status = req.query.status as string | undefined;
+        const sortBy = req.query.sortBy as string | undefined;
+
+        const hasStatusFilter = Boolean(status && status !== 'all');
+        const hasAdvancedFilters = Boolean(search?.trim() || hasStatusFilter || sortBy || page);
+
+        if (!hasAdvancedFilters) {
+            // Paginación por cursor (comportamiento original, usado por la tienda)
+            const extendedQuery = lastId
+                ? firestore.collection('profesores').orderBy('__name__').startAfter(await firestore.collection('profesores').doc(lastId).get()).limit(limit + 1)
+                : firestore.collection('profesores').orderBy('__name__').limit(limit + 1);
+
+            const snapshot = await extendedQuery.get();
+
+            const docs = snapshot.docs.slice(0, limit);
+            const profesors = docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+
             return res.json({
-                profesors: [],
+                profesors,
                 pagination: {
-                    hasMore: false,
-                    lastId: null,
+                    hasMore: snapshot.docs.length > limit,
+                    lastId: docs[docs.length - 1]?.id ?? null,
                     limit,
-                    count: 0
+                    count: profesors.length
                 }
             });
         }
-        
-        // Tomar solo los primeros 'limit' documentos
-        const docs = snapshot.docs.slice(0, limit);
-        const profesors = docs.map(doc => ({ 
-            id: doc.id, 
-            ...doc.data() 
+
+        const snapshot = await firestore.collection('profesores').orderBy('__name__').limit(1000).get();
+        let profesors: Array<Record<string, unknown> & { id: string }> = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
         }));
-        
-        const lastDoc = docs[docs.length - 1];
-        // Si hay más documentos que el límite, entonces hay más páginas
-        const hasMore = snapshot.docs.length > limit;
-        
-        return res.json({
+
+        profesors = profesors.filter((profesor) =>
+            matchesSearch(search, [
+                `${String(profesor.nombre || '')} ${String(profesor.apellido || '')}`,
+            ])
+        );
+
+        if (hasStatusFilter) {
+            const isActive = status === 'activo';
+            // Los profesores sin campo `activo` se consideran habilitados
+            profesors = profesors.filter(
+                (profesor) => Boolean(profesor.activo ?? true) === isActive
+            );
+        }
+
+        profesors = sortByComparator(
             profesors,
+            sortBy,
+            sortBy === 'date' ? 'desc' : 'asc',
+            {
+                name: (a, b) =>
+                    `${String(a.nombre || '')} ${String(a.apellido || '')}`.localeCompare(
+                        `${String(b.nombre || '')} ${String(b.apellido || '')}`
+                    ),
+                date: (a, b) =>
+                    (toJsDate(a.createdAt)?.getTime() || 0) - (toJsDate(b.createdAt)?.getTime() || 0),
+            },
+            (a, b) => String(a.id).localeCompare(String(b.id))
+        );
+
+        const paginated = paginateByPage(profesors, page ?? 1, limit);
+
+        return res.json({
+            profesors: paginated.items,
             pagination: {
-                hasMore,
-                lastId: lastDoc?.id,
+                hasMore: paginated.hasMore,
+                lastId: null,
                 limit,
-                count: profesors.length
+                page: page ?? 1,
+                total: paginated.total,
+                totalPages: paginated.totalPages,
+                count: paginated.items.length
             }
         });
     } catch (error) {

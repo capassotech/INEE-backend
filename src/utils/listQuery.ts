@@ -102,22 +102,130 @@ export const paginateByPage = <T>(
   };
 };
 
-export const matchesCourseModalidad = (course: Record<string, unknown>, modalidad: string): boolean => {
-  const filter = modalidad.toUpperCase();
-  const dbModalidad = String(course.modalidad || '').toLowerCase();
-  const dbType = String(course.type || '').toUpperCase();
-  const pilar = String(course.pilar || '');
+export type ListFilterOption = { value: string; label: string };
 
-  const checks: Record<string, () => boolean> = {
-    ON_DEMAND: () => dbModalidad === 'on-demand' || dbType === 'ON_DEMAND',
-    VIRTUAL: () => dbModalidad === 'virtual' || dbType === 'VIRTUAL',
-    VIVO: () => dbType === 'VIVO' || pilar === 'liderazgo',
-    ASYNC: () => dbType === 'ASYNC' || pilar === 'emprendimiento',
-    EBOOK: () => dbType === 'EBOOK',
+/** Normaliza filtros legacy (ON_DEMAND/ASYNC/VIVO) al valor real de `modalidad` en DB. */
+export const normalizeCourseModalidadFilter = (modalidad: string): string => {
+  const raw = modalidad.trim().toLowerCase().replace(/_/g, '-');
+  const aliases: Record<string, string> = {
+    'on-demand': 'on-demand',
+    ondemand: 'on-demand',
+    virtual: 'virtual',
+    async: 'virtual',
+    asincronica: 'virtual',
+    'asincrónica': 'virtual',
+    presencial: 'presencial',
+    vivo: 'presencial',
+    'en-vivo': 'presencial',
   };
+  return aliases[raw] ?? raw;
+};
 
-  if (checks[filter]) return checks[filter]();
-  return dbModalidad === modalidad.toLowerCase() || dbType === filter;
+const COURSE_MODALIDAD_LABELS: Record<string, string> = {
+  virtual: 'Virtual',
+  presencial: 'Presencial',
+  'on-demand': 'On-Demand',
+};
+
+const COURSE_ESTADO_LABELS: Record<string, string> = {
+  activo: 'Activos',
+  inactivo: 'Inactivos',
+};
+
+const EVENT_TIPO_LABELS: Record<string, string> = {
+  presencial: 'Presencial',
+  virtual: 'Virtual',
+  hibrida: 'Híbrido',
+  hibrido: 'Híbrido',
+};
+
+const EVENT_ESTADO_LABELS: Record<string, string> = {
+  activo: 'Activos',
+  inactivo: 'Inactivos',
+};
+
+/** Normaliza modalidad/tipo de evento a valor canónico de DB (`hibrida`). */
+export const normalizeEventTipoFilter = (tipo: string): string => {
+  const raw = tipo.trim().toLowerCase();
+  if (raw === 'hibrido' || raw === 'híbrido' || raw === 'hibrida') return 'hibrida';
+  if (raw === 'online') return 'virtual';
+  return raw;
+};
+
+export const matchesCourseModalidad = (
+  course: Record<string, unknown>,
+  modalidad: string
+): boolean => {
+  const filter = normalizeCourseModalidadFilter(modalidad);
+  const dbModalidad = normalizeCourseModalidadFilter(String(course.modalidad || ''));
+  return Boolean(filter) && dbModalidad === filter;
+};
+
+export const buildCourseFilterOptions = (
+  docs: Array<{ modalidad?: unknown; estado?: unknown }>
+): { types: ListFilterOption[]; statuses: ListFilterOption[] } => {
+  const modalidades = new Set<string>();
+  const estados = new Set<string>();
+
+  for (const doc of docs) {
+    if (doc.modalidad) {
+      modalidades.add(normalizeCourseModalidadFilter(String(doc.modalidad)));
+    }
+    if (doc.estado) {
+      estados.add(String(doc.estado).toLowerCase());
+    }
+  }
+
+  return {
+    types: Array.from(modalidades)
+      .filter(Boolean)
+      .sort()
+      .map((value) => ({
+        value,
+        label: COURSE_MODALIDAD_LABELS[value] || value,
+      })),
+    statuses: Array.from(estados)
+      .filter(Boolean)
+      .sort()
+      .map((value) => ({
+        value,
+        label: COURSE_ESTADO_LABELS[value] || value,
+      })),
+  };
+};
+
+export const buildEventFilterOptions = (
+  docs: Array<{ modalidad?: unknown; tipo?: unknown; estado?: unknown }>
+): { types: ListFilterOption[]; statuses: ListFilterOption[] } => {
+  const tipos = new Set<string>();
+  const estados = new Set<string>();
+
+  for (const doc of docs) {
+    const raw = doc.modalidad ?? doc.tipo;
+    if (raw) {
+      tipos.add(normalizeEventTipoFilter(String(raw)));
+    }
+    if (doc.estado) {
+      estados.add(String(doc.estado).toLowerCase());
+    }
+  }
+
+  return {
+    types: Array.from(tipos)
+      .filter(Boolean)
+      .sort()
+      .map((value) => ({
+        value,
+        label: EVENT_TIPO_LABELS[value] || value,
+      })),
+    statuses: Array.from(estados)
+      .filter(Boolean)
+      .sort()
+      .map((value) => ({
+        value,
+        label: EVENT_ESTADO_LABELS[value] || value,
+      })),
+  };
 };
 
 export const getEventDateTime = (event: Record<string, unknown>): Date | null => {
