@@ -6,6 +6,7 @@ import {
   buildSessionAuthPayload,
   createUserSession,
 } from "../../services/userSession";
+import { getPasswordValidationErrors } from "../../utils/passwordValidation";
 import { Resend } from "resend";
 // Firebase Admin SDK ya está importado desde firebase config
 
@@ -158,6 +159,14 @@ export const linkPasswordProvider = async (req: Request, res: Response) => {
     if (!email || !password) {
       return res.status(400).json({
         error: "Email y contraseña son requeridos",
+      });
+    }
+
+    const passwordErrors = getPasswordValidationErrors(password);
+    if (passwordErrors.length > 0) {
+      return res.status(400).json({
+        error: "Datos de registro inválidos",
+        details: passwordErrors,
       });
     }
 
@@ -1631,5 +1640,218 @@ export const sendWelcomeEmail = async (email: string, nombre: string) => {
   } catch (error) {
     console.error('Error enviando email de bienvenida:', error);
     throw error;
+  }
+};
+
+const API_PORT = process.env.PORT || "3000";
+
+const PASSWORD_RESET_APP_URLS: Record<"estudiante" | "tienda", string> = {
+  estudiante:
+    process.env.ESTUDIANTE_FRONTEND_URL ||
+    (process.env.FIREBASE_PROJECT_ID === "inee-qa"
+      ? "https://estudiante-qa.ineeoficial.com"
+      : "https://estudiante.ineeoficial.com"),
+  tienda:
+    process.env.TIENDA_FRONTEND_URL ||
+    (process.env.FIREBASE_PROJECT_ID === "inee-qa"
+      ? "https://tienda-qa.ineeoficial.com"
+      : "https://ineeoficial.com"),
+};
+
+const LOCAL_FRONTEND_ORIGINS = new Set([
+  "http://localhost:8080",
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://127.0.0.1:8080",
+  "http://127.0.0.1:5173",
+]);
+
+const getApiOrigins = (): Set<string> => {
+  const origins = new Set<string>([
+    `http://localhost:${API_PORT}`,
+    `http://127.0.0.1:${API_PORT}`,
+  ]);
+  for (const value of [process.env.API_URL, process.env.VITE_API_URL]) {
+    if (!value) continue;
+    try {
+      origins.add(new URL(value).origin);
+    } catch {
+      // ignore invalid env URLs
+    }
+  }
+  return origins;
+};
+
+const normalizeAppBaseUrl = (value: string): string => value.replace(/\/$/, "");
+
+const buildResetPathUrl = (baseUrl: string): string =>
+  `${normalizeAppBaseUrl(baseUrl)}/recuperar-contrasena`;
+
+const resolvePasswordResetContinueUrl = (
+  platformRaw: unknown,
+  continueUrlRaw: unknown
+): string | null => {
+  const apiOrigins = getApiOrigins();
+  const platform =
+    platformRaw === "tienda" || platformRaw === "estudiante"
+      ? platformRaw
+      : null;
+
+  // 1) Prefer configured app URL for the platform (avoids pointing to the API).
+  if (platform) {
+    return buildResetPathUrl(PASSWORD_RESET_APP_URLS[platform]);
+  }
+
+  // 2) Allow explicit continueUrl only for known local frontends (never the API).
+  if (typeof continueUrlRaw === "string" && continueUrlRaw.trim()) {
+    try {
+      const parsed = new URL(continueUrlRaw.trim());
+      if (!parsed.pathname.endsWith("/recuperar-contrasena")) {
+        return null;
+      }
+      if (apiOrigins.has(parsed.origin)) {
+        return null;
+      }
+      if (LOCAL_FRONTEND_ORIGINS.has(parsed.origin)) {
+        return `${parsed.origin}/recuperar-contrasena`;
+      }
+      const allowedRemote = new Set(
+        Object.values(PASSWORD_RESET_APP_URLS).map((url) => new URL(url).origin)
+      );
+      const envFrontend = process.env.FRONTEND_URL?.replace(/\/$/, "");
+      if (envFrontend) {
+        try {
+          allowedRemote.add(new URL(envFrontend).origin);
+        } catch {
+          // ignore
+        }
+      }
+      if (allowedRemote.has(parsed.origin)) {
+        return `${parsed.origin}/recuperar-contrasena`;
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+};
+
+export const forgotPassword = async (req: Request, res: Response) => {
+  try {
+    const emailRaw = typeof req.body?.email === "string" ? req.body.email.trim() : "";
+    const continueUrl = resolvePasswordResetContinueUrl(
+      req.body?.platform,
+      req.body?.continueUrl
+    );
+
+    if (!emailRaw) {
+      return res.status(400).json({ error: "Email es requerido", exists: false });
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw)) {
+      return res.status(400).json({ error: "Formato de email inválido", exists: false });
+    }
+
+    if (!continueUrl) {
+      return res.status(400).json({
+        error: "No se pudo determinar la URL de recuperación. Enviá platform: 'estudiante' o 'tienda'.",
+        exists: false,
+      });
+    }
+
+    const email = emailRaw.toLowerCase();
+
+    let authUser;
+    try {
+      authUser = await firebaseAuth.getUserByEmail(email);
+    } catch (error: any) {
+      if (error?.code === "auth/user-not-found") {
+        return res.status(404).json({
+          error: "Usuario no encontrado",
+          exists: false,
+        });
+      }
+      throw error;
+    }
+
+    const userDoc = await firestore.collection("users").doc(authUser.uid).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        error: "Usuario no encontrado",
+        exists: false,
+      });
+    }
+
+    const userData = userDoc.data();
+    if (userData?.activo === false) {
+      return res.status(403).json({
+        error: "Usuario desactivado. Contacte al administrador",
+        exists: true,
+      });
+    }
+
+    const firebaseLink = await firebaseAuth.generatePasswordResetLink(email);
+
+    const firebaseUrl = new URL(firebaseLink);
+    const oobCode = firebaseUrl.searchParams.get("oobCode");
+    if (!oobCode) {
+      console.error("[forgotPassword] No se pudo obtener oobCode del link de Firebase");
+      return res.status(500).json({
+        error: "No se pudo generar el enlace de recuperación",
+        exists: true,
+      });
+    }
+
+    const resetUrl = `${continueUrl}?oobCode=${encodeURIComponent(oobCode)}`;
+    const nombre = userData?.nombre || "hola";
+
+    console.log(`[forgotPassword] resetUrl=${resetUrl}`);
+
+    const { error: emailError } = await resend.emails.send({
+      from: "INEE Oficial <contacto@ineeoficial.com>",
+      to: email,
+      subject: "Recuperá tu contraseña — INEE®",
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6; color: #333;">
+          <p>Hola ${nombre},</p>
+          <p>Recibimos una solicitud para restablecer la contraseña de tu cuenta en <strong>INEE®</strong>.</p>
+          <p>Hacé clic en el siguiente botón para elegir una nueva contraseña:</p>
+          <p style="margin: 28px 0;">
+            <a href="${resetUrl}"
+               style="background-color: #9B4C5C; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">
+              Restablecer contraseña
+            </a>
+          </p>
+          <p>Si el botón no funciona, copiá y pegá este enlace en tu navegador:</p>
+          <p style="word-break: break-all; color: #555;">${resetUrl}</p>
+          <p style="color: #666; font-size: 14px;">Este enlace expira en unas horas. Si no solicitaste este cambio, podés ignorar este correo.</p>
+          <div style="margin-top: 30px;">
+            <img src="https://firebasestorage.googleapis.com/v0/b/inee-admin.firebasestorage.app/o/Imagenes%2Flogo.png?alt=media&token=e46d276c-06d9-4b52-9d7e-33d85845cbb4" alt="INEE Logo" style="max-width: 150px;" />
+          </div>
+        </div>
+      `,
+    });
+
+    if (emailError) {
+      console.error("[forgotPassword] Error enviando email con Resend:", emailError);
+      return res.status(500).json({
+        error: "No se pudo enviar el email de recuperación. Intentá nuevamente.",
+        exists: true,
+      });
+    }
+
+    console.log(`[forgotPassword] Email de recuperación enviado a ${email}`);
+    return res.json({
+      message: "Email de recuperación enviado",
+      exists: true,
+    });
+  } catch (error: any) {
+    console.error("[forgotPassword]", error);
+    return res.status(500).json({
+      error: "Error al enviar email de recuperación",
+      exists: true,
+      details: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
   }
 };
