@@ -5,8 +5,10 @@ import { ValidatedCourse, ValidatedUpdateCourse } from "../../types/courses";
 import { validateUser, normalizeText } from "../../utils/utils";
 import { cache, CACHE_KEYS } from "../../utils/cache";
 import {
+  buildCourseFilterOptions,
   matchesCourseModalidad,
   matchesSearch,
+  normalizeCourseModalidadFilter,
   paginateByCursor,
   parseLimit,
   parseSortOrder,
@@ -21,6 +23,17 @@ const mapCourseResponse = (id: string, data: FirebaseFirestore.DocumentData | un
   ...(data || {}),
   precioUSD: data?.precioUSD ?? null,
 });
+
+const getCourseFilterOptions = async () => {
+  const cacheKey = `${CACHE_KEYS.COURSES}:filterOptions`;
+  const cached = cache.get<ReturnType<typeof buildCourseFilterOptions>>(cacheKey);
+  if (cached) return cached;
+
+  const snap = await collection.select("modalidad", "estado").limit(1000).get();
+  const options = buildCourseFilterOptions(snap.docs.map((doc) => doc.data()));
+  cache.set(cacheKey, options, 300);
+  return options;
+};
 
 export const getAllCourses = async (req: Request, res: Response) => {
   try {
@@ -55,11 +68,14 @@ export const getAllCourses = async (req: Request, res: Response) => {
 
     let query: FirebaseFirestore.Query = collection.orderBy('__name__');
 
+    const normalizedModalidad = modalidad
+      ? normalizeCourseModalidadFilter(modalidad)
+      : undefined;
+
     if (status) {
       query = query.where('estado', '==', status);
-    } else if (modalidad) {
-      const dbModalidad = modalidad.toUpperCase() === 'ON_DEMAND' ? 'on-demand' : modalidad.toLowerCase();
-      query = query.where('modalidad', '==', dbModalidad);
+    } else if (normalizedModalidad) {
+      query = query.where('modalidad', '==', normalizedModalidad);
     } else if (esDestacado === 'true') {
       query = query.where('esDestacado', '==', true);
     } else if (esDestacado === 'false') {
@@ -87,9 +103,9 @@ export const getAllCourses = async (req: Request, res: Response) => {
     if (status) {
       courses = courses.filter((course: Record<string, unknown>) => course.estado === status);
     }
-    if (modalidad) {
+    if (normalizedModalidad) {
       courses = courses.filter((course: Record<string, unknown>) =>
-        matchesCourseModalidad(course, modalidad)
+        matchesCourseModalidad(course, normalizedModalidad)
       );
     }
     if (esDestacado === 'true') {
@@ -144,6 +160,8 @@ export const getAllCourses = async (req: Request, res: Response) => {
       (a, b) => String(a.id).localeCompare(String(b.id))
     );
 
+    const filterOptions = await getCourseFilterOptions();
+
     if (hasAdvancedFilters) {
       const paginated = paginateByCursor(courses, limit, lastId);
       const total = courses.length;
@@ -158,6 +176,7 @@ export const getAllCourses = async (req: Request, res: Response) => {
           total,
           totalPages,
         },
+        filterOptions,
       });
     }
 
@@ -171,6 +190,7 @@ export const getAllCourses = async (req: Request, res: Response) => {
         limit,
         count: pageCourses.length,
       },
+      filterOptions,
     });
   } catch (err) {
     console.error("getAllCourses error:", err);

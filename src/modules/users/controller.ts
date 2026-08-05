@@ -113,9 +113,9 @@ export const getUsers = async (req: any, res: Response) => {
         ...doc.data()
       }));
     } else {
-      const queryLimit = Math.min(limit * 10, 1000);
-      
-      let query = firestore.collection('users').orderBy('__name__').limit(queryLimit);
+      // Traer hasta 1000 usuarios para que búsqueda/filtros/orden consideren todos los registros
+      // (con limit * 10, un pageSize chico dejaba resultados afuera)
+      const query = firestore.collection('users').orderBy('__name__').limit(1000);
       const snapshot = await query.get();
 
       users = snapshot.docs.map(doc => ({
