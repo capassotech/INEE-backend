@@ -4,6 +4,7 @@ import { firestore, firebaseAuth, storage } from '../../config/firebase';
 import type { UserRegistrationData, UserProfile, SendAssignmentEmailParams } from '../../types/user';
 import { normalizeText } from '../../utils/utils';
 import { validateImageBuffer } from '../../utils/imageFileValidator';
+import { getPasswordValidationErrors } from '../../utils/passwordValidation';
 import { sendWelcomeEmail } from '../auth/controller';
 import { sendResourceAvailableEmail } from '../emails/resourceAvailableEmail';
 
@@ -734,6 +735,14 @@ export const createUser = async (req: Request, res: Response) => {
     if (!email || !password || !nombre || !apellido || !dni) {
       return res.status(400).json({
         error: 'Todos los campos son requeridos',
+      });
+    }
+
+    const passwordErrors = getPasswordValidationErrors(password);
+    if (passwordErrors.length > 0) {
+      return res.status(400).json({
+        error: 'Datos de registro inválidos',
+        details: passwordErrors,
       });
     }
 
