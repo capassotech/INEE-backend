@@ -1,8 +1,8 @@
-import dns from "dns";
+// import dns from "dns";
 // En Render, la resolución IPv6 de googleapis.com puede cortar la conexión
 // antes de completar el fetch del token OAuth2 de Firebase Admin
 // ("Premature close"), aunque en local funcione. Forzamos IPv4.
-dns.setDefaultResultOrder("ipv4first");
+// dns.setDefaultResultOrder("ipv4first");
 
 import express from "express";
 import cors from "cors";
