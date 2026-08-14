@@ -1,6 +1,8 @@
 import { firestore } from "../../config/firebase";
 import { Request, Response } from "express";
 import {
+    buildListPagination,
+    getQueryCount,
     matchesSearch,
     paginateByPage,
     parseLimit,
@@ -22,12 +24,15 @@ export const getProfesors = async (req: Request, res: Response) => {
         const hasAdvancedFilters = Boolean(search?.trim() || hasStatusFilter || sortBy || page);
 
         if (!hasAdvancedFilters) {
-            // Paginación por cursor (comportamiento original, usado por la tienda)
+            const query = firestore.collection('profesores').orderBy('__name__');
             const extendedQuery = lastId
-                ? firestore.collection('profesores').orderBy('__name__').startAfter(await firestore.collection('profesores').doc(lastId).get()).limit(limit + 1)
-                : firestore.collection('profesores').orderBy('__name__').limit(limit + 1);
+                ? query.startAfter(await firestore.collection('profesores').doc(lastId).get()).limit(limit + 1)
+                : query.limit(limit + 1);
 
-            const snapshot = await extendedQuery.get();
+            const [snapshot, total] = await Promise.all([
+                extendedQuery.get(),
+                getQueryCount(query),
+            ]);
 
             const docs = snapshot.docs.slice(0, limit);
             const profesors = docs.map(doc => ({
@@ -37,12 +42,14 @@ export const getProfesors = async (req: Request, res: Response) => {
 
             return res.json({
                 profesors,
-                pagination: {
+                pagination: buildListPagination({
+                    page: 1,
+                    limit,
+                    count: profesors.length,
+                    total,
                     hasMore: snapshot.docs.length > limit,
                     lastId: docs[docs.length - 1]?.id ?? null,
-                    limit,
-                    count: profesors.length
-                }
+                }),
             });
         }
 
@@ -85,15 +92,14 @@ export const getProfesors = async (req: Request, res: Response) => {
 
         return res.json({
             profesors: paginated.items,
-            pagination: {
+            pagination: buildListPagination({
+                page: page ?? 1,
+                limit,
+                count: paginated.items.length,
+                total: paginated.total,
                 hasMore: paginated.hasMore,
                 lastId: null,
-                limit,
-                page: page ?? 1,
-                total: paginated.total,
-                totalPages: paginated.totalPages,
-                count: paginated.items.length
-            }
+            }),
         });
     } catch (error) {
         console.error('getProfesors error:', error);

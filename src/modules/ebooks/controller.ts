@@ -6,9 +6,12 @@ import { validateUser, normalizeText } from "../../utils/utils";
 import { ValidatedCreateEbook, ValidatedUpdateEbook } from "../../types/ebooks";
 import { cache, CACHE_KEYS } from "../../utils/cache";
 import {
+  buildListPagination,
+  getQueryCount,
   matchesSearch,
   paginateByCursor,
   parseLimit,
+  parsePage,
   parseSortOrder,
   sortByComparator,
 } from "../../utils/listQuery";
@@ -25,6 +28,7 @@ const mapEbookResponse = (id: string, data: FirebaseFirestore.DocumentData | und
 export const getAllEbooks = async (req: Request, res: Response) => {
   try {
     const limit = parseLimit(req.query.limit as string);
+    const page = parsePage(req.query.page as string);
     const lastId = req.query.lastId as string | undefined;
     const search = req.query.search as string | undefined;
     const status = req.query.status as string | undefined;
@@ -81,25 +85,30 @@ export const getAllEbooks = async (req: Request, res: Response) => {
       const paginated = paginateByCursor(ebooks, limit, lastId);
       return res.json({
         ebooks: paginated.items,
-        pagination: {
-          hasMore: paginated.hasMore,
-          lastId: paginated.lastId,
+        pagination: buildListPagination({
+          page,
           limit,
           count: paginated.items.length,
-        },
+          total: ebooks.length,
+          hasMore: paginated.hasMore,
+          lastId: paginated.lastId,
+        }),
       });
     }
 
+    const total = await getQueryCount(query);
     const hasMore = ebooks.length > limit;
     const pageEbooks = ebooks.slice(0, limit);
     return res.json({
       ebooks: pageEbooks,
-      pagination: {
-        hasMore,
-        lastId: pageEbooks[pageEbooks.length - 1]?.id ?? null,
+      pagination: buildListPagination({
+        page,
         limit,
         count: pageEbooks.length,
-      },
+        total,
+        hasMore,
+        lastId: pageEbooks[pageEbooks.length - 1]?.id ?? null,
+      }),
     });
   } catch (err) {
     console.error("getAllEbooks error:", err);

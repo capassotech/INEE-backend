@@ -6,11 +6,14 @@ import { validateUser, normalizeText } from "../../utils/utils";
 import { cache, CACHE_KEYS } from "../../utils/cache";
 import {
   buildCourseFilterOptions,
+  buildListPagination,
+  getQueryCount,
   matchesCourseModalidad,
   matchesSearch,
   normalizeCourseModalidadFilter,
   paginateByCursor,
   parseLimit,
+  parsePage,
   parseSortOrder,
   sortByComparator,
   toJsDate,
@@ -38,6 +41,7 @@ const getCourseFilterOptions = async () => {
 export const getAllCourses = async (req: Request, res: Response) => {
   try {
     const limit = parseLimit(req.query.limit as string);
+    const page = parsePage(req.query.page as string);
     const lastId = req.query.lastId as string | undefined;
     const pilar = req.query.pilar as string | undefined;
     const type = req.query.type as string | undefined;
@@ -164,32 +168,33 @@ export const getAllCourses = async (req: Request, res: Response) => {
 
     if (hasAdvancedFilters) {
       const paginated = paginateByCursor(courses, limit, lastId);
-      const total = courses.length;
-      const totalPages = Math.max(Math.ceil(total / limit), 1);
       return res.json({
         courses: paginated.items,
-        pagination: {
-          hasMore: paginated.hasMore,
-          lastId: paginated.lastId,
+        pagination: buildListPagination({
+          page,
           limit,
           count: paginated.items.length,
-          total,
-          totalPages,
-        },
+          total: courses.length,
+          hasMore: paginated.hasMore,
+          lastId: paginated.lastId,
+        }),
         filterOptions,
       });
     }
 
+    const total = await getQueryCount(query);
     const hasMore = courses.length > limit;
     const pageCourses = courses.slice(0, limit);
     return res.json({
       courses: pageCourses,
-      pagination: {
-        hasMore,
-        lastId: pageCourses[pageCourses.length - 1]?.id ?? null,
+      pagination: buildListPagination({
+        page,
         limit,
         count: pageCourses.length,
-      },
+        total,
+        hasMore,
+        lastId: pageCourses[pageCourses.length - 1]?.id ?? null,
+      }),
       filterOptions,
     });
   } catch (err) {

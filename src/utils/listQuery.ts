@@ -102,6 +102,44 @@ export const paginateByPage = <T>(
   };
 };
 
+export type ListPagination = {
+  page: number;
+  totalPages: number;
+  limit: number;
+  count: number;
+  total: number;
+  hasMore: boolean;
+  lastId: string | null;
+};
+
+export const buildListPagination = (params: {
+  page: number;
+  limit: number;
+  count: number;
+  total: number;
+  hasMore: boolean;
+  lastId?: string | null;
+}): ListPagination => {
+  const total = Math.max(params.total, 0);
+  const totalPages = Math.max(Math.ceil(total / params.limit), total === 0 ? 1 : 1);
+  return {
+    page: params.page,
+    totalPages,
+    limit: params.limit,
+    count: params.count,
+    total,
+    hasMore: params.hasMore,
+    lastId: params.lastId ?? null,
+  };
+};
+
+export const getQueryCount = async (
+  query: { count: () => { get: () => Promise<{ data: () => { count: number } }> } }
+): Promise<number> => {
+  const snap = await query.count().get();
+  return snap.data().count;
+};
+
 export type ListFilterOption = { value: string; label: string };
 
 /** Normaliza filtros legacy (ON_DEMAND/ASYNC/VIVO) al valor real de `modalidad` en DB. */
