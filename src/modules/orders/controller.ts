@@ -4,6 +4,8 @@ import { firestore } from '../../config/firebase';
 import { normalizeText, validateUser } from "../../utils/utils";
 import { cache, CACHE_KEYS } from "../../utils/cache";
 import {
+  buildListPagination,
+  getQueryCount,
   paginateByCursor,
   paginateByPage,
   parseLimit,
@@ -220,14 +222,14 @@ export const getOrders = async (req: Request, res: Response) => {
         if (page) {
             const paginated = paginateByPage(orders, page, limit);
             pageOrders = paginated.items;
-            pagination = {
+            pagination = buildListPagination({
                 page,
-                totalPages: paginated.totalPages,
-                total: paginated.total,
-                hasMore: paginated.hasMore,
                 limit,
                 count: paginated.items.length,
-            };
+                total: paginated.total,
+                hasMore: paginated.hasMore,
+                lastId: (pageOrders[pageOrders.length - 1] as { id?: string } | undefined)?.id ?? null,
+            });
         } else if (useInMemoryPipeline) {
             const paginated = paginateByCursor(
                 orders.map((order) => ({ ...order, id: String(order.id) })),
@@ -235,21 +237,26 @@ export const getOrders = async (req: Request, res: Response) => {
                 lastId
             );
             pageOrders = paginated.items;
-            pagination = {
-                hasMore: paginated.hasMore,
-                lastId: paginated.lastId,
+            pagination = buildListPagination({
+                page: parsePage(req.query.page as string),
                 limit,
                 count: paginated.items.length,
-            };
+                total: orders.length,
+                hasMore: paginated.hasMore,
+                lastId: paginated.lastId,
+            });
         } else {
+            const total = await getQueryCount(query);
             const hasMore = orders.length > limit;
             pageOrders = orders.slice(0, limit);
-            pagination = {
-                hasMore,
-                lastId: pageOrders[pageOrders.length - 1]?.id ?? null,
+            pagination = buildListPagination({
+                page: parsePage(req.query.page as string),
                 limit,
                 count: pageOrders.length,
-            };
+                total,
+                hasMore,
+                lastId: pageOrders[pageOrders.length - 1]?.id ?? null,
+            });
         }
 
         const enrichedOrders = await enrichOrdersList(pageOrders as Array<Record<string, unknown>>);

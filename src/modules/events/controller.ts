@@ -6,11 +6,14 @@ import { validateUser, normalizeText } from "../../utils/utils";
 import { cache, CACHE_KEYS } from "../../utils/cache";
 import {
   buildEventFilterOptions,
+  buildListPagination,
   getEventDateTime,
+  getQueryCount,
   matchesSearch,
   normalizeEventTipoFilter,
   paginateByCursor,
   parseLimit,
+  parsePage,
   parseSortOrder,
   sortByComparator,
 } from "../../utils/listQuery";
@@ -40,6 +43,7 @@ const getEventFilterOptions = async () => {
 export const getAllEvents = async (req: Request, res: Response) => {
     try {
         const limit = parseLimit(req.query.limit as string);
+        const page = parsePage(req.query.page as string);
         const lastId = req.query.lastId as string | undefined;
         const search = req.query.search as string | undefined;
         const includeInactive = req.query.includeInactive === 'true';
@@ -124,26 +128,31 @@ export const getAllEvents = async (req: Request, res: Response) => {
             const paginated = paginateByCursor(events, limit, lastId);
             return res.json({
                 events: paginated.items,
-                pagination: {
-                    hasMore: paginated.hasMore,
-                    lastId: paginated.lastId,
+                pagination: buildListPagination({
+                    page,
                     limit,
                     count: paginated.items.length,
-                },
+                    total: events.length,
+                    hasMore: paginated.hasMore,
+                    lastId: paginated.lastId,
+                }),
                 filterOptions,
             });
         }
 
+        const total = await getQueryCount(query);
         const hasMore = events.length > limit;
         const pageEvents = events.slice(0, limit);
         return res.json({
             events: pageEvents,
-            pagination: {
-                hasMore,
-                lastId: pageEvents[pageEvents.length - 1]?.id ?? null,
+            pagination: buildListPagination({
+                page,
                 limit,
                 count: pageEvents.length,
-            },
+                total,
+                hasMore,
+                lastId: pageEvents[pageEvents.length - 1]?.id ?? null,
+            }),
             filterOptions,
         });
     } catch (error) {

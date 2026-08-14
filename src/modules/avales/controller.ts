@@ -39,6 +39,7 @@ export const getAllAvales = async (req: Request, res: Response) => {
       pagination: {
         page,
         totalPages: paginated.totalPages,
+        total: paginated.total,
         totalCount: paginated.total,
         hasMore: paginated.hasMore,
         limit,

@@ -70,6 +70,8 @@ export const getAllExamenes = async (req: Request, res: Response) => {
         page: pageNumber,
         limit: limitNumber,
         totalPages: paginated.totalPages,
+        count: paginated.items.length,
+        hasMore: paginated.hasMore,
       },
     });
   } catch (error: any) {
