@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { firestore, firebaseAuth, storage } from '../../config/firebase';
 import type { UserRegistrationData, UserProfile, SendAssignmentEmailParams } from '../../types/user';
 import { normalizeText } from '../../utils/utils';
+import { toJsDate } from '../../utils/listQuery';
 import { validateImageBuffer } from '../../utils/imageFileValidator';
 import { getPasswordValidationErrors } from '../../utils/passwordValidation';
 import { sendWelcomeEmail } from '../auth/controller';
@@ -85,17 +86,44 @@ export const getUsers = async (req: any, res: Response) => {
     const offset = (page - 1) * limit;
     const search = req.query.search as string | undefined; 
     const status = req.query.status as string | undefined;
-    const sortBy = req.query.sortBy as string | undefined;
+    // Default: más nuevos primero (fechaRegistro desc)
+    const sortBy = (req.query.sortBy as string | undefined) || 'date';
     
     const hasSearch = Boolean(search && search.trim());
     const hasStatusFilter = Boolean(status && status !== 'all');
-    const hasSort = Boolean(sortBy);
-    const hasFilters = hasSearch || hasStatusFilter || hasSort;
+    const hasFilters = hasSearch || hasStatusFilter || sortBy !== 'date';
     
     let users: any[] = [];
     let totalFiltered = 0;
+
+    const getRegistroTime = (user: any): number =>
+      toJsDate(user.fechaRegistro)?.getTime() || 0;
+
+    const sortUsers = (list: any[]) => {
+      switch (sortBy) {
+        case 'name':
+          list.sort((a: any, b: any) => {
+            const nameA = `${a.nombre || ''} ${a.apellido || ''}`.toLowerCase();
+            const nameB = `${b.nombre || ''} ${b.apellido || ''}`.toLowerCase();
+            return nameA.localeCompare(nameB);
+          });
+          break;
+        case 'totalSpent':
+          list.sort((a: any, b: any) => {
+            const totalA = a.totalInvertido || 0;
+            const totalB = b.totalInvertido || 0;
+            return totalB - totalA;
+          });
+          break;
+        case 'date':
+        default:
+          list.sort((a: any, b: any) => getRegistroTime(b) - getRegistroTime(a));
+          break;
+      }
+    };
     
     if (!hasFilters) {
+      // Listado default: orden por fecha en Firestore (más nuevos primero)
       try {
         const countSnapshot = await firestore.collection('users').count().get();
         totalFiltered = countSnapshot.data().count;
@@ -103,16 +131,29 @@ export const getUsers = async (req: any, res: Response) => {
         const allUsersSnapshot = await firestore.collection('users').get();
         totalFiltered = allUsersSnapshot.size;
       }
-      
-      const pageQuery = firestore.collection('users')
-        .orderBy('__name__')
-        .offset(offset)
-        .limit(limit);
-      const pageSnapshot = await pageQuery.get();
-      users = pageSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+
+      try {
+        const pageSnapshot = await firestore
+          .collection('users')
+          .orderBy('fechaRegistro', 'desc')
+          .offset(offset)
+          .limit(limit)
+          .get();
+        users = pageSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+      } catch {
+        // Fallback si falta índice/campo: cargar y ordenar en memoria
+        const snapshot = await firestore.collection('users').orderBy('__name__').limit(1000).get();
+        users = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        sortUsers(users);
+        totalFiltered = users.length;
+        users = users.slice(offset, offset + limit);
+      }
     } else {
       // Traer hasta 1000 usuarios para que búsqueda/filtros/orden consideren todos los registros
       // (con limit * 10, un pageSize chico dejaba resultados afuera)
@@ -143,31 +184,7 @@ export const getUsers = async (req: any, res: Response) => {
         users = users.filter((user: any) => user.activo === isActive);
       }
 
-      if (hasSort) {
-        switch (sortBy) {
-          case 'name':
-            users.sort((a: any, b: any) => {
-              const nameA = `${a.nombre || ''} ${a.apellido || ''}`.toLowerCase();
-              const nameB = `${b.nombre || ''} ${b.apellido || ''}`.toLowerCase();
-              return nameA.localeCompare(nameB);
-            });
-            break;
-          case 'date':
-            users.sort((a: any, b: any) => {
-              const dateA = a.fechaRegistro?._seconds ? new Date(a.fechaRegistro._seconds * 1000).getTime() : 0;
-              const dateB = b.fechaRegistro?._seconds ? new Date(b.fechaRegistro._seconds * 1000).getTime() : 0;
-              return dateB - dateA;
-            });
-            break;
-          case 'totalSpent':
-            users.sort((a: any, b: any) => {
-              const totalA = a.totalInvertido || 0;
-              const totalB = b.totalInvertido || 0;
-              return totalB - totalA;
-            });
-            break;
-        }
-      }
+      sortUsers(users);
       
       totalFiltered = users.length;
       
