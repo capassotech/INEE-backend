@@ -21,9 +21,17 @@ export const parseSortOrder = (value?: string, defaultOrder: SortOrder = 'desc')
 export const toJsDate = (value: unknown): Date | null => {
   if (!value) return null;
   if (value instanceof Date) return value;
-  if (typeof value === 'object' && value !== null && 'toDate' in value) {
-    const converted = (value as { toDate: () => Date }).toDate();
-    return converted instanceof Date ? converted : null;
+  if (typeof value === 'object' && value !== null) {
+    if ('toDate' in value && typeof (value as { toDate: () => Date }).toDate === 'function') {
+      const converted = (value as { toDate: () => Date }).toDate();
+      return converted instanceof Date ? converted : null;
+    }
+    if ('_seconds' in value && typeof (value as { _seconds: unknown })._seconds === 'number') {
+      return new Date((value as { _seconds: number })._seconds * 1000);
+    }
+    if ('seconds' in value && typeof (value as { seconds: unknown }).seconds === 'number') {
+      return new Date((value as { seconds: number }).seconds * 1000);
+    }
   }
   if (typeof value === 'string' || typeof value === 'number') {
     const parsed = new Date(value);
