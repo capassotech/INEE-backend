@@ -4,6 +4,7 @@ import {
   LoginData,
   UpdateProfileData,
 } from "../types/user";
+import { getPasswordValidationErrors } from "../utils/passwordValidation";
 
 const loginAttempts = new Map<
   string,
@@ -60,36 +61,7 @@ export const validateRegistration = (
   }
 
   if (password) {
-    if (password.length < 8) {
-      errors.push("La contraseña debe tener al menos 8 caracteres");
-    }
-    if (!/(?=.*[a-z])/.test(password)) {
-      errors.push("La contraseña debe contener al menos una letra minúscula");
-    }
-    if (!/(?=.*[A-Z])/.test(password)) {
-      errors.push("La contraseña debe contener al menos una letra mayúscula");
-    }
-    if (!/(?=.*\d)/.test(password)) {
-      errors.push("La contraseña debe contener al menos un número");
-    }
-    if (!/(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?])/.test(password)) {
-      errors.push("La contraseña debe contener al menos un carácter especial");
-    }
-    const commonPasswords = [
-      "password",
-      "123456",
-      "123456789",
-      "qwerty",
-      "abc123",
-      "password123",
-      "12345678",
-      "admin",
-      "letmein",
-      "welcome",
-    ];
-    if (commonPasswords.includes(password.toLowerCase())) {
-      errors.push("La contraseña es demasiado común, elija una más segura");
-    }
+    errors.push(...getPasswordValidationErrors(password));
   }
 
   // Validación de nombre con caracteres permitidos

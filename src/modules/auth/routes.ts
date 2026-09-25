@@ -18,7 +18,8 @@ import {
   validateToken,
   linkPasswordProvider,
   linkGoogleProvider,   
-  updateUserDni,       
+  updateUserDni,
+  forgotPassword,
 } from "./controller";
 import {
   validateRegistration,
@@ -58,6 +59,8 @@ router.get("/login-stats", (req: Request, res: Response) => {
 });
 
 router.post("/check-email", sanitizeInput, checkEmailExists);
+
+router.post("/forgot-password", sanitizeInput, forgotPassword);
 
 router.get("/me", authMiddleware, (req: Request, res: Response) =>
   getUserProfile(req as AuthenticatedRequest, res)

@@ -1,7 +1,22 @@
 import { Request, Response } from "express";
+import { Timestamp } from "firebase-admin/firestore";
 import { firestore } from '../../config/firebase';
 import { normalizeText, validateUser } from "../../utils/utils";
 import { cache, CACHE_KEYS } from "../../utils/cache";
+import {
+  buildListPagination,
+  getQueryCount,
+  paginateByCursor,
+  paginateByPage,
+  parseLimit,
+  parsePage,
+} from "../../utils/listQuery";
+import {
+  buildOrderFilterOptions,
+  isGroupedOrderStatusFilter,
+  orderMatchesStatusFilter,
+  sortOrdersByCreatedAtDesc,
+} from "../../utils/orderStatusFilter";
 import {
     AssignPaypalOrderProductsSchema,
     AWAITING_PAYPAL_PROOF_STATUS,
@@ -21,6 +36,17 @@ import { cancelActivePaypalProofReminders } from "../recordatorios/paypalProofRe
 import { getPaypalProofFileFromRequest } from "./paypalProofUpload";
 
 const collection = firestore.collection('orders');
+
+const getOrderFilterOptions = async () => {
+    const cacheKey = `${CACHE_KEYS.ORDERS}:filterOptions`;
+    const cached = cache.get<ReturnType<typeof buildOrderFilterOptions>>(cacheKey);
+    if (cached) return cached;
+
+    const snap = await collection.select('status').limit(2000).get();
+    const options = buildOrderFilterOptions(snap.docs.map((doc) => doc.data()));
+    cache.set(cacheKey, options, 300);
+    return options;
+};
 
 const getAdminOrderDetailUrl = (orderId: string): string => {
     const isProduction = process.env.FIREBASE_PROJECT_ID === 'inee-admin';
@@ -85,170 +111,17 @@ export const updatePreferenceId = async (orderId: string, preferenceId: string) 
 }
 
 
-export const getOrders = async (req: Request, res: Response) => {
-    try {
-        const limit = Math.min(parseInt(req.query.limit as string || '20'), 100); 
-        const lastId = req.query.lastId as string | undefined;
-        const pageQuery = req.query.page as string | undefined;
-        const page = pageQuery ? Math.max(parseInt(pageQuery, 10) || 1, 1) : undefined;
-        const search = req.query.search as string | undefined;
-        const discountCode = req.query.discountCode as string | undefined;
-        
-        const shouldCache = !search && !lastId && !page && !discountCode;
-        
-        if (shouldCache) {
-            const cacheKey = cache.generateKey(CACHE_KEYS.ORDERS, { limit });
-            const cached = cache.get(cacheKey);
-            if (cached) {
-                return res.json(cached);
-            }
-        }
-        
-        const queryLimit = (search && search.trim()) || discountCode ? limit * 3 : limit; 
-        
-        let snapshot: FirebaseFirestore.QuerySnapshot<FirebaseFirestore.DocumentData>;
-        
-        // Si hay discountCode, filtrar por ese campo
-        if (discountCode) {
-            console.log(`🔍 Filtrando órdenes por discountCode: ${discountCode}`);
-            
-            if (page && page > 1) {
-                const skipCount = (page - 1) * limit;
-                
-                if (skipCount <= 50 * limit) {
-                    let currentQuery = collection
-                        .where('discountCode', '==', discountCode)
-                        .orderBy('createdAt', 'desc')
-                        .limit(skipCount);
-                    let skipSnapshot = await currentQuery.get();
-                    
-                    if (skipSnapshot.docs.length === skipCount) {
-                        const lastDocForPagination = skipSnapshot.docs[skipSnapshot.docs.length - 1];
-                        const extendedQuery = collection
-                            .where('discountCode', '==', discountCode)
-                            .orderBy('createdAt', 'desc')
-                            .startAfter(lastDocForPagination)
-                            .limit(queryLimit + 1);
-                        snapshot = await extendedQuery.get();
-                    } else {
-                        const emptyQuery = collection
-                            .where('discountCode', '==', discountCode)
-                            .orderBy('createdAt', 'desc')
-                            .limit(0);
-                        snapshot = await emptyQuery.get();
-                    }
-                } else {
-                    const emptyQuery = collection
-                        .where('discountCode', '==', discountCode)
-                        .orderBy('createdAt', 'desc')
-                        .limit(0);
-                    snapshot = await emptyQuery.get();
-                }
-            } else if (lastId) {
-                const lastDoc = await collection.doc(lastId).get();
-                if (lastDoc.exists) {
-                    const extendedQuery = collection
-                        .where('discountCode', '==', discountCode)
-                        .orderBy('createdAt', 'desc')
-                        .startAfter(lastDoc)
-                        .limit(queryLimit + 1);
-                    snapshot = await extendedQuery.get();
-                } else {
-                    const emptyQuery = collection
-                        .where('discountCode', '==', discountCode)
-                        .orderBy('createdAt', 'desc')
-                        .limit(0);
-                    snapshot = await emptyQuery.get();
-                }
-            } else {
-                const extendedQuery = collection
-                    .where('discountCode', '==', discountCode)
-                    .orderBy('createdAt', 'desc')
-                    .limit(queryLimit + 1);
-                snapshot = await extendedQuery.get();
-            }
-        } else if (page && page > 1) {
-            const skipCount = (page - 1) * limit;
-            
-            if (skipCount <= 50 * limit) {
-                let currentQuery = collection.orderBy('createdAt', 'desc').limit(skipCount);
-                let skipSnapshot = await currentQuery.get();
-                
-                if (skipSnapshot.docs.length === skipCount) {
-                    const lastDocForPagination = skipSnapshot.docs[skipSnapshot.docs.length - 1];
-                    const extendedQuery = collection.orderBy('createdAt', 'desc')
-                        .startAfter(lastDocForPagination)
-                        .limit(queryLimit + 1);
-                    snapshot = await extendedQuery.get();
-                } else {
-                    const emptyQuery = collection.orderBy('createdAt', 'desc').limit(0);
-                    snapshot = await emptyQuery.get();
-                }
-            } else {
-                const emptyQuery = collection.orderBy('createdAt', 'desc').limit(0);
-                snapshot = await emptyQuery.get();
-            }
-        } else if (lastId) {
-            const lastDoc = await collection.doc(lastId).get();
-            if (lastDoc.exists) {
-                const extendedQuery = collection.orderBy('createdAt', 'desc')
-                    .startAfter(lastDoc)
-                    .limit(queryLimit + 1);
-                snapshot = await extendedQuery.get();
-            } else {
-                const emptyQuery = collection.orderBy('createdAt', 'desc').limit(0);
-                snapshot = await emptyQuery.get();
-            }
-        } else {
-            const extendedQuery = collection.orderBy('createdAt', 'desc').limit(queryLimit + 1);
-            snapshot = await extendedQuery.get();
-        }
-
-        if (snapshot.empty) {
-            return res.json({
-                orders: [],
-                pagination: {
-                    hasMore: false,
-                    lastId: null,
-                    limit,
-                    count: 0
-                }
-            });
-        }
-
-        const docs = snapshot.docs.slice(0, queryLimit);
-        let orders = docs.map((doc) => ({ 
-            id: doc.id, 
-            ...doc.data() 
-        }));
-        
-        if (search && search.trim()) {
-            const searchNormalized = normalizeText(search);
-            orders = orders.filter((order: any) => {
-                const orderNumber = normalizeText(order.orderNumber || '');
-                const userId = normalizeText(order.userId || '');
-                return orderNumber.includes(searchNormalized) || userId.includes(searchNormalized);
-            });
-            orders = orders.slice(0, limit);
-        } else {
-            orders = orders.slice(0, limit);
-        }
-        
-        const lastDoc = docs[docs.length - 1];
-        const hasMore = snapshot.docs.length > queryLimit;
-
-        // Enriquecer las órdenes con información de uso de código de descuento
-        const ordersWithDiscountInfo = await Promise.all(orders.map(async (order: any) => {
-            // Buscar si existe un registro de uso de código de descuento para esta orden
+const enrichOrdersList = async (orders: Array<Record<string, unknown>>) => {
+    const ordersWithDiscountInfo = await Promise.all(
+        orders.map(async (order) => {
             const discountCodeUsageSnapshot = await firestore
                 .collection('discount_code_usage')
                 .where('orderId', '==', order.id)
                 .limit(1)
                 .get();
-            
+
             if (!discountCodeUsageSnapshot.empty) {
                 const discountUsageData = discountCodeUsageSnapshot.docs[0].data();
-                // Agregar la información del descuento a la orden
                 return {
                     ...order,
                     discountInfo: {
@@ -256,40 +129,173 @@ export const getOrders = async (req: Request, res: Response) => {
                         originalAmount: discountUsageData.originalAmount,
                         savedAmount: discountUsageData.savedAmount,
                         discountPercentage: discountUsageData.discountPercentage,
-                        usedAt: discountUsageData.usedAt
-                    }
+                        usedAt: discountUsageData.usedAt,
+                    },
                 };
             }
-            
+
             return order;
-        }));
-        
-        const enrichedOrders = ordersWithDiscountInfo.map((order) =>
-            enrichOrderResponse(order as Record<string, unknown>)
+        })
+    );
+
+    return ordersWithDiscountInfo.map((order) =>
+        enrichOrderResponse(order as Record<string, unknown>)
+    );
+};
+
+export const getOrders = async (req: Request, res: Response) => {
+    try {
+        const limit = parseLimit(req.query.limit as string);
+        const lastId = req.query.lastId as string | undefined;
+        const page = req.query.page ? parsePage(req.query.page as string) : undefined;
+        const search = req.query.search as string | undefined;
+        const discountCode = req.query.discountCode as string | undefined;
+        const status = req.query.status as string | undefined;
+        const excludeStatus = req.query.excludeStatus as string | undefined;
+
+        const hasSearch = Boolean(search?.trim());
+        const hasStatusFilter = Boolean(status);
+        const hasGroupedStatusFilter = isGroupedOrderStatusFilter(status);
+        const hasPostFetchFilters = Boolean(
+            hasSearch || excludeStatus || hasGroupedStatusFilter
         );
 
-        const response = {
-            orders: enrichedOrders,
-            pagination: {
-                hasMore,
-                lastId: lastDoc?.id,
-                limit,
-                count: enrichedOrders.length,
-                ...(page && { page, totalPages: hasMore ? page + 1 : page })
-            }
-        };
-        
-        if (shouldCache) {
-            const cacheKey = cache.generateKey(CACHE_KEYS.ORDERS, { limit });
-            cache.set(cacheKey, response, 300); 
+        let query: FirebaseFirestore.Query = collection;
+
+        if (discountCode) {
+            query = query.where('discountCode', '==', discountCode);
+        } else if (hasStatusFilter && !hasGroupedStatusFilter) {
+            // Filtro exacto en Firestore (sin orderBy: evita índice compuesto status + createdAt)
+            query = query.where('status', '==', status);
+        } else {
+            query = query.orderBy('createdAt', 'desc');
         }
-        
-        return res.json(response);
+
+        const useInMemoryPipeline = Boolean(
+            hasPostFetchFilters ||
+            hasStatusFilter ||
+            discountCode ||
+            page
+        );
+
+        const fetchLimit = useInMemoryPipeline ? 2000 : limit + 1;
+
+        let orders: Array<Record<string, unknown> & { id: string }> = (
+            await query.limit(fetchLimit).get()
+        ).docs.map((doc) => ({
+            id: doc.id,
+            ...(doc.data() as Record<string, unknown>),
+        }));
+
+        if (hasStatusFilter) {
+            orders = orders.filter((order) =>
+                orderMatchesStatusFilter(order, status!)
+            );
+        }
+        if (excludeStatus) {
+            orders = orders.filter(
+                (order) => order.status !== excludeStatus
+            );
+        }
+        if (discountCode) {
+            orders = orders.filter(
+                (order) => order.discountCode === discountCode
+            );
+        }
+        if (hasSearch) {
+            const searchNormalized = normalizeText(search!);
+            orders = orders.filter((order) => {
+                const orderNumber = normalizeText(String(order.orderNumber || ''));
+                const userId = normalizeText(String(order.userId || ''));
+                return (
+                    orderNumber.includes(searchNormalized) ||
+                    userId.includes(searchNormalized)
+                );
+            });
+        }
+
+        orders = sortOrdersByCreatedAtDesc(orders);
+
+        let pageOrders = orders;
+        let pagination: Record<string, unknown>;
+
+        if (page) {
+            const paginated = paginateByPage(orders, page, limit);
+            pageOrders = paginated.items;
+            pagination = buildListPagination({
+                page,
+                limit,
+                count: paginated.items.length,
+                total: paginated.total,
+                hasMore: paginated.hasMore,
+                lastId: (pageOrders[pageOrders.length - 1] as { id?: string } | undefined)?.id ?? null,
+            });
+        } else if (useInMemoryPipeline) {
+            const paginated = paginateByCursor(
+                orders.map((order) => ({ ...order, id: String(order.id) })),
+                limit,
+                lastId
+            );
+            pageOrders = paginated.items;
+            pagination = buildListPagination({
+                page: parsePage(req.query.page as string),
+                limit,
+                count: paginated.items.length,
+                total: orders.length,
+                hasMore: paginated.hasMore,
+                lastId: paginated.lastId,
+            });
+        } else {
+            const total = await getQueryCount(query);
+            const hasMore = orders.length > limit;
+            pageOrders = orders.slice(0, limit);
+            pagination = buildListPagination({
+                page: parsePage(req.query.page as string),
+                limit,
+                count: pageOrders.length,
+                total,
+                hasMore,
+                lastId: pageOrders[pageOrders.length - 1]?.id ?? null,
+            });
+        }
+
+        const enrichedOrders = await enrichOrdersList(pageOrders as Array<Record<string, unknown>>);
+        const filterOptions = await getOrderFilterOptions();
+
+        return res.json({
+            orders: enrichedOrders,
+            pagination,
+            filterOptions,
+        });
     } catch (error) {
         console.error('getOrders error:', error);
         return res.status(500).json({ error: 'Error al obtener órdenes' });
     }
-}
+};
+
+export const getOrdersCount = async (req: Request, res: Response) => {
+    try {
+        const sinceParam = req.query.since as string | undefined;
+        if (!sinceParam) {
+            return res.status(400).json({ error: 'El parámetro since es requerido' });
+        }
+
+        const since = new Date(sinceParam);
+        if (Number.isNaN(since.getTime())) {
+            return res.status(400).json({ error: 'El parámetro since debe ser una fecha ISO válida' });
+        }
+
+        const snapshot = await collection
+            .where('createdAt', '>', Timestamp.fromDate(since))
+            .count()
+            .get();
+
+        return res.json({ count: snapshot.data().count });
+    } catch (error) {
+        console.error('getOrdersCount error:', error);
+        return res.status(500).json({ error: 'Error al contar órdenes' });
+    }
+};
 
 export const getOrderById = async (req: Request, res: Response) => {
     try {
