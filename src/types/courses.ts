@@ -34,6 +34,7 @@ export enum ModalidadCurso {
     VIRTUAL = "virtual",
     PRESENCIAL = "presencial",
     ON_DEMAND = "on-demand",
+    EN_VIVO = "en-vivo",
 }
 
 export enum EstadoCurso {
@@ -73,7 +74,7 @@ export const CourseSchema = z.object({
     nivel: z.enum(["principiante", "intermedio", "avanzado"], {
         message: "Selecciona un nivel válido",
     }),
-    modalidad: z.enum(["presencial", "virtual", "on-demand"], {
+    modalidad: z.enum(["presencial", "virtual", "on-demand", "en-vivo"], {
         message: "Selecciona una modalidad válida",
     }),
     pilar: z.enum(["liderazgo", "consultoria-estrategica", "emprendimiento"], {
