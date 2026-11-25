@@ -43,6 +43,7 @@ import mercadoPagoAccountsRoutes from "./modules/mercado-pago-accounts/routes";
 import remindersRoutes from "./modules/recordatorios/routes";
 import dashboardRoutes from "./modules/dashboard/routes";
 import { restoreActivePaypalProofReminders } from "./modules/recordatorios/controller";
+import { startAbandonedCartScheduler } from "./modules/recordatorios/abandonedCartScheduler";
 
 
 const app = express();
@@ -106,6 +107,7 @@ app.listen(PORT, () => {
   restoreActivePaypalProofReminders().catch((error) => {
     console.error('Error al restaurar recordatorios PayPal:', error);
   });
+  startAbandonedCartScheduler();
 });
 
 export default app;
