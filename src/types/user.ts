@@ -3,7 +3,8 @@ export interface UserRegistrationData {
   password: string;
   nombre: string;
   apellido: string;
-  dni: string;
+  /** Opcional al registrarse: se pide al emitir el certificado */
+  dni?: string;
   aceptaTerminos: boolean;
 }
 
@@ -14,7 +15,8 @@ export interface UserProfile {
   email: string;
   nombre: string;
   apellido: string;
-  dni: string;
+  /** null hasta que el alumno lo carga para su certificado */
+  dni: string | null;
   role: string;
   fechaRegistro: Date;
   fechaActualizacion: Date;

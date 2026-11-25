@@ -52,7 +52,7 @@ export const validateRegistration = (
   if (!password) errors.push("Contraseña es requerida");
   if (!nombre) errors.push("Nombre es requerido");
   if (!apellido) errors.push("Apellido es requerido");
-  if (!dni) errors.push("DNI es requerido");
+  // El DNI es opcional al registrarse: se pide recién al emitir el certificado (campus)
   if (aceptaTerminos !== true)
     errors.push("Debe aceptar los términos y condiciones");
 
@@ -92,8 +92,10 @@ export const validateRegistration = (
 
   if (dni) {
     const dniStr = dni.toString().trim();
-    if (!/^\d{7,8}$/.test(dniStr)) {
-      errors.push("DNI debe tener entre 7 y 8 dígitos");
+    // DNI argentino (7-8 dígitos) o documento/pasaporte de otro país (6-15 letras y números)
+    const isNumeric = /^\d+$/.test(dniStr);
+    if (isNumeric ? !/^\d{7,8}$/.test(dniStr) : !/^[A-Za-z0-9]{6,15}$/.test(dniStr)) {
+      errors.push("Documento inválido: DNI de 7 u 8 dígitos o pasaporte de 6 a 15 caracteres");
     } else {
       // Validar que no sea un DNI obviamente falso
       const invalidDnis = [
@@ -126,7 +128,7 @@ export const validateRegistration = (
   req.body.nombre = nombre.trim();
   req.body.apellido = apellido.trim();
   req.body.email = email.toLowerCase().trim();
-  req.body.dni = dni.toString().trim();
+  req.body.dni = dni ? dni.toString().trim() : undefined;
 
   next();
 };

@@ -36,16 +36,19 @@ export const registerUser = async (req: Request, res: Response) => {
       aceptaTerminos,
     }: UserRegistrationData = req.body;
 
-    // Verificar si el DNI ya existe
-    const existingDniQuery = await firestore
-      .collection("users")
-      .where("dni", "==", dni)
-      .get();
+    // El DNI es opcional al registrarse (se pide al emitir el certificado).
+    // Si viene, se verifica que no esté repetido.
+    if (dni) {
+      const existingDniQuery = await firestore
+        .collection("users")
+        .where("dni", "==", dni)
+        .get();
 
-    if (!existingDniQuery.empty) {
-      return res.status(409).json({
-        error: "Ya existe un usuario registrado con este DNI",
-      });
+      if (!existingDniQuery.empty) {
+        return res.status(409).json({
+          error: "Ya existe un usuario registrado con este DNI",
+        });
+      }
     }
 
     // NUEVO: Verificar si ya existe un usuario con ese email
@@ -94,7 +97,7 @@ export const registerUser = async (req: Request, res: Response) => {
       email,
       nombre,
       apellido,
-      dni,
+      dni: dni || null,
       role: "alumno",
       provider: "password",
       fechaRegistro: new Date(),
@@ -119,7 +122,8 @@ export const registerUser = async (req: Request, res: Response) => {
         nombre,
         apellido,
         role: "alumno",
-        dni,
+        dni: dni || null,
+        needsDni: !dni,
       },
       customToken,
     });
@@ -695,7 +699,7 @@ export const googleAuth = async (req: Request, res: Response) => {
 
         // Si no existe en Firestore pero tiene ambos proveedores, es un caso raro
         // Crearlo con DNI si se proporcionó
-        if (dni && aceptaTerminos !== undefined) {
+        if (aceptaTerminos !== undefined) {
           const displayName = name || decodedToken.name || "";
           const nameParts = displayName.split(" ");
           const nombreFromGoogle = nameParts[0] || "";
@@ -703,10 +707,10 @@ export const googleAuth = async (req: Request, res: Response) => {
 
           const existingDniQuery = await firestore
             .collection("users")
-            .where("dni", "==", dni)
+            .where("dni", "==", dni || "__sin_dni__")
             .get();
 
-          if (!existingDniQuery.empty) {
+          if (dni && !existingDniQuery.empty) {
             return res.status(409).json({
               error: "Ya existe un usuario registrado con este DNI",
             });
@@ -716,7 +720,7 @@ export const googleAuth = async (req: Request, res: Response) => {
             email: googleEmail,
             nombre: nombreFromGoogle,
             apellido: apellidoFromGoogle,
-            dni: dni,
+            dni: dni || null,
             photoURL: picture || "",
             provider: "password,google",
             fechaRegistro: new Date(),
@@ -753,8 +757,8 @@ export const googleAuth = async (req: Request, res: Response) => {
               nombre: nombreFromGoogle,
               apellido: apellidoFromGoogle,
               role: "alumno",
-              dni: dni,
-              needsDni: false,
+              dni: dni || null,
+              needsDni: !dni,
             },
             token: customToken,
           });
@@ -794,7 +798,7 @@ export const googleAuth = async (req: Request, res: Response) => {
       if (!userDoc.exists) {
         console.log(`[GOOGLE AUTH] Usuario existe en Auth pero no en Firestore, creando perfil...`);
 
-        if (dni && aceptaTerminos !== undefined) {
+        if (aceptaTerminos !== undefined) {
           const displayName = name || decodedToken.name || "";
           const nameParts = displayName.split(" ");
           const nombreFromGoogle = nameParts[0] || "";
@@ -802,10 +806,10 @@ export const googleAuth = async (req: Request, res: Response) => {
 
           const existingDniQuery = await firestore
             .collection("users")
-            .where("dni", "==", dni)
+            .where("dni", "==", dni || "__sin_dni__")
             .get();
 
-          if (!existingDniQuery.empty) {
+          if (dni && !existingDniQuery.empty) {
             return res.status(409).json({
               error: "Ya existe un usuario registrado con este DNI",
             });
@@ -815,7 +819,7 @@ export const googleAuth = async (req: Request, res: Response) => {
             email: googleEmail,
             nombre: nombreFromGoogle,
             apellido: apellidoFromGoogle,
-            dni: dni,
+            dni: dni || null,
             photoURL: picture || "",
             provider: hasPasswordProvider ? "password,google" : "google",
             fechaRegistro: new Date(),
@@ -854,8 +858,8 @@ export const googleAuth = async (req: Request, res: Response) => {
               nombre: nombreFromGoogle,
               apellido: apellidoFromGoogle,
               role: "alumno",
-              dni: dni,
-              needsDni: false,
+              dni: dni || null,
+              needsDni: !dni,
             },
             token: customToken,
           });
@@ -927,7 +931,7 @@ export const googleAuth = async (req: Request, res: Response) => {
     }
 
     // Si es nuevo y NO envió DNI → Pedir que complete el registro
-    if (!dni || aceptaTerminos === undefined) {
+    if (aceptaTerminos === undefined) {
       console.log(`[GOOGLE AUTH] Usuario nuevo, necesita completar registro con DNI`);
 
       // Extraer nombre y apellido del displayName de Google
@@ -938,7 +942,7 @@ export const googleAuth = async (req: Request, res: Response) => {
 
       return res.status(400).json({
         code: "NEEDS_REGISTRATION_DATA",
-        message: "Completá tu registro ingresando tu DNI",
+        message: "Aceptá los términos y condiciones para crear tu cuenta",
         userData: {
           email: googleEmail,
           nombre: nombre,
@@ -951,16 +955,16 @@ export const googleAuth = async (req: Request, res: Response) => {
     // Verificar que el DNI no exista ya
     const existingDniQuery = await firestore
       .collection("users")
-      .where("dni", "==", dni)
+      .where("dni", "==", dni || "__sin_dni__")
       .get();
 
-    if (!existingDniQuery.empty) {
+    if (dni && !existingDniQuery.empty) {
       return res.status(409).json({
         error: "Ya existe un usuario registrado con este DNI",
       });
     }
 
-    // Crear nuevo usuario con Google (CON DNI)
+    // Crear nuevo usuario con Google (el DNI es opcional: se pide al emitir el certificado)
     const displayName = name || "";
     const nameParts = displayName.split(" ");
     const nombre = nameParts[0] || "";
@@ -970,7 +974,7 @@ export const googleAuth = async (req: Request, res: Response) => {
       email: googleEmail,
       nombre: nombre,
       apellido: apellido,
-      dni: dni,
+      dni: dni || null,
       photoURL: picture || "",
       provider: "google",
       fechaRegistro: new Date(),
@@ -996,8 +1000,8 @@ export const googleAuth = async (req: Request, res: Response) => {
         nombre: nombre,
         apellido: apellido,
         role: "alumno",
-        dni: dni,
-        needsDni: false,
+        dni: dni || null,
+        needsDni: !dni,
       },
       token: customToken,
     });
@@ -1225,8 +1229,10 @@ export const updateUserDni = async (
       });
     }
 
-    // Validar formato de DNI (ajustar según tu país)
-    if (typeof dni !== "string" || dni.trim().length < 7) {
+    // DNI argentino (7-8 dígitos) o documento/pasaporte de otro país (6-15 letras y números)
+    const dniClean = typeof dni === "string" ? dni.replace(/[\s.-]/g, "") : "";
+    const dniValido = /^\d+$/.test(dniClean) ? /^\d{7,8}$/.test(dniClean) : /^[A-Za-z0-9]{6,15}$/.test(dniClean);
+    if (!dniValido) {
       return res.status(400).json({
         error: "Formato de DNI inválido",
       });
