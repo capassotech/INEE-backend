@@ -1,0 +1,114 @@
+[
+  {
+    "col": "courses",
+    "id": "NN2hfNJlAqdwnvwst1cb",
+    "titulo": "Consultoría en Liderazgo y Organizaciones",
+    "precio": 290990,
+    "precioUSD_antes": null,
+    "precioUSD_nuevo": 299
+  },
+  {
+    "col": "courses",
+    "id": "SBAljY1NdEZmsC5Y538K",
+    "titulo": "Curso ejecutivo: Oratoria Profesional y  Comunicación Estratégica.",
+    "precio": 50000,
+    "precioUSD_antes": null,
+    "precioUSD_nuevo": 59
+  },
+  {
+    "col": "courses",
+    "id": "UYWCfwIKI4LiILWY4lwL",
+    "titulo": "Consultoría en Incubación y Aceleración de Negocios",
+    "precio": 290990,
+    "precioUSD_antes": null,
+    "precioUSD_nuevo": 299
+  },
+  {
+    "col": "courses",
+    "id": "V7CqconqFJzOoBouPR7k",
+    "titulo": "Consultoría en Clima y Bienestar Laboral",
+    "precio": 290990,
+    "precioUSD_antes": null,
+    "precioUSD_nuevo": 299
+  },
+  {
+    "col": "courses",
+    "id": "WbMwwTPxSRorWvBMkCu5",
+    "titulo": "Curso: Liderazgo, Emprendedorismo y Comunicación Laboral",
+    "precio": 60000,
+    "precioUSD_antes": null,
+    "precioUSD_nuevo": 69
+  },
+  {
+    "col": "courses",
+    "id": "Zvq5FIopGzZOcdPO3vqu",
+    "titulo": "Formación Profesional en Consultoría Estratégica y de Negocios",
+    "precio": 372500,
+    "precioUSD_antes": null,
+    "precioUSD_nuevo": 379
+  },
+  {
+    "col": "courses",
+    "id": "hLSrs5vQOxYeNIyt0CyH",
+    "titulo": "Curso: Liderazgo Transformacional y Habilidades Blandas",
+    "precio": 60000,
+    "precioUSD_antes": null,
+    "precioUSD_nuevo": 69
+  },
+  {
+    "col": "courses",
+    "id": "wAawb5ivUBr8XhCZhyFQ",
+    "titulo": "Consultoría en Relaciones Institucionales y Empresariales",
+    "precio": 290990,
+    "precioUSD_antes": null,
+    "precioUSD_nuevo": 299
+  },
+  {
+    "col": "courses",
+    "id": "yorvIjZwIVePriS7oub8",
+    "titulo": "Entrenamiento personal: Programa de Desarrollo de Habilidades Blandas para el Liderazgo",
+    "precio": 60000,
+    "precioUSD_antes": null,
+    "precioUSD_nuevo": 69
+  },
+  {
+    "col": "ebooks",
+    "id": "1r4i3dnvc0EPJoPkGlyf",
+    "titulo": "Oratoria: El arte de comunicar",
+    "precio": 20000,
+    "precioUSD_antes": null,
+    "precioUSD_nuevo": 29
+  },
+  {
+    "col": "ebooks",
+    "id": "33c182jpEclZzZVoPtHv",
+    "titulo": "Más allá del cargo. El poder del liderazgo transformacional y habilidades blandas.",
+    "precio": 20000,
+    "precioUSD_antes": null,
+    "precioUSD_nuevo": 29
+  },
+  {
+    "col": "ebooks",
+    "id": "QKOQG3C8RrZIwoeHhAyr",
+    "titulo": "Estrategias Comerciales y Venta Consultiva",
+    "precio": 20000,
+    "precioUSD_antes": null,
+    "precioUSD_nuevo": 29
+  },
+  {
+    "col": "ebooks",
+    "id": "T7k0jfA2k6XoMNNYnJfp",
+    "titulo": "Analista de Optimización en Motores de Búsqueda (SEO) · Nivel 1",
+    "precio": 20000,
+    "precioUSD_antes": null,
+    "precioUSD_nuevo": 29
+  },
+  {
+    "col": "ebooks",
+    "id": "wKGj6PpMzII9EG2lWyYs",
+    "titulo": "Liderazgo, Emprendedorismo y Comunicación Laboral",
+    "precio": 20000,
+    "precioUSD_antes": null,
+    "precioUSD_nuevo": 29
+  }
+]
